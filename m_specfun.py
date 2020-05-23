@@ -371,13 +371,14 @@ def delete_old_files(file, n, ext='.png'):
     """
     oldfiles = check_files(file, n, ext)
     deleted = 0
+    answer = ''
     if oldfiles:
-        answer = sg.PopupOKCancel(f'delete {oldfiles} existing files {file}?', title='Delete old Files')
+        answer = sg.PopupOKCancel(f'delete {oldfiles} existing files {file}, \nARE YOU SURE?', title='Delete old Files')
         if answer is 'OK':
             for index in range(oldfiles):
                 os.remove(file + str(index + 1) + ext)
             deleted = oldfiles
-    return oldfiles, deleted
+    return oldfiles, deleted, answer
 
 
 # -------------------------------------------------------------------
@@ -625,10 +626,11 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     if the procedure stops early, nim = index - start + 1
     :return:
     index: last processed image
-    sum_image: sum of registered images
+    sum_image: !average! of registered images
     regtext: multiline text of results
     dist: if True, distorted images, else False
     outfile: filename of sum-image, e.g. for sum of 20 added images: out/r_add20
+    fits_dict: updated values of fits-header
     """
     # dx, dy half width of rectangle
     index = start
@@ -710,9 +712,11 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     if nim > 1:
         if index == nim + start - 1:
             outfile = outfil + '_add' + str(nim)
-            ave_image = sum_image / (nim)  # averaging
-            write_fits_image(ave_image, outfile + '.fit', fits_dict, dist=dist)
-    return index, ave_image, regtext, dist, outfile
+            sum_image = sum_image / (nim)  # averaging
+            fits_dict['M_STARTI'] = str(start)
+            fits_dict['M_NIM'] = str(nim)
+            write_fits_image(sum_image, outfile + '.fit', fits_dict, dist=dist)
+    return index, sum_image, regtext, dist, outfile, fits_dict
 
 
 # -------------------------------------------------------------------
@@ -908,7 +912,7 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
     imbw = np.flipud(io.imread('tmp.png'))  # get shape
     (canvasy, canvasx) = imbw.shape[:2]
     print('canvas:', canvasx, canvasy)
-    wlocw = (wloc[0] + 300, wloc[1] + 100)
+    wlocw = (wloc[0] + 300, wloc[1] + 50)
     image_file = 'tmp.png'
     # check for old files
     delete_old_files(outfil, maxim, ext='.fit')
@@ -1337,7 +1341,8 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             window['cursor'].update(f'Lambda:{x:8.2f}  Int:{y:8.2f}')
 
         elif event is 'Save':
-            filename = sg.popup_get_file('Choose filename (PNG) to save to', save_as=True, keep_on_top=True,default_path=llist, default_extension='.png')
+            filename = sg.popup_get_file('Choose filename (PNG) to save to', save_as=True, keep_on_top=True,
+                                         default_path=llist, default_extension='.png', size=(80,1))
             if filename:
                 p = str(Path(filename).with_suffix('.png'))
                 save_element_as_file(window['graph'], p)
@@ -1350,6 +1355,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             try:
                 imin = float(values['imin'])
                 imax = float(values['imax'])
+                iscale = canvas_size[1] / (imax - imin)
                 graph.change_coordinates((lmin - 40 / lscale, imin - 40 / iscale),
                                          (lmax + 10 / lscale, imax + 30 / iscale))
                 draw_spectrum(lcal, ical, lmin, lmax, color='red')
@@ -1472,7 +1478,7 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     lmin, lmax: wavelength range of calibrated spectrum
     caltext: calibration info
     """
-    np.set_printoptions(precision=3, suppress=False)
+    np.set_printoptions(precision=4, suppress=False)
     lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
     print('c Peak =: ', c)
     logging.info(f'polynom for fit lambda c: {c}')
@@ -1481,7 +1487,7 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     res = np.poly1d(c)(xcalib) - lcalib
     rms_x = np.sqrt(np.average(np.square(res)))
     print(f'rms_x = {rms_x:8.4f}')
-    np.set_printoptions(precision=3, suppress=True)
+    # np.set_printoptions(precision=3, suppress=True)
     print('    pixel    lambda    fit      error\n',
           np.transpose(np.array([xcalib, lcalib, lcalib + res, res])))
     logging.info('    pixel     lambda      fit        error')

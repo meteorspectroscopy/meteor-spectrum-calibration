@@ -8,6 +8,7 @@ import time
 import warnings
 from skimage import io  # , img_as_float # needed for reading
 from pathlib import Path
+import os
 import PySimpleGUI as sg
 import m_specfun as m_fun
 
@@ -31,6 +32,21 @@ def main():
             result = False
         return result
 
+    def select_process_folder(outpath):
+        path_window = sg.Window('Selct Process Folder',
+                    [[sg.InputText(outpath, size=(50, 1), key='out'), sg.FolderBrowse('...')],
+                    [sg.Ok(), sg.Cancel()]])
+        while True:
+            ev, vals = path_window.read()
+            if ev == 'Ok':
+                _outpath = vals['out']
+                if _outpath:
+                    path_window.close()
+                    return _outpath
+            elif ev in (None, 'Cancel'):  # always give a way out!
+                path_window.close()
+                return outpath
+
     # start with default inifile, if inifile not found, a default configuration is loaded
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
@@ -48,11 +64,9 @@ def main():
     res_key = list(res_dict.keys())
     res_v = list(res_dict.values())
     fits_dict['VERSION'] = version
-    fits_key = list(fits_dict.keys())
     fits_v = list(fits_dict.values())
     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc, xoff_setup, yoff_setup,
         debug, fit_report, win2ima, opt_comment, outpath, mdist, colorflag] = list(opt_dict.values())
-    wloc = (wlocx, wlocy)
     if par_text == '':
         sg.PopupError(f'no valid configuration found, default {ini_file} created')
 
@@ -96,6 +110,7 @@ def main():
     c = []
     graph_enabled = False
     line_list = 'm_linelist'
+    table_edited = False
 
     # -------------------------------------------------------------------
     # definition of GUI
@@ -103,7 +118,7 @@ def main():
 
     # setup tab---------------------------------------------------------------------
     #     parameter_element = sg.Multiline('partext', size=(40,8), autoscroll=True)
-    result_elem = sg.Multiline(par_text, size=(30, 30), disabled=True, autoscroll=True)
+    result_elem = sg.Multiline(par_text, size=(50, 30), disabled=True, autoscroll=True)
     setup_file_display_elem = sg.InputText('m_set.ini', size=(60, 1), key='-INI_FILE-')
 
     menu_def = [
@@ -123,7 +138,7 @@ def main():
                        sg.Input(res_v[k], size=(45, 1), key=kk)],
     for k in range(7):
         kk = f'k{k + 7}'
-        row_layout += [sg.Text(fits_key[k], size=(10, 1)),
+        row_layout += [sg.Text(list(fits_dict.keys())[k], size=(10, 1)),
                        sg.Input(fits_v[k], size=(45, 1), key=kk)],
 
     # Options
@@ -141,7 +156,6 @@ def main():
     layout_options = sg.Frame('Options', input_rows)
 
     # Parameters
-
     layout_setup = [[sg.Frame('Settings', [[setup_file_element], [result_elem,
                     sg.Frame('Setup Parameters', row_layout), layout_options]])]]
 
@@ -150,17 +164,17 @@ def main():
     filename_display_elem = sg.InputText('', size=(60, 1), key='-VIDEO-')
 
     image_options_element = [[sg.Text('Temporary Image Folder')],
-                             [sg.InputText(pngdir, size=(30, 1), key='-TMP-'),
+                             [sg.InputText(pngdir, size=(38, 1), key='-TMP-'),
                               sg.FolderBrowse('...')], [sg.Text('PNG Image Base:'),
-                              sg.InputText(png_name, size=(18, 1), key='-PNG_BASE-')],
+                              sg.InputText(png_name, size=(25, 1), key='-PNG_BASE-')],
                              [sg.Checkbox('Bob Doubler', default=False, pad=(10, 0), key='-BOB-')],
                              [sg.Checkbox('Bottom Field First', default=True, pad=(10, 0), key='-BFF-')],
                              [sg.Combo([1, 2, 3, 4], key='-BIN-', enable_events=True,
                                        default_value=binning), sg.Text(' Binning')],
                              [sg.Text('Max number of images:'),
                               sg.InputText(str(maxim), size=(8, 1), key='-MAXIM-')],
-                             [sg.Text('_' * 34)], [sg.Text('Results')],
-                             [sg.Multiline('', size=(30, 5), disabled=True,
+                             [sg.Text('_' * 44)], [sg.Text('Results')],
+                             [sg.Multiline('', size=(42, 5), disabled=True,
                                            key='-RESULT-', autoscroll=True)]]
 
     sub_frame_element = sg.Frame('Video File', [[sg.Text('File'),
@@ -173,21 +187,17 @@ def main():
 
     video_options_element = sg.Frame('Options', image_options_element)
 
-    setup_tab_element = sg.Tab('Setup', layout_setup, tooltip='tip', key='-T_SETUP-')
-
-    video_tab_element = sg.Tab('Video conversion', [[sub_frame_element],
-                               [video_options_element, image_element_video]], key='-T_VIDEO-')
 
     # Distortion tab--------------------------------------------------------------------
     dist_elem = sg.Frame('Parameters',
                 [[sg.Text('temporary image folder')],
-                [sg.InputText('tmp', size=(30, 1), key='-TMP_D-', enable_events=True),
+                [sg.InputText('tmp', size=(38, 1), key='-TMP_D-', enable_events=True),
                     sg.FolderBrowse('...')], [sg.Text('PNG Image Base:'),
-                    sg.InputText('m_', size=(18, 1), key='-PNG_BASED-', enable_events=True)],
+                    sg.InputText('m_', size=(26, 1), key='-PNG_BASED-', enable_events=True)],
                 [sg.Text('Process folder')],
-                [sg.InputText(outpath, size=(30, 1), key='-OUT-'), sg.FolderBrowse('...')],
-                [sg.Text('Distorted Image Base:'),
-                    sg.InputText(mdist, size=(14, 1), key='-M_DIST-')],
+                [sg.InputText(outpath, size=(34, 1), key='-OUT-', disabled=True),
+                 sg.Button('Select', key='-SEL_OUT-')], [sg.Text('Distorted Image Base:'),
+                    sg.InputText(mdist, size=(22, 1), key='-M_DIST-')],
                 [sg.Checkbox('Apply distortion', default=True, pad=(10, 0), key='-DIST-')],
                 [sg.Checkbox('Background subtraction', default=True,
                     pad=(10, 0), key='-BACK-')],
@@ -195,69 +205,68 @@ def main():
                     pad=(10, 0), key='-COLOR-')],
                 [sg.Checkbox('Bob Doubler', default=False, pad=(10, 0), key='-BOB_D-')],
                 [sg.Text('Number of background images:'),
-                    sg.InputText(n_back, size=(7, 1), key='-N_BACK-')],
+                    sg.InputText(n_back, size=(15, 1), key='-N_BACK-')],
                 [sg.Text('Index of start image:'),
-                    sg.InputText(first, size=(16, 1), key='-N_START-')],
+                    sg.InputText(first, size=(24, 1), key='-N_START-')],
                 [sg.Text('Number of distorted images:'),
-                    sg.InputText(nm, size=(9, 1), key='-N_IMAGE-')], [sg.Text('_' * 34)],
+                    sg.InputText(nm, size=(17, 1), key='-N_IMAGE-')], [sg.Text('_' * 34)],
                 [sg.Button('Apply Distortion', key='-APPLY_DIST-'),
                     sg.Button('Continue', key='-GOTO_REG-', disabled=True)],
-                [sg.Text('Results')], [sg.Multiline('Result', size=(32, 8),
+                [sg.Text('Results')], [sg.Multiline('Result', size=(42, 8),
                     disabled=True, key='-RESULT2-', autoscroll=True)]])
 
     image_element_distortion = sg.Image(filename='tmp.png', key='-D_IMAGE-')
-    dist_tab_element = sg.Tab('Distortion', [[dist_elem, image_element_distortion]], tooltip='tip', key='-T_DIST-')
 
     # Registration tab--------------------------------------------------------------------
     image_element_registration = sg.Image(filename='tmp.png', key='-R_IMAGE-')
     register_elem = [[sg.Frame('Registration', [
         [sg.Text('Process folder'),
-         sg.InputText(outpath, size=(30, 1), key='-OUT_R-', enable_events=True),
-         sg.FolderBrowse('...'), sg.Button('Previous', key='-PREV_R-'),
+         sg.InputText(outpath, size=(30, 1), key='-OUT_R-', disabled=True),
+         sg.Button('Select', key='-SEL_OUT_R-'), sg.Button('Previous', key='-PREV_R-'),
          sg.Button('Next', key='-NEXT_R-'), sg.Text('Current Image:'),
          sg.InputText(mdist + str(i_reg), size=(20, 1), key='-INDEX_R-', disabled=True),
          sg.Text('Max Images:'),
          sg.InputText(nm, size=(4, 1), key='-N_MAX_R-'),
          sg.Button('Darker', key='-LOW_C-'), sg.Button('Brighter', key='-HIGH_C-')]])],
-                   [sg.Frame('Parameters', [[sg.Text('Distorted Image Base:'),
-                        sg.InputText('mdist', size=(22, 1), key='-M_DIST_R-', enable_events=True)],
-                    [sg.Text('Registered Image Base:'),
-                        sg.InputText(reg_file, size=(20, 1), key='-REG_BASE-')],
-                    [sg.Text('Index of start image:'),
-                        sg.InputText('1', size=(23, 1), key='-N_START_R-')],
-                    [sg.Text('Number of registered images:'),
-                        sg.InputText(nm, size=(16, 1), key='-N_REG-')],
-                    [sg.Text('_' * 42)], [sg.Button('Sel Start', key='-SEL_START-'),
-                        sg.Button('Sel Last', key='-SEL_LAST-')],
-                    [sg.Button('Register', key='-REGISTER-'),
-                        sg.Button('Show Sum', key='-SHOW_SUM_R-', disabled=True),
-                        sg.Checkbox('show registered', default=False, pad=(10, 0),
-                                    key='-SHOW_REG-')],
-                    [sg.InputText('r_add', size=(30, 1), key='-RADD-'),
-                        sg.Button('Load Radd', key='-LOAD_R-')],
-                    [sg.Button('Add Rows', disabled=True, key='-ADD_ROWS-'),
-                        sg.Button('Save raw spectrum', disabled=True, key='-SAVE_RAW-'),
-                        sg.Button('Calibrate', disabled=True, key='-CAL_R-')],
-                    [sg.Text('Results')],
-                    [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT3-',
-                                    autoscroll=True)]]), image_element_registration]]
+           [sg.Frame('Parameters', [[sg.Text('Distorted Image Base:'),
+                sg.InputText('mdist', size=(24, 1), key='-M_DIST_R-', enable_events=True)],
+            [sg.Text('Registered Image Base:'),
+                sg.InputText(reg_file, size=(22, 1), key='-REG_BASE-')],
+            [sg.Text('Index of start image:'),
+                sg.InputText('1', size=(25, 1), key='-N_START_R-')],
+            [sg.Text('Number of registered images:'),
+                sg.InputText(nm, size=(18, 1), key='-N_REG-')],
+            [sg.Text('_' * 44)], [sg.Button('Sel Start', key='-SEL_START-'),
+                sg.Button('Sel Last', key='-SEL_LAST-')],
+            [sg.Button('Register', key='-REGISTER-'),
+                sg.Button('Show Sum', key='-SHOW_SUM_R-', disabled=True),
+                sg.Checkbox('show registered', default=False, pad=(10, 0),
+                            key='-SHOW_REG-')],
+            [sg.InputText('r_add', size=(32, 1), key='-RADD-'),
+                sg.Button('Load Radd', key='-LOAD_R-')],
+            [sg.Button('Add Rows', disabled=True, key='-ADD_ROWS-'),
+                sg.Button('Save raw spectrum', disabled=True, key='-SAVE_RAW-'),
+                sg.Button('Calibrate', disabled=True, key='-CAL_R-')],
+            [sg.Text('Results')],
+            [sg.Multiline('Result', size=(42, 15), disabled=True, key='-RESULT3-',
+                            autoscroll=True)]]), image_element_registration]]
 
     column = [[sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
                         graph_top_right=(1.0, 1.0), background_color='white', key='graph',
                         enable_events=True, drag_submits=True, float_values=True)], ]
 
     plot_elem = [sg.Frame('Plot Spectrum',
-                          [[sg.InputText(cal_dat_file, size=(38, 1), key='-PLOT_SPEC-')],
+                          [[sg.InputText(cal_dat_file, size=(40, 1), key='-PLOT_SPEC-')],
                            [sg.Button('Load Spectrum', key='-LOADS-'),
                             sg.Button('Plot Spectrum', key='-PLOTS-', disabled=True,
                                 button_color=bc_disabled)],
                            [sg.Checkbox('Grid lines', default=True, key='-GRID-'),
                             sg.Checkbox('Auto scale', default=False, key='-AUTO_SCALE-')],
-                           [sg.T('min:'), sg.In('', key='l_min', size=(7, 1)),
-                            sg.T('max lambda:'), sg.In('', key='l_max', size=(7, 1))],
-                           [sg.T('Title    Plot width'), sg.In(plot_w, key='plot_w', size=(6, 1)),
-                            sg.T(' height'), sg.In(plot_h, key='plot_h', size=(6, 1))],
-                           [sg.Combo('', size=(35, 1), key='-PLOT_TITLE-')]], )]
+                           [sg.T('lambda min:'), sg.In('', key='l_min', size=(8, 1)),
+                            sg.T('max:'), sg.In('', key='l_max', size=(8, 1))],
+                           [sg.T('Title    Plot width'), sg.In(plot_w, key='plot_w', size=(7, 1)),
+                            sg.T(' height'), sg.In(plot_h, key='plot_h', size=(7, 1))],
+                           [sg.Combo('', size=(38, 1), key='-PLOT_TITLE-')]], )]
 
     calibrate_elem = [[sg.Frame('Calibration', [
         [sg.Text('Process folder'),
@@ -279,16 +288,19 @@ def main():
         [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT4-', autoscroll=True)]]),
                    sg.Frame('Raw spectrum', column, key='-COLUMN-')]]
 
+    # ==============================================================================
+    # Tabs and window
+    setup_tab_element = sg.Tab('Setup', layout_setup, tooltip='tip', key='-T_SETUP-')
+    video_tab_element = sg.Tab('Video conversion', [[sub_frame_element],
+                               [video_options_element, image_element_video]], key='-T_VIDEO-')
+    dist_tab_element = sg.Tab('Distortion', [[dist_elem, image_element_distortion]], tooltip='tip', key='-T_DIST-')
     reg_tab_element = sg.Tab('Registration', register_elem, tooltip='tip', key='-T_REG-')
-
     cal_tab_element = sg.Tab('Calibration', calibrate_elem, tooltip='tip', key='-T_CAL-')
-
     tabs_element = sg.TabGroup([[setup_tab_element], [video_tab_element],
                             [dist_tab_element], [reg_tab_element], [cal_tab_element]],
                              enable_events=True)
-
     window = sg.Window('M_SPEC, Version: ' + version, [[sg.Menu(menu_def, tearoff=True)],
-                        [tabs_element]], location=wloc, size=(wsx, wsy), resizable=True)
+                        [tabs_element]], location=(wlocx, wlocy), size=(wsx, wsy), resizable=True)
 
     # ==============================================================================
     # Main loop
@@ -398,66 +410,69 @@ def main():
                 binning = int(values['-BIN-'])
                 bff = values['-BFF-']
                 # check previous PNG images
-                m_fun.delete_old_files(pngdir + '/' + png_name, maxim)
-                nim, dat_tim, sta, out = m_fun.extract_video_images(avifile, pngdir, png_name,
-                    bob_doubler, binning, bff, int(values['-MAXIM-']))
-                if nim:
-                    window['-PREVIOUS-'].update(disabled=False)
-                    window['-NEXT-'].update(disabled=False)
-                    window['-GOTO_DIST-'].update(disabled=False, button_color=bc_enabled)
-                fits_dict['DATE-OBS'] = dat_tim
-                fits_dict['M_STATIO'] = sta
-                fits_v = list(fits_dict.values())
-                for k in range(7):
-                    kk = f'k{k + 7}'
-                    window[kk].Update(fits_v[k])
-                if nim:
-                    wsx = opt_dict['win_width']
-                    wsy = opt_dict['win_height']
-                    setup_tab_element.set_size(size=(wsx - 40, wsy - 40))  # works
-                    image = m_fun.get_png_image(out + '1.png', colorflag=True)
-                    im_scale = m_fun.set_image_scale(image, opt_dict)
-                    m_fun.show_image_array(image, im_scale, window['-V_IMAGE-'])
-                    m_fun.show_image_array(image, im_scale, window['-D_IMAGE-'])
-                    # add avifile to video_list
-                    video_list = m_fun.read_video_list('videolist.txt')
-                    video_name = Path(avifile).with_suffix('').name
-                    # for UFO Capture videos, replace M by S:
-                    if video_name[0] == 'M':
-                        video_name = 'S' + video_name[1:]
-                    for v in video_list:
-                        if v in (video_name, ' '):
-                            video_list.remove(v)
-                    if len(video_list) >= video_list_length:
-                        del video_list[-1:]
-                    video_list.insert(0, video_name)
-                    with open('videolist.txt', 'w') as f:
+                oldfiles, deleted, answer = m_fun.delete_old_files(pngdir + '/' + png_name, maxim)
+                if answer != 'Cancel':
+                    nim, dat_tim, sta, out = m_fun.extract_video_images(avifile, pngdir, png_name,
+                        bob_doubler, binning, bff, int(values['-MAXIM-']))
+                    if nim:
+                        window['-PREVIOUS-'].update(disabled=False)
+                        window['-NEXT-'].update(disabled=False)
+                        window['-GOTO_DIST-'].update(disabled=False, button_color=bc_enabled)
+                    fits_dict['DATE-OBS'] = dat_tim
+                    fits_dict['M_STATIO'] = sta
+                    fits_v = list(fits_dict.values())
+                    for k in range(7):
+                        kk = f'k{k + 7}'
+                        window[kk].Update(fits_v[k])
+                    if nim:
+                        wsx = opt_dict['win_width']
+                        wsy = opt_dict['win_height']
+                        setup_tab_element.set_size(size=(wsx - 40, wsy - 40))  # works
+                        image = m_fun.get_png_image(out + '1.png', colorflag=True)
+                        im_scale = m_fun.set_image_scale(image, opt_dict)
+                        m_fun.show_image_array(image, im_scale, window['-V_IMAGE-'])
+                        m_fun.show_image_array(image, im_scale, window['-D_IMAGE-'])
+                        # add avifile to video_list
+                        video_list = m_fun.read_video_list('videolist.txt')
+                        video_name = Path(avifile).with_suffix('').name
+                        # for UFO Capture videos, replace M by S:
+                        if video_name[0] == 'M':
+                            video_name = 'S' + video_name[1:]
                         for v in video_list:
-                            print(v, file=f)
-                logging.info(f'converted {avifile} {nim} images')
-                logging.info(f'Station = {sta} Time = {dat_tim}')
-                result_text = f'Station = {sta}\nTime = {dat_tim}\n'
-                result_text += opt_comment + f'\nNumber converted images = {str(nim)}\n'
-                result_text += f'Image Scale = {im_scale:6.3f}\n'
-                window['-RESULT-'].update(result_text)
-                window['-RESULT2-'].update(result_text)
-                window['-TMP_D-'].update(pngdir)
-                window['-PNG_BASED-'].update(png_name)
-                window['-BOB_D-'].update(bob_doubler)
-                if bob_doubler:
-                    i = 50  # jump to 1st image after background
-                    n_back = 40
-                    first = 50
+                            if v in (video_name, ' '):
+                                video_list.remove(v)
+                        if len(video_list) >= video_list_length:
+                            del video_list[-1:]
+                        video_list.insert(0, video_name)
+                        with open('videolist.txt', 'w') as f:
+                            for v in video_list:
+                                print(v, file=f)
+                    logging.info(f'converted {avifile} {nim} images')
+                    logging.info(f'Station = {sta} Time = {dat_tim}')
+                    result_text = f'Station = {sta}\nTime = {dat_tim}\n'
+                    result_text += opt_comment + f'\nNumber converted images = {str(nim)}\n'
+                    result_text += f'Image Scale = {im_scale:6.3f}\n'
+                    window['-RESULT2-'].update(result_text)
+                    window['-TMP_D-'].update(pngdir)
+                    window['-PNG_BASED-'].update(png_name)
+                    window['-BOB_D-'].update(bob_doubler)
+                    if bob_doubler:
+                        i = 50  # jump to 1st image after background
+                        n_back = 40
+                        first = 50
+                    else:
+                        i = 25
+                        n_back = 20
+                        first = 25
+                    nm = nim - first + 1
+                    window['-N_BACK-'].update(value=str(n_back))
+                    window['-N_START-'].update(value=str(first))
+                    if nm < 1:
+                        nm = 0
+                    window['-N_IMAGE-'].update(value=str(nm))
                 else:
-                    i = 25
-                    n_back = 20
-                    first = 25
-                nm = nim - first + 1
-                window['-N_BACK-'].update(value=str(n_back))
-                window['-N_START-'].update(value=str(first))
-                if nm < 1:
-                    nm = 0
-                window['-N_IMAGE-'].update(value=str(nm))
+                    result_text = 'no video converted'
+                window['-RESULT-'].update(result_text)
 
         elif event in ('-NEXT-', '-PREVIOUS-'):
             if 1 < i < nim:
@@ -486,11 +501,16 @@ def main():
             print('inpath, nm, nmfound', inpath, nm, nmfound)
             window['-N_IMAGE-'].update(nm)
 
+        elif event in ('-SEL_OUT-', '-SEL_OUT_R-'):
+            outpath = select_process_folder(outpath)
+            window['-OUT-'].update(outpath)
+            window['-OUT_C-'].update(outpath)
+            window['-OUT_R-'].update(outpath)
+
         elif event is '-APPLY_DIST-':
             window['-GOTO_REG-'].update(disabled=False, button_color=bc_disabled)
             pngdir = values['-TMP_D-']
             png_name = values['-PNG_BASED-']
-            outpath = values['-OUT-']
             mdist = values['-M_DIST-']
             dist = values['-DIST-']
             background = values['-BACK-']
@@ -520,64 +540,67 @@ def main():
                 # ---------------------------------------------------------------
                 # check previous images mdist
                 distfile = outpath + '/' + mdist
-                oldfiles, deleted = m_fun.delete_old_files(distfile, maxim, ext='.fit')
+                oldfiles, deleted, answer = m_fun.delete_old_files(distfile, maxim, ext='.fit')
                 disttext = f' {deleted} files deleted of {oldfiles}\n' \
                            f'start background image\nwait for background image\n'
-                window['-RESULT2-'].update(disttext)
-                window.refresh()  # ---------------------------------------------------------------
-                # make background image
-                inpath = pngdir + '/' + png_name
-                t0 = time.time()  # start timer
-                back = m_fun.create_background_image(inpath, n_back, colorflag)
-                # save background image as png and fit
-                # remove unnecessary fits header items before saving fits-images
-                try:
-                    del fits_dict['M_NIM']
-                    del fits_dict['M_STARTI']
-                except KeyError:
-                    print('M_STARTI not in fits_dict')
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    io.imsave(outpath + '/m_back.png', np.flipud(back * 255).astype(np.uint8))
-                if debug:
-                    print("process time background %8.2f sec" % (time.time() - t0))
-                m_fun.write_fits_image(back, outpath + '/m_back.fit', fits_dict)
-                disttext += f'background created of {n_back} images\n'
-                disttext += f'process time background {time.time() - t0:8.2f} sec\n'
+                # ---------------------------------------------------------------
+                if answer is not 'Cancel':
+
+                    # make background image
+                    inpath = pngdir + '/' + png_name
+                    t0 = time.time()  # start timer
+                    back = m_fun.create_background_image(inpath, n_back, colorflag)
+                    # save background image as png and fit
+                    # remove unnecessary fits header items before saving fits-images
+                    try:
+                        del fits_dict['M_NIM']
+                        del fits_dict['M_STARTI']
+                    except KeyError:
+                        print('M_STARTI not in fits_dict')
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        io.imsave(outpath + '/m_back.png', np.flipud(back * 255).astype(np.uint8))
+                    if debug:
+                        print("process time background %8.2f sec" % (time.time() - t0))
+                    m_fun.write_fits_image(back, outpath + '/m_back.fit', fits_dict)
+                    disttext += f'background created of {n_back} images\n'
+                    disttext += f'process time background {time.time() - t0:8.2f} sec\n'
+                    window['-RESULT2-'].update(disttext)
+                    window.refresh()
+                    # apply distortion
+                    if dist:  # with distortion, add parameters to fits-header
+                        for key in res_dict.keys():
+                            fkey = 'D_' + key.upper()
+                            fits_dict[fkey] = np.float32(res_dict[key])
+                            if key[0] == 'a':
+                                logging.info(f'{key} = {res_dict[key]:9.3e}')
+                            else:
+                                logging.info(f'{key} = {res_dict[key]:9.3f}')
+                    print('wait for processing')
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
+                                                                                             outpath + '/m_back', outpath, mdist, first, nm, window, dist,
+                                                                                             background, (x00, y00), a3, a5, rot, scalxy, colorflag, fits_dict=fits_dict)
+                    m_fun.show_image_array(peak_image, im_scale, window['-D_IMAGE-'])
+                    print(nmp, ' images processed of ', nm)
+                    logging.info(f'{nmp} images processed of {nm}')
+                    t2 = time.time() - t0
+                    if dist:
+                        print(f'process time background, dark and dist {t2:8.2f} sec')
+                    else:
+                        print(f'process time background, dark {t2:8.2f} sec')
+                    #     disttext += f'M{dat_tim}_{sta}\nprocess time background, dark {t2:8.2f} sec'
+                    window['-RESULT2-'].update(result_text + disttext)
+                    window['-GOTO_REG-'].update(disabled=False, button_color=bc_enabled)
+                    last_file_sum = False
+                else:
+                    disttext = 'no files deleted'
                 window['-RESULT2-'].update(disttext)
                 window.refresh()
-                # apply distortion
-                if dist:  # with distortion, add parameters to fits-header
-                    for key in res_dict.keys():
-                        fkey = 'D_' + key.upper()
-                        fits_dict[fkey] = np.float32(res_dict[key])
-                        if key[0] == 'a':
-                            logging.info(f'{key} = {res_dict[key]:9.3e}')
-                        else:
-                            logging.info(f'{key} = {res_dict[key]:9.3f}')
-                print('wait for processing')
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
-                                                                                         outpath + '/m_back', outpath, mdist, first, nm, window, dist,
-                                                                                         background, (x00, y00), a3, a5, rot, scalxy, colorflag, fits_dict=fits_dict)
-                m_fun.show_image_array(peak_image, im_scale, window['-D_IMAGE-'])
-                print(nmp, ' images processed of ', nm)
-                logging.info(f'{nmp} images processed of {nm}')
-                t2 = time.time() - t0
-                if dist:
-                    print(f'process time background, dark and dist {t2:8.2f} sec')
-                else:
-                    print(f'process time background, dark {t2:8.2f} sec')
-                #     disttext += f'M{dat_tim}_{sta}\nprocess time background, dark {t2:8.2f} sec'
-                window['-RESULT2-'].update(result_text + disttext)
-                window['-GOTO_REG-'].update(disabled=False, button_color=bc_enabled)
-            last_file_sum = False
 
         if event is '-GOTO_REG-':
             window['-T_REG-'].select()  # works
-            window['-OUT_R-'].update(outpath)
-            window['-OUT_C-'].update(outpath)
             window['-M_DIST_R-'].update(mdist)
             window['-N_MAX_R-'].update(nmp)
             window['-R_IMAGE-'].update(filename='tmp.png')
@@ -586,17 +609,14 @@ def main():
         # ==============================================================================
         # Registration Tab
         # ==============================================================================
-        elif event in ('-OUT_R-', '-M_DIST_R-'):
-            outpath = values['-OUT_R-']
+        elif event is '-M_DIST_R-':
             mdist = values['-M_DIST_R-']
             infile = outpath + '/' + mdist
             nmfound = m_fun.check_files(infile, maxim, ext='.fit')
             window['-N_MAX_R-'].update(nmfound)
-            window['-OUT_C-'].update(outpath)
 
         # image browser---------------------------------------------------------
         elif event in ('-NEXT_R-', '-PREV_R-'):
-            outpath = values['-OUT_R-']
             mdist = values['-M_DIST_R-']
             reg_file = values['-REG_BASE-']
             infile = outpath + '/' + mdist
@@ -637,9 +657,9 @@ def main():
 
         # image contrast--------------------------------------------------------
         elif event in ('-LOW_C-', '-HIGH_C-'):
-            outpath = values['-OUT_R-']
             mdist = values['-M_DIST_R-']
-            infile = outpath + '/' + mdist
+            # infile = outpath + '/' + mdist
+            infile = os.path.join(outpath, mdist)
             if event is '-LOW_C-':
                 contrast = 0.5 * contrast
             else:
@@ -670,21 +690,24 @@ def main():
 
         if event is '-GOTO_CAL-':
             window['-T_CAL-'].select()  # works
-
+            window['-CALI-'].update(disabled=True, button_color=bc_disabled)
+            window['-SHOW_REG-'].update(False)
         # ==============================================================================
         # Registration Tab
         # ==============================================================================
         elif event is '-REGISTER-':
             window['-SHOW_SUM_R-'].update(disabled=True, button_color=bc_disabled)
+            window['-CAL_R-'].update(disabled=True, button_color=bc_disabled)
             window['-SHOW_REG-'].update(False)
-            outpath = values['-OUT_R-']
             mdist = values['-M_DIST_R-']
-            infile = outpath + '/' + mdist
+            # infile = outpath + '/' + mdist
+            infile = os.path.join(outpath, mdist)
             reg_file = values['-REG_BASE-']
             start = int(values['-N_START_R-'])
             nim = int(values['-N_REG-'])
             nmp = int(values['-N_MAX_R-'])
-            out_fil = outpath + '/' + reg_file
+            # out_fil = outpath + '/' + reg_file
+            out_fil = os.path.join(outpath, reg_file)
             m_fun.show_fits_image(infile + str(start), im_scale, window['-R_IMAGE-'], contrast)
             im, header = m_fun.get_fits_image(infile + str(start))
             if not sta:
@@ -693,27 +716,25 @@ def main():
             # ===================================================================
             # select rectangle for registration
             select_event, x0, y0, dx, dy = m_fun.select_rectangle(infile, start, par_dict,
-                                                                  res_dict, fits_dict, wloc, out_fil, maxim)
+                                                                  res_dict, fits_dict, (wlocx, wlocy), out_fil, maxim)
             if select_event == 'Ok':
                 nsel = start + nim - 1  # nsel index of last selected image, nim number of images
                 if nsel > nmp:
                     nim = max(nmp - start + 1, 0)
                     window['-N_REG-'].update(nim)
                 t0 = time.time()
-                index, sum_image, reg_text, dist, outfile = m_fun.register_images(start, nim, x0,
+                index, sum_image, reg_text, dist, outfile, fits_dict = m_fun.register_images(start, nim, x0,
                                                                                   y0, dx, dy, infile, out_fil, window, fits_dict=fits_dict)
                 t3 = time.time() - t0
                 nim = index - start + 1
                 if nim > 1:
-                    print(f'time for register_images one image : {t3 / nim:6.2f} sec')
-                    logging.info(f'time for register_images one image : {t3 / nim:6.2f} sec')
+                    print(f'time for register one image : {t3 / nim:6.2f} sec')
+                    logging.info(f'time for register one image : {t3 / nim:6.2f} sec')
                     result_text = (f'Station = {sta}\nTime = {dat_tim}\n'
                                + opt_comment + f'\nStart image = {str(start)}\n'
                                + f'Number registered images: {nim}\nof total images: {nmp}\n'
-                               + f'time for register_images one image: {t3 / nim:6.2f} sec\n'
+                               + f'time for register one image: {t3 / nim:6.2f} sec\n'
                                + 'Image Scale = ' + str('%6.3f' % im_scale) + '\n')
-                    fits_dict['M_STARTI'] = str(start)
-                    fits_dict['M_NIM'] = str(nim)
                     m_fun.show_fits_image(outfile, im_scale, window['-R_IMAGE-'])
                     window['-SHOW_REG-'].update(True)
                     window['-RADD-'].update(outfile)
@@ -722,8 +743,8 @@ def main():
                 else:
                     result_text = (f'Number registered images: {nim}\n'
                                + f'of total images: {nmp}\nnot enough images\n')
-                    sg.PopupError(f'register_images did not work with last image, try again!')
-                    logging.info(f'register_images did not work with last image, try again!')
+                    sg.PopupError(f'register did not work with last image, try again!')
+                    logging.info(f'register did not work with last image, try again!')
                 window['-RESULT3-'].update(reg_text + result_text)
 
         # =======================================================================
@@ -732,7 +753,7 @@ def main():
             if outfile:
                 m_fun.show_fits_image(outfile, im_scale, window['-R_IMAGE-'], contrast)
                 event, tilt, slant = m_fun.add_rows_apply_tilt_slant(outfile, par_dict,
-                                                                     res_dict, fits_dict, im_scale, contrast, wloc, result_text, reg_text, window)
+                    res_dict, fits_dict, im_scale, contrast, (wlocx, wlocy), result_text, reg_text, window)
                 m_fun.show_fits_image(outfile + 'st', im_scale, window['-R_IMAGE-'], contrast)
 
         # =======================================================================
@@ -789,8 +810,8 @@ def main():
             # update fits_dict
             m_fun.get_fits_keys(header, fits_dict, res_dict, keyprint=debug)
             new_outfile = sg.PopupGetFile('Save image and raw spectrum as',
-                                          no_window=True, save_as=True, file_types=(('Spectrum Files', '*.dat'),
-                                                                                    ('ALL Files', '*.*')))
+                          no_window=True, save_as=True, file_types=(('Spectrum Files', '*.dat'),
+                                                                    ('ALL Files', '*.*')))
             if new_outfile:
                 outfile = str(Path(new_outfile).with_suffix(''))
                 window['-RADD-'].update(outfile)
@@ -801,7 +822,7 @@ def main():
                 window['-RESULT3-'].update(reg_text + result_text)
 
         # =======================================================================
-
+        # load uncalibrated raw spectrum
         elif event in ('-LOAD_RAW-', '-CAL_R-'):
             if event is '-CAL_R-':
                 # start calibration
@@ -818,11 +839,11 @@ def main():
                 m_fun.create_line_list_combo(line_list, window)
                 result_text += f'File {raw_spec_file} loaded\n'
                 graph = window['graph']
-                # ==============================================================================
                 # plot raw spectrum
                 lmin, lmax, i_min, i_max, lcal, ical = m_fun.plot_raw_spectrum(raw_spec_file, graph, canvasx)
                 window['-S_LINES-'].update(disabled=False, button_color=bc_enabled)
                 window['-LOAD_TABLE-'].update(disabled=False, button_color=bc_enabled)
+                llist =str(Path(raw_spec_file).with_suffix('.txt'))
                 graph_enabled = True
                 if lmin not in (0.0, 1.0):
                     sg.PopupError('raw files only, load uncalibrated file or Load Spectrum',
@@ -833,6 +854,7 @@ def main():
         elif event is '-S_LINES-':
             table = []
             select_line_enabled = True
+            table_edited = False
             dragging = False
             start_point = end_point = prior_rect = None
             cal_text_file = ' Pixel    width  lambda    fit    delta\n'
@@ -862,6 +884,8 @@ def main():
                 start_point, end_point = None, None  # enable grabbing a new rect
                 dragging = False
 
+        # ==============================================================================
+        # select single calibration line
         elif event is '-S_LINE-':
             # set focus? to lambda if wavelength entered ok
             window['-S_LINE-'].update(disabled=True, button_color=bc_disabled)
@@ -870,19 +894,29 @@ def main():
             lam = float(l0)
             print(f'x0, lambda, w:  {x0:8.2f} {lam} {w:6.2f}  {name}')
             x0, fwp, cal_text_file = m_fun.select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, cal_text_file)
-            window['-RESULT4-'].update(result_text + cal_text_file)
+            window['-RESULT4-'].update(result_text + cal_text_file, disabled=True)
 
+        # ==============================================================================
+        # select calibration wavelength from list
         elif event is '-LAMBDA-':
             window['-S_LINE-'].update(disabled=False, button_color=bc_enabled)
 
         # ==============================================================================
         # save calibrated spectrum
         elif event is '-SAVE_T-':
-            if table and raw_spec_file:
+            if table_edited:
+                # table in result window has been edited, save new values
+                result_text = values['-RESULT4-']
+                with open(llist, 'w') as f:
+                    f.write(result_text)
+                ev = sg.PopupOKCancel(f'table saved as {llist}')
+                if ev in 'OK':
+                    xcalib, lcalib = np.loadtxt(llist, unpack=True, ndmin=2)
+            elif table and raw_spec_file:
                 llist = str(Path(raw_spec_file).with_suffix('.txt'))
-                f = open(llist, 'w+')
-                np.savetxt(f, table, fmt='%8.2f', header='    x     lambda')
-                f.close()
+                with open(llist, 'w+') as f:
+                    np.savetxt(f, table, fmt='%8.2f', header='    x     lambda')
+                # f.close()
                 xcalib, lcalib = np.loadtxt(llist, unpack=True, ndmin=2)
                 print(f'table \n {table} \nsaved as {outfile}.txt, \n'
                       f'edit if necessary before proceeding with calibration')
@@ -892,14 +926,22 @@ def main():
             else:
                 sg.PopupError('no table to save, select lines first')
 
+        # ==============================================================================
+        # load table, enable editing table
         elif event is '-LOAD_TABLE-':
             llist = sg.PopupGetFile('Load calibration table',
                                     no_window=True, save_as=False,
-                                    file_types=(('Calibration Files', '*.txt'), ('ALL Files', '*.*'),))
+                                    file_types=(('Calibration Files', '*.txt'), ('ALL Files', '*.*'),),
+                                    default_path=llist)
             if llist:
                 window['-CALI-'].update(disabled=False, button_color=bc_enabled)
                 llist = str(Path(llist).with_suffix('.txt'))
                 xcalib, lcalib = np.loadtxt(llist, unpack=True, ndmin=2)
+                # table is displayed in result window and made editable
+                with open(llist, 'r') as f:
+                    result_text = f.read()
+                window['-RESULT4-'].update(result_text, disabled=False)
+                table_edited = True
 
         # ==============================================================================
         # calculate calibration polynom, calibrate aw spectrum
@@ -920,7 +962,7 @@ def main():
             if len(c):
                 cal_dat_file, spec_file, lmin, lmax, cal_text_file = m_fun.calibrate_raw_spectrum(raw_spec_file, xcalib, lcalib, deg, c)
                 logging.info(f'spectrum {spec_file} saved')
-                window['-RESULT4-'].update(result_text + cal_text_file)
+                window['-RESULT4-'].update(result_text + cal_text_file, disabled=True)
                 window['-PLOT_SPEC-'].update(cal_dat_file)
                 window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
                 window['l_min'].update(str(int(lmin)))
@@ -930,6 +972,8 @@ def main():
                 video_list.insert(0, ' ')
                 window['-PLOT_TITLE-'].update(values=video_list)
 
+        # ==============================================================================
+        # load (un)calibrated spectrum
         if event is '-LOADS-':
             window['-S_LINES-'].update(disabled=True, button_color=bc_disabled)
             spec_file = sg.PopupGetFile('Load spectrum',
@@ -952,6 +996,8 @@ def main():
                 cal_text_file += f'spectrum {spec_file} loaded\n'
                 window['-RESULT4-'].update(result_text + cal_text_file)
 
+        # ==============================================================================
+        # plot spectrum
         if event is '-PLOTS-' and spec_file:
             # print(event)
             window['-PLOTS-'].update(disabled=True, button_color=bc_disabled)
@@ -966,8 +1012,8 @@ def main():
                 sg.PopupError('bad value for plot range, try again', title='Plot Graph')
             plot_title = values['-PLOT_TITLE-']
             plotfile, i_min, i_max = m_fun.graph_calibrated_spectrum(spec_file, lmin=lmin, lmax=lmax,
-                                                                     imin=i_min, imax=i_max, autoscale=autoscale, gridlines=gridlines,
-                                                                     canvas_size=(plot_w, plot_h), plot_title=plot_title)
+                                     imin=i_min, imax=i_max, autoscale=autoscale, gridlines=gridlines,
+                                     canvas_size=(plot_w, plot_h), plot_title=plot_title)
             window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
             if plotfile:
                 cal_text_file += f'spectrum saved as {plotfile}\n'
@@ -975,16 +1021,13 @@ def main():
             window['-RESULT4-'].update(result_text + cal_text_file)
 
         # other stuff, open issues ---------------------------------------------
-
         else:
             (wlocx, wlocy) = window.current_location()
             opt_dict['win_x'] = wlocx
             opt_dict['win_y'] = wlocy
-
             # check change of tabs
             # print(event, tabs_element.get())
             if tabs_element.get() is '-T_REG-':
-                window['-OUT_R-'].update(outpath)
                 window['-M_DIST_R-'].update(mdist)
                 window['-N_REG-'].update(nim)
                 window['-N_MAX_R-'].update(nmp)
@@ -998,7 +1041,7 @@ def main():
             # print('size = ',image_element_video.get_size(), setup_tab_element.get_size(),
             # window.Size) #works only first time
     window.close()
-
+    # end of main()
 
 if __name__ == '__main__':
     main()
