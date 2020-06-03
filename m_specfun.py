@@ -1,17 +1,16 @@
 # -------------------------------------------------------------------
 # m_specfun functions for m_spec
+# Author: Martin Dubs, 2020
 # -------------------------------------------------------------------
 import configparser
-# -------------------------------------------------------------------
-# logging
 import logging
 import platform
 import subprocess
 import warnings
 import os
+import os.path as path
 import time
 from datetime import datetime, date
-from pathlib import Path
 import numpy as np
 from astropy.io import fits
 from astropy.time import Time
@@ -21,8 +20,11 @@ from skimage import io, img_as_float
 from skimage import transform as tf
 import PySimpleGUI as sg
 from PIL import ImageGrab
+import ctypes
 
-version = '0.9.17'
+ctypes.windll.user32.SetProcessDPIAware()   # Set unit of GUI to pixels
+
+version = '0.9.18'
 today = date.today()
 logfile = 'm_spec' + today.strftime("%y%m%d") + '.log'
 # turn off other loggers
@@ -34,7 +36,6 @@ logging.basicConfig(filename=logfile, format='%(asctime)s %(message)s', level=lo
 parv = ['1' for x in range(10)]+['' for x in range(10,15)]
 parkey = ['f_lam0', 'f_scalxy', 'b_fitxy', 'i_imx', 'i_imy', 'f_f0', 'f_pix', 'f_grat', 'f_rotdeg', 'i_binning',
           's_comment', 's_infile', 's_outfil', 's_linelist', 'b_sqrt']
-# parzip = zip(parkey, parv)
 par_dict = dict(list(zip(parkey, parv)))
 
 resv = [0.0 for x in range(7)]
@@ -85,7 +86,7 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
      # from readconf in m_config3.py
     """
     partext = ''
-    if Path(conf).exists():
+    if path.exists(conf):
         config = configparser.ConfigParser()
         config.read(conf)
         for section in config.sections():
@@ -246,7 +247,8 @@ def extract_video_images(avifile, pngdir, pngname, bobdoubler, binning, bff, max
      """
     # extract dattim and station from filename (for files from UFO capture)
     def tfits(p):
-        f = Path(p).name
+        # f = Path(p).name
+        f, ext = path.splitext(path.basename(p))
         t = Time(datetime(int(f[1:5]), int(f[5:7]), int(f[7:9]), int(f[10:12]), int(f[12:14]), int(f[14:16]))).fits
         sta = f[17:22]
         return t, sta
@@ -260,15 +262,14 @@ def extract_video_images(avifile, pngdir, pngname, bobdoubler, binning, bff, max
         cshell = True
     # print('Platform: ', sys)
     logging.info(f'Platorm: {sys}')
-    p = Path(pngdir)
-    out = pngdir + '\\' + pngname
+    out = path.join(pngdir, pngname)
     nim = 0
     dattim = ''
     sta = ''
     if avifile:
-        # filename for png images
-        if not p.exists():
-            Path.mkdir(p, exist_ok=True)
+        # path name for png images
+        if not path.exists(pngdir):
+            os.mkdir(pngdir)
         try:
             if bobdoubler:
                 # read bottom and top fields
@@ -285,13 +286,13 @@ def extract_video_images(avifile, pngdir, pngname, bobdoubler, binning, bff, max
                         n += 1
                         nfr += 1
                         if bff:
-                            Path(f'{pngdir}/bot' + str(nfr) + '.png').rename(Path(out + str(n) + '.png'))
+                            os.rename(f'{pngdir}/bot' + str(nfr) + '.png', out + str(n) + '.png')
                             n += 1
-                            Path(f'{pngdir}/top' + str(nfr) + '.png').rename(Path(out + str(n) + '.png'))
+                            os.rename(f'{pngdir}/top' + str(nfr) + '.png', out + str(n) + '.png')
                         else:
-                            Path(f'{pngdir}/top' + str(nfr) + '.png').rename(Path(out + str(n) + '.png'))
+                            os.rename(f'{pngdir}/top' + str(nfr) + '.png', out + str(n) + '.png')
                             n += 1
-                            Path(f'{pngdir}/bot' + str(nfr) + '.png').rename(Path(out + str(n) + '.png'))
+                            os.rename(f'{pngdir}/bot' + str(nfr) + '.png', out + str(n) + '.png')
                     except:
                         end = True
                 nim = n - 1
@@ -301,14 +302,12 @@ def extract_video_images(avifile, pngdir, pngname, bobdoubler, binning, bff, max
                 command = f"ffmpeg -i {avifile} -frames {maxim} -vf scale=iw/{binning}:-1  {out}%d.png -loglevel quiet"
                 subprocess.call(command, shell=cshell)
                 nim = check_files(out, maxim)
-                # for child in p.iterdir(): nim += 1
 
             else:
                 # regular processing of frames
                 command = f"ffmpeg -i {avifile} -frames {maxim} {out}%d.png -loglevel quiet"
                 subprocess.call(command, shell=cshell)
                 nim = check_files(out, maxim)
-                # for child in p.iterdir(): nim += 1
 
             print(f'last file written: {out}' + str(nim) + '.png')
             # get dattim from filename
@@ -349,7 +348,7 @@ def check_files(file, n, ext='.png'):
     filelist = create_file_list(file, n, ext=ext)
     index = 0
     for i in range(len(filelist)):
-        if Path(file + str(i + 1) + ext).exists():
+        if path.exists(file + str(i + 1) + ext):
             index = i + 1
         else:
             index = i
@@ -553,7 +552,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
     t1 = time.time()
     fullmdist = outpath + '/' + mdist
     for image in image_list:
-        if Path(image).exists():
+        if path.exists(image):
             a += 1  # create output filename suffix
             fileout = fullmdist + str(a)
             idist = get_png_image(image, colorflag)
@@ -576,7 +575,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             write_fits_image(idist, fileout + '.fit', fits_dict, dist=dist)
             # create sum and peak image
             imsum = imsum + idist
-            file = str(Path(fileout + '.fit').name)
+            file = path.basename(fileout + '.fit')
             impeak = np.maximum(impeak, idist)
             disttext = f'{file} of {nm} done\n'
             window['-RESULT2-'].update(value=disttext, append=True)
@@ -587,7 +586,6 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
     nmp = a
     print(nmp, ' images processed of ', nm)
     logging.info(f'{nmp} images processed of {nm}')
-    # t2 = time.time() - t0
     tdist = (time.time() - t1) / nmp
     disttext = f'{nmp} images processed of {nm}\n'
     if dist:
@@ -701,7 +699,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
         index += -1
     except:
         # Exception, delete last image with error
-        if Path(outfil + str(index - start + 1) + '.fit').exists():            
+        if path.exists(outfil + str(index - start + 1) + '.fit'):
             os.remove(outfil + str(index - start + 1) + '.fit')
         index += -1
         info = f'problem with register_images, last image: {image_file}, number of images: {index}'
@@ -792,13 +790,14 @@ def get_fits_keys(header, fits_dict, res_dict, keyprint=True):
 def get_fits_image(fimage):
     """
     reads fits image data and header
-    fimage: filename without extension
+    fimage: filename with or without extension
     converts 32-bit floating values and 16-bit data to Python compatible values
     reads also color images and transposes matrix to correct order 
     (normalizes images to +/- 1 range)
     returns: image as np array, header
     """
-    im, header = fits.getdata(fimage + '.fit', header=True)
+    fimage = change_extension(fimage, '.fit')
+    im, header = fits.getdata(fimage, header=True)
     if int(header['BITPIX']) == -32:
         im = np.array(im) / 32767
     elif int(header['BITPIX']) == 16:
@@ -850,6 +849,7 @@ def show_image_array(image, imscale, image_element):
     else:
         multichannel = False
     im = tf.rescale(image, imscale, multichannel=multichannel)
+    im = np.clip(im, 0.0, 1.0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         io.imsave('tmp.png', np.flipud(im * 255).astype(np.uint8))
@@ -1002,9 +1002,9 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
     """
     def _slant_tilt_mapping(xy, center, dx, dy):
         """
-        -	Calculate shifted coordinates:  xs = x' - (y'-y0)*dx (slant)
-                                            ys = y' - (x'-x0)*dy (tilt)
-        -	(Pixel value at x',y':           I'(x',y') = I(x,y) in the original image)
+        Calculate shifted coordinates:  xs = x' - (y'-y0)*dx (slant)
+                                        ys = y' - (x'-x0)*dy (tilt)
+        (Pixel value at x',y':          I'(x',y') = I(x,y) in the original image)
         """
         x, y = xy.T
         x0, y0 = center
@@ -1143,13 +1143,10 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
             F = np.sum(imbw[ymin:ymax, :], axis=0)  # Object spectrum extraction and flat
             i = np.arange(0, np.size(F), 1)  # create pixels vector
             np.savetxt(outfile + '.dat', np.transpose([i, F]), fmt='%6i %8.5f')
-            try:
-                del fits_dict['M_TILT']
-                del fits_dict['M_SLANT']
-                del fits_dict['M_ROWMIN']
-                del fits_dict['M_ROWMAX']
-            except KeyError:
-                print("Keys 'M_TILT... M_ROWMAX' not found")
+            fits_dict.pop('M_TILT', None)
+            fits_dict.pop('M_SLANT', None)
+            fits_dict.pop('M_ROWMIN', None)
+            fits_dict.pop('M_ROWMAX', None)
             winselect_active = False
             winselect.close()
             window['-SAVE_RAW-'].update(disabled=False, button_color=bc_enabled)
@@ -1244,7 +1241,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
     :param gridlines: if True, grid lines are shown
     :param canvas_size: size of image
     :param plot_title: title displayed at the top
-    :return: None
+    :return: p, imin, imax, caltext
     """
     # --------------------------------------------------------------
     def draw_spectrum(lcal, ical, lmin, lmax, color='blue'):
@@ -1260,6 +1257,8 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
     # --------------------------------------------------------------
     lcal, ical = np.loadtxt(llist, unpack=True, ndmin=2)
     p = ''
+    mod_file = ''
+    caltext = ''
     if autoscale:
         lmin = lcal[0]
         lmax = lcal[len(lcal) - 1]
@@ -1281,12 +1280,16 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                         graph_top_right=(lmax + 10 / lscale, imax + 30 / iscale),
                         enable_events=True, float_values=True, background_color='white', key='graph')],
               [sg.Button('Save', key='Save', bind_return_key=True), sg.Button('Close Window', key='Close'),
-               sg.Text('Imin:'), sg.InputText('', key='imin', size=(12, 1)),
-               sg.Text('Imax:'), sg.InputText('', key='imax', size=(12, 1)),
+               sg.Text('Imin:'), sg.InputText('', key='imin', size=(8, 1)),
+               sg.Text('Imax:'), sg.InputText('', key='imax', size=(8, 1)),
                sg.Button('Scale I', key='scaleI'), sg.Text('Cursor Position: '),
-               sg.InputText('', size=(30, 1), key='cursor', disabled=True)]]
+               sg.InputText('', size=(26, 1), key='cursor', disabled=True),
+               sg.Text('Scale Factor'), sg.InputText('1.0', key='factor', size=(8, 1))]]
 
-    window = sg.Window(llist, layout, keep_on_top=True).Finalize()
+    right_click_menu =['unused', ['Multiply spectrum by factor', 'Divide Spectrum by factor',
+                                  'Save modified spectrum', 'Normalize to peak value']]
+
+    window = sg.Window(llist, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
     graph = window['graph']
 
     # draw x-axis
@@ -1331,26 +1334,34 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
     draw_spectrum(lcal, ical, lmin, lmax)
     while True:
         event, values = window.read()
-
+        print(event,values)
         if event in (None, 'Close'):
             window.close()
-            return p, imin, imax
+            return mod_file, imin, imax, caltext
 
         elif event is 'graph':  # if there's a "Graph" event, then it's a mouse
             x, y = (values['graph'])
             window['cursor'].update(f'Lambda:{x:8.2f}  Int:{y:8.2f}')
 
         elif event is 'Save':
+            window.Minimize()
             filename = sg.popup_get_file('Choose filename (PNG) to save to', save_as=True, keep_on_top=True,
-                                         default_path=llist, default_extension='.png', size=(80,1))
+                            no_window=True, default_path=llist, default_extension='.png', size=(80,1))
+            window.Normal()
+            time.sleep(1.0)
             if filename:
-                p = str(Path(filename).with_suffix('.png'))
-                save_element_as_file(window['graph'], p)
+                p, ext = path.splitext(filename)
+                p += '.png'
             else:
-                p = str(Path(llist).with_suffix('')) + '_plot.png'
+                # p = str(Path(llist).with_suffix('')) + '_plot.png'
+                p, ext = path.splitext(llist)
+                p += '_plot.png'
             save_element_as_file(window['graph'], p)
+            info = f'spectrum {llist} plot saved as {str(p)}'
+            logging.info(info)
+            caltext += info + '\n'
             window.close()
-            return p, imin, imax
+            return mod_file, imin, imax, caltext
         elif event is 'scaleI':
             try:
                 imin = float(values['imin'])
@@ -1362,6 +1373,41 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                 graph.update()
             except:
                 sg.PopupError('invalid values for Imin, Imax, try again', keep_on_top=True)
+        elif event in('Multiply spectrum by factor', 'Divide Spectrum by factor'):
+            factor = float(values['factor'])
+            if event is 'Multiply spectrum by factor':
+                ical = ical*factor
+                info = f'spectrum {llist} multiplied by factor {factor}'
+            else:
+                ical = ical/factor
+                info = f'spectrum {llist} divided by factor {factor}'
+            caltext += info +'\n'
+            logging.info(info)
+            draw_spectrum(lcal, ical, lmin, lmax, color='red')
+            graph.update()
+        elif event is 'Save modified spectrum':
+            window.Minimize()
+            mod_file = sg.PopupGetFile('Save modified spectrum', save_as=True, no_window=True,
+                    default_path=llist, file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),)
+            if mod_file:
+                mod_file = change_extension(mod_file, '.dat')
+                np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
+                info = f'modified spectrum {llist} saved as {mod_file}'
+                logging.info(info)
+                caltext += info + '\n'
+            window.Normal()
+        elif event is 'Normalize to peak value':
+            peak_int = max(ical)
+            ical = ical/peak_int
+            imin = -.1
+            imax = 1.1
+            mod_file = change_extension(llist, 'N.dat')
+            np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
+            info = f'spectrum normalized to peak intensity = {peak_int}\n' \
+                   f'saved as {mod_file}'
+            caltext += info
+            logging.info(info)
+            draw_spectrum(lcal, ical, lmin, lmax, color='red')
 
 
 # -------------------------------------------------------------------
@@ -1414,7 +1460,7 @@ def read_video_list(file):
     :return: list of video files
     """
     video_list = []
-    if Path(file).exists():
+    if path.exists(file):
         with open(file, 'r') as f:
             for line in f:
                 video_list.append(line[:-1])
@@ -1496,9 +1542,8 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
         logging.info(f'{xcalib[i]:10.2f},{lcalib[i]:10.2f},{(lcalib[i] + res[i]):10.2f}, {res[i]:10.4f}')
         caltext += f'{xcalib[i]:9.2f} {lcalib[i]:9.2f} {(lcalib[i] + res[i]):9.2f}  {res[i]:8.2f}\n'
     logging.info(f'rms_x = {rms_x:8.4f}')
-    caldat = str(Path(rawspec).with_suffix('')) + 'cal.dat'
+    caldat = change_extension(rawspec, 'cal.dat')
     np.savetxt(caldat, np.transpose([lam, ical]), fmt='%8.3f %8.5f')
-    # x,y,z equal sized 1D arrays
     logging.info(f'spectrum {caldat} saved')
     caltext += f'polynom degree: {deg}\npolynom for fit lambda c: {c}\n'
     caltext += f'rms_x = {rms_x:8.4f}\nspectrum {caldat} saved\n'
@@ -1509,6 +1554,137 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     # wavelength spacing of interpolated linear array, about double of original
     llin = np.arange(lmin, lmax, dell)
     y2 = interpolate.interp1d(lam, ical, kind='quadratic')(llin)
-    cal2dat = str(Path(rawspec).with_suffix('')) + 'cal2.dat'
+    # cal2dat = str(Path(rawspec).with_suffix('')) + 'cal2.dat'
+    cal2dat = change_extension(rawspec, 'cal2.dat')
     np.savetxt(cal2dat, np.transpose([llin, y2]), fmt='%8.3f %8.5f')
     return caldat, cal2dat, lmin, lmax, caltext
+
+def change_extension(file_name, extension):
+    '''
+    :param file_name: original filename (str)
+    :param extension: new extension, (str), eg. '.txt'
+    :return: filename with new extension
+    '''
+    base, ext = path.splitext(file_name)
+    return base + extension
+
+def log_window(logfile):
+    with open(logfile, "r") as f:
+        log = f.read()
+    window = sg.Window('Logfile:' + logfile,
+               [[sg.Multiline(log, size=(120, 30), autoscroll=True,
+                    auto_size_text=True, key='-MLINE-')],
+                [sg.Button('End'), sg.Button('Exit')]], keep_on_top=True)
+    while True:  # Event Loop
+        event, values = window.read()
+        if event is 'End':
+            window['-MLINE-'].update(value='', append=True)
+        if event in  ('Exit', None):
+            break
+    window.close()
+
+def edit_text_window(text_file):
+    file = sg.PopupGetFile('Edit Text File', default_path=text_file, no_window=True,
+                    file_types=(('Text Files', '*.txt'), ('ALL Files', '*.*'),))
+    if file:
+        with open(file, 'r') as f:
+            text = f.read()
+        window = sg.Window('Edit Text File: ' + file,
+                   [[sg.Multiline(text, size=(100, 20), autoscroll=True,
+                          key='-MLINE-', font='Courier')],
+                    [sg.Button('Save'), sg.Button('Cancel')]], keep_on_top=True)
+        while True:  # Event Loop
+            event, values = window.read()
+            if event is 'Save':
+                with open(file, 'w') as f:
+                    f.write(values['-MLINE-'])
+                break
+            if event in  ('Cancel', None):
+                break
+        window.close()
+
+def view_fits_header(fits_file):
+    file = sg.PopupGetFile('View Fits-Header', default_path=fits_file, no_window=True,
+                        file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),), )
+    if file:
+        im, header = fits.getdata(file, header=True)
+        text = ''
+        for key in header:
+            line = f'{key:>20}: {header[key]}\n'
+            text += line
+        window = sg.Window('View Fits-Header: ' + file,
+                       [[sg.Multiline(text, size=(60, 30), autoscroll=True, key='-MLINE-', font='Courier')],
+                        [sg.Button('Exit')]], keep_on_top=True)
+        while True:  # Event Loop
+            event, values = window.read()
+            if event in ('Exit', None):
+                break
+        window.close()
+
+def about(version):
+    font = ('Helvetica', 12)
+    window = sg.Window('M_spec', [[sg.Text('M_SPEC', font=('Helvetica', 20))],
+                        [sg.Text('Analysis of meteor spectra from Video files', font=font)],
+                        [sg.Text(f'Version = {version}', font=font)],
+                        [sg.Text('copyright M. Dubs, 2020', font=font)],
+                        [sg.Image('Martin.png'), sg.Button('Ok', font=font)]],  keep_on_top=True)
+    while True:  # Event Loop
+        event, values = window.read()
+        if event in ('Ok', None):
+            break
+    window.close()
+
+def add_images(imscale, contrast=1, average=True):
+    files = []
+    window = sg.Window('Add registered images', [[sg.Input('', key='add_images', size=(80,1)),
+                sg.Button('Load Files')],
+                [sg.Text('Number Images:'), sg.Input('0', size=(8,1), key='nim'),
+                 sg.Button('Darker'), sg.Button('Brighter')],
+                [sg.Image('tmp.png', key='sum_image')],
+                [sg.Button('Save'), sg.Button('Cancel')]])
+    while True:  # Event Loop
+        event, values = window.read()
+        if event is 'Load Files':
+            files = sg.PopupGetFile('Add images', multiple_files=True, save_as=False,
+                file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),), no_window=True)
+            if files:
+                sum_image = []
+                number_images = 0
+                short_files = path.dirname(files[0])
+                for file in files:
+                    short_files += ' ' + path.basename(file)
+                    image, header = get_fits_image(change_extension(file, ''))
+                    if sum_image == []:
+                        sum_image = image
+                    else:
+                        sum_image += image
+                    number_images += 1
+                if average and number_images:
+                    sum_image /= number_images
+                get_fits_keys(header, fits_dict, res_dict)
+                fits_dict.pop('M_STARTI', None) # delete fits_dict['M_STARTI']
+                dist = False
+                for key in header.keys():
+                    if key is 'D_A3':
+                        dist = True
+                fits_dict['M_NIM'] = number_images
+                write_fits_image(sum_image, 'tmp.fit', fits_dict, dist=dist)
+                show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
+                window['add_images'].update(short_files)
+                window['nim'].update(str(number_images))
+                window.refresh()
+        if event is 'Darker':
+            contrast = 0.5 * contrast
+            show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
+        if event is 'Brighter':
+            contrast = 2.0 * contrast
+            show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
+        if event is'Save' and files:
+            sum_file = sg.PopupGetFile('Save images', save_as=True, no_window=True, default_extension='.fit')
+            if sum_file:
+                write_fits_image(sum_image, sum_file, fits_dict)
+                window.close()
+                return change_extension(sum_file, ''), number_images
+        if event in ('Cancel', None):
+            window.close()
+            return '', 0

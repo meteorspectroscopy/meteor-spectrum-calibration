@@ -7,12 +7,12 @@ import logging
 import time
 import warnings
 from skimage import io  # , img_as_float # needed for reading
-from pathlib import Path
+import os.path as path
 import os
 import PySimpleGUI as sg
 import m_specfun as m_fun
 
-version = '0.9.17'
+version = '0.9.18'
 
 
 # -------------------------------------------------------------------
@@ -32,21 +32,6 @@ def main():
             result = False
         return result
 
-    def select_process_folder(outpath):
-        path_window = sg.Window('Selct Process Folder',
-                    [[sg.InputText(outpath, size=(50, 1), key='out'), sg.FolderBrowse('...')],
-                    [sg.Ok(), sg.Cancel()]])
-        while True:
-            ev, vals = path_window.read()
-            if ev == 'Ok':
-                _outpath = vals['out']
-                if _outpath:
-                    path_window.close()
-                    return _outpath
-            elif ev in (None, 'Cancel'):  # always give a way out!
-                path_window.close()
-                return outpath
-
     # start with default inifile, if inifile not found, a default configuration is loaded
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
@@ -60,7 +45,7 @@ def main():
     logging.info(f'M_SPEC version {version}, {m_fun.version} ++++++++++++++++++++++++++++')
     ini_file = 'm_set.ini'
     par_text, par_dict, res_dict, fits_dict, opt_dict = m_fun.read_configuration(ini_file,
-                                                                                 m_fun.par_dict, m_fun.res_dict, m_fun.opt_dict)
+                                            m_fun.par_dict, m_fun.res_dict, m_fun.opt_dict)
     res_key = list(res_dict.keys())
     res_v = list(res_dict.values())
     fits_dict['VERSION'] = version
@@ -69,7 +54,6 @@ def main():
         debug, fit_report, win2ima, opt_comment, outpath, mdist, colorflag] = list(opt_dict.values())
     if par_text == '':
         sg.PopupError(f'no valid configuration found, default {ini_file} created')
-
     # default values for video
     dat_tim = ''
     sta = ''
@@ -101,6 +85,7 @@ def main():
     select_line_enabled = False
     table = []
     spec_file = ''
+    llist = ''
     plot_w = 1000
     plot_h = 500
     i_min = -0.5
@@ -123,6 +108,8 @@ def main():
 
     menu_def = [
         ['File', ['Exit']],
+        ['View', ['Logfile', 'Edit Text File', 'Fits-Header', 'Set Zoom Factor']],
+        ['Tools', ['Add Images']],
         ['Help', 'About...'], ]
 
     setup_file_element = sg.Frame('Configuration File',
@@ -261,7 +248,8 @@ def main():
                             sg.Button('Plot Spectrum', key='-PLOTS-', disabled=True,
                                 button_color=bc_disabled)],
                            [sg.Checkbox('Grid lines', default=True, key='-GRID-'),
-                            sg.Checkbox('Auto scale', default=False, key='-AUTO_SCALE-')],
+                            sg.Checkbox('Auto scale', default=False, key='-AUTO_SCALE-'),
+                            sg.Checkbox('Norm scale', default=False, key='-NORM_SCALE-')],
                            [sg.T('lambda min:'), sg.In('', key='l_min', size=(8, 1)),
                             sg.T('max:'), sg.In('', key='l_max', size=(8, 1))],
                            [sg.T('Title    Plot width'), sg.In(plot_w, key='plot_w', size=(7, 1)),
@@ -311,6 +299,30 @@ def main():
             break
 
         # ==============================================================================
+        # Menu
+        # ==============================================================================
+        if event is 'Logfile':
+            m_fun.log_window(m_fun.logfile)
+        if event is 'Edit Text File':
+            m_fun.edit_text_window(llist)
+        if event is 'Fits-Header':
+            m_fun.view_fits_header(outfile)
+        if event is 'About...':
+            m_fun.about(version)
+        if event is 'Add Images':
+            sum_file, nim = m_fun.add_images(im_scale, contrast=1, average=True)
+            window['-RADD-'].update(sum_file)
+        if event is 'Set Zoom Factor':
+            file = sg.PopupGetFile('Select Fits-Image', no_window=True,
+                                   file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),), )
+            if file:
+                image, header = m_fun.get_fits_image(file)
+                (opt_dict['win_width'], opt_dict['win_height']) = window.Size
+                im_scale = m_fun.set_image_scale(image, opt_dict)
+                m_fun.show_image_array(image, im_scale, image_element_video)
+                m_fun.show_image_array(image, im_scale, image_element_distortion)
+                m_fun.show_image_array(image, im_scale, image_element_registration)
+        # ==============================================================================
         # Setup Tab
         # ==============================================================================
         elif event == '-LOAD_SETUP-':
@@ -321,6 +333,8 @@ def main():
                 par_text, par_dict, res_dict, fits_dict, opt_dict = m_fun.read_configuration(ini_file,
                                                                                              par_dict, res_dict, opt_dict)
                 result_elem.update(par_text)
+                # update version to current script
+                fits_dict['VERSION'] = version
                 window['-BIN-'].update(value=par_dict['i_binning'])
                 res_v = list(res_dict.values())
                 fits_v = list(fits_dict.values())
@@ -330,7 +344,6 @@ def main():
                 for k in range(7):
                     kk = f'k{k + 7}'
                     window[kk].Update(fits_v[k])
-                # optvar = list(opt_dict.values())
                 if list(opt_dict.values()) != []:
                     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc,
                      xoff_setup, yoff_setup, debug, fit_report, win2ima,
@@ -425,6 +438,7 @@ def main():
                         kk = f'k{k + 7}'
                         window[kk].Update(fits_v[k])
                     if nim:
+                        (opt_dict['win_width'], opt_dict['win_height']) = window.Size
                         wsx = opt_dict['win_width']
                         wsy = opt_dict['win_height']
                         setup_tab_element.set_size(size=(wsx - 40, wsy - 40))  # works
@@ -434,7 +448,8 @@ def main():
                         m_fun.show_image_array(image, im_scale, window['-D_IMAGE-'])
                         # add avifile to video_list
                         video_list = m_fun.read_video_list('videolist.txt')
-                        video_name = Path(avifile).with_suffix('').name
+                        # video_name = Path(avifile).with_suffix('').name
+                        video_name, ext = path.splitext(path.basename(avifile))
                         # for UFO Capture videos, replace M by S:
                         if video_name[0] == 'M':
                             video_name = 'S' + video_name[1:]
@@ -502,7 +517,7 @@ def main():
             window['-N_IMAGE-'].update(nm)
 
         elif event in ('-SEL_OUT-', '-SEL_OUT_R-'):
-            outpath = select_process_folder(outpath)
+            outpath = sg.PopupGetFolder('Select Process Folder', no_window=True)
             window['-OUT-'].update(outpath)
             window['-OUT_C-'].update(outpath)
             window['-OUT_R-'].update(outpath)
@@ -529,10 +544,8 @@ def main():
                 nm = nmfound - first + 1
                 window['-N_IMAGE-'].update(nm)
             else:
-                # more checks
-                p = Path(outpath)
-                if not p.exists():
-                    Path.mkdir(p, exist_ok=True)
+                if not path.exists(outpath):
+                    os.mkdir(outpath)
                 [scalxy, x00, y00, rot, disp0, a3, a5] = res_dict.values()
                 if bob_doubler:  # center measured before scaling in y scalxy*2 compensates for half image height
                     scalxy *= 2.0
@@ -552,11 +565,8 @@ def main():
                     back = m_fun.create_background_image(inpath, n_back, colorflag)
                     # save background image as png and fit
                     # remove unnecessary fits header items before saving fits-images
-                    try:
-                        del fits_dict['M_NIM']
-                        del fits_dict['M_STARTI']
-                    except KeyError:
-                        print('M_STARTI not in fits_dict')
+                    fits_dict.pop('M_NIM', None)
+                    fits_dict.pop('M_STARTI', None)
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         io.imsave(outpath + '/m_back.png', np.flipud(back * 255).astype(np.uint8))
@@ -638,13 +648,13 @@ def main():
             if values['-SHOW_REG-']:
                 nim = m_fun.check_files(out_fil, maxim, ext='.fit')
                 i_reg = min(nim, i_reg)
-                if i_reg <= nim and Path(out_fil + str(i_reg) + '.fit').exists():
+                if i_reg <= nim and path.exists(out_fil + str(i_reg) + '.fit'):
                     m_fun.show_fits_image(out_fil + str(i_reg), im_scale, window['-R_IMAGE-'], contr=contrast)
                     window['-INDEX_R-'].update(reg_file + str(i_reg))
                 elif nim > 0:
                     i_reg -= 1
             else:
-                if Path(infile + str(i_reg) + '.fit').exists():
+                if path.exists(infile + str(i_reg) + '.fit'):
                     m_fun.show_fits_image(infile + str(i_reg), im_scale, window['-R_IMAGE-'], contr=contrast)
                     window['-INDEX_R-'].update(mdist + str(i_reg))
                 else:
@@ -658,8 +668,7 @@ def main():
         # image contrast--------------------------------------------------------
         elif event in ('-LOW_C-', '-HIGH_C-'):
             mdist = values['-M_DIST_R-']
-            # infile = outpath + '/' + mdist
-            infile = os.path.join(outpath, mdist)
+            infile = path.join(outpath, mdist)
             if event is '-LOW_C-':
                 contrast = 0.5 * contrast
             else:
@@ -668,7 +677,7 @@ def main():
                 m_fun.show_fits_image(outfile, im_scale, window['-R_IMAGE-'], contr=contrast)
             else:
                 if values['-SHOW_REG-']:
-                    if Path(out_fil + str(i_reg) + '.fit').exists():
+                    if path.exists(out_fil + str(i_reg) + '.fit'):
                         m_fun.show_fits_image(out_fil + str(i_reg), im_scale, window['-R_IMAGE-'], contr=contrast)
                 else:
                     m_fun.show_fits_image(infile + str(i_reg), im_scale, window['-R_IMAGE-'], contr=contrast)
@@ -700,16 +709,16 @@ def main():
             window['-CAL_R-'].update(disabled=True, button_color=bc_disabled)
             window['-SHOW_REG-'].update(False)
             mdist = values['-M_DIST_R-']
-            # infile = outpath + '/' + mdist
-            infile = os.path.join(outpath, mdist)
+            infile = path.join(outpath, mdist)
             reg_file = values['-REG_BASE-']
             start = int(values['-N_START_R-'])
             nim = int(values['-N_REG-'])
             nmp = int(values['-N_MAX_R-'])
-            # out_fil = outpath + '/' + reg_file
-            out_fil = os.path.join(outpath, reg_file)
-            m_fun.show_fits_image(infile + str(start), im_scale, window['-R_IMAGE-'], contrast)
+            out_fil = path.join(outpath, reg_file)
             im, header = m_fun.get_fits_image(infile + str(start))
+            (opt_dict['win_width'], opt_dict['win_height']) = window.Size
+            im_scale = m_fun.set_image_scale(im, opt_dict)
+            m_fun.show_fits_image(infile + str(start), im_scale, window['-R_IMAGE-'], contrast)
             if not sta:
                 sta = header['M_STATIO']
                 dat_tim = header['DATE-OBS']
@@ -771,10 +780,11 @@ def main():
                     fits_dict['M_STARTI'] = '1'
                 except KeyError:
                     print('M_STARTI not in fits_dict')
-                outfile = str(Path(outfile).with_suffix(''))
+                outfile, ext = path.splitext(outfile)
                 window['-RADD-'].update(outfile)
                 last_file_sum = True
                 im, header = m_fun.get_fits_image(outfile)  # for im_scale
+                (opt_dict['win_width'], opt_dict['win_height']) = window.Size
                 im_scale = m_fun.set_image_scale(im, opt_dict)
                 m_fun.show_fits_image(outfile, im_scale, window['-R_IMAGE-'], contrast)
                 if 'D_X00' in header.keys():
@@ -813,7 +823,8 @@ def main():
                           no_window=True, save_as=True, file_types=(('Spectrum Files', '*.dat'),
                                                                     ('ALL Files', '*.*')))
             if new_outfile:
-                outfile = str(Path(new_outfile).with_suffix(''))
+                # outfile = str(Path(new_outfile).with_suffix(''))
+                outfile, ext = path.splitext(new_outfile)
                 window['-RADD-'].update(outfile)
                 m_fun.write_fits_image(imtilt, outfile + '.fit', fits_dict, dist=dist)
                 m_fun.show_fits_image(outfile, im_scale, window['-R_IMAGE-'], contrast)
@@ -826,7 +837,7 @@ def main():
         elif event in ('-LOAD_RAW-', '-CAL_R-'):
             if event is '-CAL_R-':
                 # start calibration
-                raw_spec_file = str(Path(values['-RADD-']).with_suffix('.dat'))
+                raw_spec_file = m_fun.change_extension(values['-RADD-'], '.dat')
                 window['-T_CAL-'].select()  # works
             else:
                 raw_spec_file = sg.PopupGetFile('Load raw spectrum',
@@ -843,7 +854,7 @@ def main():
                 lmin, lmax, i_min, i_max, lcal, ical = m_fun.plot_raw_spectrum(raw_spec_file, graph, canvasx)
                 window['-S_LINES-'].update(disabled=False, button_color=bc_enabled)
                 window['-LOAD_TABLE-'].update(disabled=False, button_color=bc_enabled)
-                llist =str(Path(raw_spec_file).with_suffix('.txt'))
+                llist = m_fun.change_extension(raw_spec_file, '.txt')
                 graph_enabled = True
                 if lmin not in (0.0, 1.0):
                     sg.PopupError('raw files only, load uncalibrated file or Load Spectrum',
@@ -894,7 +905,8 @@ def main():
             lam = float(l0)
             print(f'x0, lambda, w:  {x0:8.2f} {lam} {w:6.2f}  {name}')
             x0, fwp, cal_text_file = m_fun.select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, cal_text_file)
-            window['-RESULT4-'].update(result_text + cal_text_file, disabled=True)
+            result_text += cal_text_file
+            window['-RESULT4-'].update(result_text, disabled=True)
 
         # ==============================================================================
         # select calibration wavelength from list
@@ -913,10 +925,9 @@ def main():
                 if ev in 'OK':
                     xcalib, lcalib = np.loadtxt(llist, unpack=True, ndmin=2)
             elif table and raw_spec_file:
-                llist = str(Path(raw_spec_file).with_suffix('.txt'))
+                llist = m_fun.change_extension(raw_spec_file, '.txt')
                 with open(llist, 'w+') as f:
                     np.savetxt(f, table, fmt='%8.2f', header='    x     lambda')
-                # f.close()
                 xcalib, lcalib = np.loadtxt(llist, unpack=True, ndmin=2)
                 print(f'table \n {table} \nsaved as {outfile}.txt, \n'
                       f'edit if necessary before proceeding with calibration')
@@ -935,7 +946,7 @@ def main():
                                     default_path=llist)
             if llist:
                 window['-CALI-'].update(disabled=False, button_color=bc_enabled)
-                llist = str(Path(llist).with_suffix('.txt'))
+                llist = m_fun.change_extension(llist, '.txt')
                 xcalib, lcalib = np.loadtxt(llist, unpack=True, ndmin=2)
                 # table is displayed in result window and made editable
                 with open(llist, 'r') as f:
@@ -963,7 +974,7 @@ def main():
                 cal_dat_file, spec_file, lmin, lmax, cal_text_file = m_fun.calibrate_raw_spectrum(raw_spec_file, xcalib, lcalib, deg, c)
                 logging.info(f'spectrum {spec_file} saved')
                 window['-RESULT4-'].update(result_text + cal_text_file, disabled=True)
-                window['-PLOT_SPEC-'].update(cal_dat_file)
+                window['-PLOT_SPEC-'].update(spec_file)
                 window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
                 window['l_min'].update(str(int(lmin)))
                 window['l_max'].update(str(int(lmax)))
@@ -989,20 +1000,23 @@ def main():
                 video_list = m_fun.read_video_list('videolist.txt')
                 video_list.insert(0, spec_file)
                 video_list.insert(0, ' ')
+                window['-PLOT_SPEC-'].update(spec_file)
                 window['-PLOT_TITLE-'].update(values=video_list)
                 window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
                 window['l_min'].update(str(int(lmin)))
                 window['l_max'].update(str(int(lmax)))
-                cal_text_file += f'spectrum {spec_file} loaded\n'
-                window['-RESULT4-'].update(result_text + cal_text_file)
+                window['-RESULT4-'].update(result_text)
 
         # ==============================================================================
         # plot spectrum
         if event is '-PLOTS-' and spec_file:
-            # print(event)
             window['-PLOTS-'].update(disabled=True, button_color=bc_disabled)
             gridlines = values['-GRID-']
             autoscale = values['-AUTO_SCALE-']
+            if values['-NORM_SCALE-']:
+                autoscale = False
+                i_min = -0.1
+                i_max = 1.1
             try:
                 lmin = float(values['l_min'])
                 lmax = float(values['l_max'])
@@ -1011,14 +1025,15 @@ def main():
             except:
                 sg.PopupError('bad value for plot range, try again', title='Plot Graph')
             plot_title = values['-PLOT_TITLE-']
-            plotfile, i_min, i_max = m_fun.graph_calibrated_spectrum(spec_file, lmin=lmin, lmax=lmax,
+            mod_file, i_min, i_max, cal_text_file = m_fun.graph_calibrated_spectrum(spec_file, lmin=lmin, lmax=lmax,
                                      imin=i_min, imax=i_max, autoscale=autoscale, gridlines=gridlines,
                                      canvas_size=(plot_w, plot_h), plot_title=plot_title)
             window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
-            if plotfile:
-                cal_text_file += f'spectrum saved as {plotfile}\n'
-                logging.info(f'spectrum {spec_file} plot saved as {plotfile}')
-            window['-RESULT4-'].update(result_text + cal_text_file)
+            result_text += cal_text_file
+            if mod_file:
+                window['-PLOT_SPEC-'].update(mod_file)
+                spec_file = mod_file
+            window['-RESULT4-'].update(result_text)
 
         # other stuff, open issues ---------------------------------------------
         else:
