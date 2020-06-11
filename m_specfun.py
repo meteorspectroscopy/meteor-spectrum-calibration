@@ -19,7 +19,6 @@ from scipy.ndimage import map_coordinates
 from skimage import io, img_as_float
 from skimage import transform as tf
 import PySimpleGUI as sg
-from PIL import ImageGrab
 import ctypes
 
 ctypes.windll.user32.SetProcessDPIAware()   # Set unit of GUI to pixels
@@ -33,7 +32,7 @@ for handler in logging.root.handlers[:]:
 logging.basicConfig(filename=logfile, format='%(asctime)s %(message)s', level=logging.INFO)
 # -------------------------------------------------------------------
 # initialize dictionaries for configuration
-parv = ['1' for x in range(10)]+['' for x in range(10,15)]
+parv = ['1' for x in range(10)]+['' for x in range(10, 15)]
 parkey = ['f_lam0', 'f_scalxy', 'b_fitxy', 'i_imx', 'i_imy', 'f_f0', 'f_pix', 'f_grat', 'f_rotdeg', 'i_binning',
           's_comment', 's_infile', 's_outfil', 's_linelist', 'b_sqrt']
 par_dict = dict(list(zip(parkey, parv)))
@@ -60,14 +59,23 @@ wloc_calc = (wloc[0] + xoff_calc, wloc[1] + yoff_calc)
 wloc_setup = (wloc[0] + xoff_setup, wloc[1] + yoff_setup)
 (max_width, max_height) = (700, 500)
 opt_comment = ''
+pngdir = 'tmp'
+png_name = 'm_'
 outpath = 'out'
 mdist = 'mdist'
 colorflag = False
+bob_doubler = False
+plot_w = 1000
+plot_h = 500
+i_min = -0.5
+i_max = 5
 optkey = ['zoom', 'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x',
           'calc_off_y', 'setup_off_x', 'setup_off_y', 'debug', 'fit-report',
-          'scale_win2ima', 'comment', 'outpath', 'mdist', 'colorflag']
+          'scale_win2ima', 'comment', 'pngdir', 'png_name', 'outpath', 'mdist', 'colorflag', 'bob',
+          'plot_w', 'plot_h', 'i_min', 'i_max']
 optvar = [zoom, wsize[0], wsize[1], wloc[0], wloc[1], xoff_calc, yoff_calc,
-          xoff_setup, yoff_setup, debug, fit_report, win2ima, opt_comment, outpath, mdist, colorflag]
+          xoff_setup, yoff_setup, debug, fit_report, win2ima, opt_comment, pngdir, png_name,
+          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max]
 opt_dict = dict(list(zip(optkey, optvar)))
 
 
@@ -90,10 +98,10 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
         config = configparser.ConfigParser()
         config.read(conf)
         for section in config.sections():
-            if debug: print(f'[{section}]')
+            # if debug: print(f'[{section}]')
             partext += f'[{section}]\n'
             for key in config[section]:
-                if debug: print(f'- [{key}] = ', {config[section][key]})
+                # if debug: print(f'- [{key}] = ', {config[section][key]})
                 partext += f'- [{key}] = {config[section][key]}\n'
 
         for key in config['Lasercal'].keys():
@@ -125,12 +133,13 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
                         'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x', 'calc_off_y', 'setup_off_x',
                         'setup_off_y'):
                     opt_dict[key] = int(config['Options'][key])
-                elif key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win'):
+                elif key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win', 'colorflag', 'bob'):
                     opt_dict[key] = bool(int(config['Options'][key]))
-                elif key in 'zoom':
+                elif key in ('zoom', 'i_min', 'i_max'):
                     opt_dict[key] = float(config['Options'][key])
                 else:
                     opt_dict[key] = config['Options'][key]
+        logging.info(f' configuration {conf} loaded')
     return partext, par_dict, res_dict, fits_dict, opt_dict
 
 
@@ -146,7 +155,7 @@ def write_configuration(conf, par_dict, res_dict, fits_dict, opt_dict):
     :param opt_dict: options, used in m_calib and m_spec
     :return: None
     """
-    def Configsetbool(section, option, boolean):
+    def configsetbool(section, option, boolean):
         if boolean:
             config.set(section, option, '1')
         else:
@@ -161,7 +170,7 @@ def write_configuration(conf, par_dict, res_dict, fits_dict, opt_dict):
     for key in par_dict.keys():
         k = key[0]
         if k == 'b':
-            Configsetbool('Lasercal', key, par_dict[key])
+            configsetbool('Lasercal', key, par_dict[key])
         elif k == 'i':
             config.set('Lasercal', key, str(par_dict[key]))
         elif k == 'f':
@@ -175,11 +184,12 @@ def write_configuration(conf, par_dict, res_dict, fits_dict, opt_dict):
     for key in fits_dict.keys():
         config.set('Fits', key.upper(), str(fits_dict[key]))
     for key in opt_dict.keys():
-        if key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win'):
-            Configsetbool('Options', key, opt_dict[key])
+        if key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win', 'colorflag', 'bob'):
+            configsetbool('Options', key, opt_dict[key])
         else:
             config.set('Options', key, str(opt_dict[key]))
     config.write(cfgfile)
+    logging.info(f' configuration saved as {conf}')
     cfgfile.close()
 
 
@@ -205,7 +215,7 @@ def write_fits_image(image, filename, fits_dict, dist=True):
         if dist:
             hdu.header[key] = fits_dict[key]
         else:
-            if not key in ('D_SCALXY', 'D_X00', 'D_Y00', 'D_ROT', 'D_DISP0', 'D_A3', 'D_A5'):
+            if key not in ('D_SCALXY', 'D_X00', 'D_Y00', 'D_ROT', 'D_DISP0', 'D_A3', 'D_A5'):
                 hdu.header[key] = fits_dict[key]
     hdul.writeto(filename, overwrite=True)
     hdul.close()
@@ -417,8 +427,8 @@ def create_background_image(im, nb, colorflag=False):  # returns background imag
 
 # -------------------------------------------------------------------
 
-def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, dist=False, background=False,
-            center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False, fits_dict=fits_dict, cval=0):
+def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, dist=False, background=False,
+            center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False, cval=0):
     # subtracts background and transforms images in a single step
     """
     subtracts background image from png images and stores the result
@@ -589,16 +599,20 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
     tdist = (time.time() - t1) / nmp
     disttext = f'{nmp} images processed of {nm}\n'
     if dist:
-        logging.info(f'process time for single distortion: {tdist:8.2f} sec')
+        info = f'process time for single distortion: {tdist:8.2f} sec'
+        logging.info(info)
+        disttext += info + '\n'
         # print(f'process time background, dark and dist {t2:8.2f} sec')
         print(f'process time for single distortion: {tdist:8.2f} sec')
         dattim = fits_dict['DATE-OBS']
         sta = fits_dict['M_STATIO']
-        disttext += (
-            # f'M{dattim}_{sta}\ncheck time!\nprocess time {t2:8.2f} sec\n'
-            f'for single distortion: {tdist:8.2f} sec')
         logging.info(f"'DATE-OBS' = {dattim}")
         logging.info(f"'M-STATIO' = {sta}")
+        info = f'Bobdoubler, start image = {im}{first}'
+        if int(fits_dict['M_BOB']):
+            logging.info(f'with ' + info)
+        else:
+            logging.info('without ' + info)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         io.imsave(outpath + '/' + mdist + '_peak.png', np.flipud(impeak * 255).astype(np.uint8))
@@ -609,7 +623,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
 
 # -------------------------------------------------------------------
 
-def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dict=fits_dict):
+def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dict):
     """
     :param start: index of first image (reference) for registering
     :param nim: number of images to register_images
@@ -635,6 +649,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     sum_image = []
     outfile = ''
     dist = False
+    fits_dict.pop('M_NIM', None)  # M_NIM only defined for added images
     print('start x y dx dy: ', x0, y0, 2 * dx, 2 * dy)
     logging.info(f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}')
     regtext = f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}' + '\n'
@@ -651,6 +666,8 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
             im, header = get_fits_image(image_file)
             if 'D_X00' in header.keys():
                 dist = True
+            if 'M_BOB' in header.keys():
+                fits_dict['M_BOB'] = header['M_BOB']
             if len(im.shape) == 3:
                 imbw = np.sum(im, axis=2)  # used for _fit_gaussian_2d(data)
                 data = imbw[y0 - dy:y0 + dy, x0 - dx:x0 + dx]
@@ -710,7 +727,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     if nim > 1:
         if index == nim + start - 1:
             outfile = outfil + '_add' + str(nim)
-            sum_image = sum_image / (nim)  # averaging
+            sum_image = sum_image / nim  # averaging
             fits_dict['M_STARTI'] = str(start)
             fits_dict['M_NIM'] = str(nim)
             write_fits_image(sum_image, outfile + '.fit', fits_dict, dist=dist)
@@ -734,9 +751,9 @@ def _moments(data):
     the _gaussian parameters of a 2D distribution by calculating its
     _moments """
     total = data.sum()
-    X, Y = np.indices(data.shape)
-    x = (X * data).sum() / total
-    y = (Y * data).sum() / total
+    xx, yy = np.indices(data.shape)
+    x = (xx * data).sum() / total
+    y = (yy * data).sum() / total
     col = data[:, int(y)]
     width_x = np.sqrt(np.abs((np.arange(col.size) - y) ** 2 * col).sum() / col.sum())
     row = data[int(x), :]
@@ -775,13 +792,15 @@ def get_fits_keys(header, fits_dict, res_dict, keyprint=True):
     for key in fits_dict.keys():
         if key in header.keys():
             fits_dict[key] = header[key]
-            if keyprint: print(key, header[key])
+            if keyprint:
+                print(key, header[key])
     for key in res_dict.keys():
         fkey = 'D_' + key.upper()
         if fkey in header.keys():
             res_dict[key] = np.float32(header[fkey])
             fits_dict[fkey] = np.float32(header[fkey])
-            if keyprint: print(key, fits_dict[fkey])
+            if keyprint:
+                print(key, fits_dict[fkey])
     return fits_dict
 
 
@@ -1116,7 +1135,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
                     restext += f'tilt = {tilt:8.4f}, slant = {slant:7.3f}' + '\n'
                     window['-RESULT3-'].update(regtext + restext, autoscroll=True)
 
-                except:
+                except TypeError or ValueError:
                     sg.PopupError('bad values for tilt or slant, try again',
                                   keep_on_top=True)
                 write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)
@@ -1133,6 +1152,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
                 im = imtilt / np.max(imtilt) * 255 * contr
                 im = np.clip(im, 0.0, 255)
                 io.imsave(outfile + 'st.png', np.flipud(im.astype(np.uint8)))
+            logging.info(f' file {outfile}.fit loaded for addition of rows')
             logging.info(f"start = {fits_dict['M_STARTI']}, nim = {fits_dict['M_NIM']}")
             logging.info(f'added from {ymin} to {ymax}, {(ymax - ymin + 1)} rows')
             logging.info(f'tilt = {tilt:8.4f}, slant = {slant:7.3f}')
@@ -1140,9 +1160,9 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
                 imbw = np.sum(imtilt, axis=2)
             else:
                 imbw = imtilt
-            F = np.sum(imbw[ymin:ymax, :], axis=0)  # Object spectrum extraction and flat
-            i = np.arange(0, np.size(F), 1)  # create pixels vector
-            np.savetxt(outfile + '.dat', np.transpose([i, F]), fmt='%6i %8.5f')
+            row_sum = np.sum(imbw[ymin:ymax, :], axis=0)  # Object spectrum extraction and flat
+            i = np.arange(0, np.size(row_sum), 1)  # create pixels vector
+            np.savetxt(outfile + '.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
             fits_dict.pop('M_TILT', None)
             fits_dict.pop('M_SLANT', None)
             fits_dict.pop('M_ROWMIN', None)
@@ -1180,8 +1200,8 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext)
     caltext: updated info
     """
     def parab(x, *p):
-        A, mu, b = p
-        return A * (1 - b * (x - mu) ** 2)
+        aa, mu, b = p
+        return aa * (1 - b * (x - mu) ** 2)
 
     coeff = [-1, 0, 0]
     fwp = 0
@@ -1198,7 +1218,8 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext)
             lcr0 = lc[icleft:icright]
             lmax0 = np.max(lcr0)
             for i in range(icright - icleft):
-                if (lcr0[i] - lmax0 + 1.e-5) > 0: m = i
+                if (lcr0[i] - lmax0 + 1.e-5) > 0:
+                    m = i
             peak0 = icleft + m  # index of max value, center for parabolic fit
             icr = ic[peak0 - 2:peak0 + 3]
             lcr = lc[peak0 - 2:peak0 + 3]
@@ -1228,215 +1249,17 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext)
 
 # -------------------------------------------------------------------
 
-def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale=True, gridlines=True,
-                              canvas_size=(800, 400), plot_title='Spectrum'):
-    """
-    displays calibrated spectrum llist in separate window
-    allows change of intensity scale and saving of resulting plot
-    if no filename is given, result is saved as llist + '_plot.png'
-    :param llist: filename of calibrated spectrum with extension .dat
-    :param lmin, lmax: wavelength range, can be inverse
-    :param imin, imax: intensity range
-    :param autoscale: if True, range is determined automatically
-    :param gridlines: if True, grid lines are shown
-    :param canvas_size: size of image
-    :param plot_title: title displayed at the top
-    :return: p, imin, imax, caltext
-    """
-    # --------------------------------------------------------------
-    def draw_spectrum(lcal, ical, lmin, lmax, color='blue'):
-        for l0 in range(0, len(lcal)):
-            if lmax > lmin:
-                if lmin <= lcal[l0] <= lmax:
-                    if l0:
-                        graph.DrawLine((lcal[l0 - 1], ical[l0 - 1]), (lcal[l0], ical[l0]), color, 2)
-            else:  # reverse axis for negative orders
-                if lmin >= lcal[l0] >= lmax:
-                    if l0:
-                        graph.DrawLine((lcal[l0 - 1], ical[l0 - 1]), (lcal[l0], ical[l0]), color, 2)
-    # --------------------------------------------------------------
-    lcal, ical = np.loadtxt(llist, unpack=True, ndmin=2)
-    p = ''
-    mod_file = ''
-    caltext = ''
-    if autoscale:
-        lmin = lcal[0]
-        lmax = lcal[len(lcal) - 1]
-        imin = min(ical)
-        imax = max(ical)
-        idelta = 0.05 * (imax - imin)
-        imin -= idelta
-        imax += idelta
-    points = []
-    for l0 in range(len(lcal) - 1):
-        points.append((lcal[l0], ical[l0]))
-    # y coordinate autoscale
-    # plotscale pixel/unit
-    lscale = canvas_size[0] / (lmax - lmin)
-    iscale = canvas_size[1] / (imax - imin)
-    # layout with border for scales, legends
-    layout = [[sg.Graph(canvas_size=canvas_size,
-                        graph_bottom_left=(lmin - 40 / lscale, imin - 40 / iscale),
-                        graph_top_right=(lmax + 10 / lscale, imax + 30 / iscale),
-                        enable_events=True, float_values=True, background_color='white', key='graph')],
-              [sg.Button('Save', key='Save', bind_return_key=True), sg.Button('Close Window', key='Close'),
-               sg.Text('Imin:'), sg.InputText('', key='imin', size=(8, 1)),
-               sg.Text('Imax:'), sg.InputText('', key='imax', size=(8, 1)),
-               sg.Button('Scale I', key='scaleI'), sg.Text('Cursor Position: '),
-               sg.InputText('', size=(26, 1), key='cursor', disabled=True),
-               sg.Text('Scale Factor'), sg.InputText('1.0', key='factor', size=(8, 1))]]
-
-    right_click_menu =['unused', ['Multiply spectrum by factor', 'Divide Spectrum by factor',
-                                  'Save modified spectrum', 'Normalize to peak value']]
-
-    window = sg.Window(llist, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
-    graph = window['graph']
-
-    # draw x-axis
-    lamda = u'\u03BB'
-    graph.DrawText(lamda + ' [nm]', ((lmax + lmin) / 2, imin - 30 / iscale), font='Arial 12')
-    graph.DrawText(plot_title, ((lmax + lmin) / 2, imax + 15 / iscale), font='Arial 12')
-    # calculate spacing
-    deltax = round((lmax - lmin) / 250) * 50
-    const = 1
-    while not deltax:
-        const *= 10
-        deltax = int(const * (lmax - lmin) / 250) * 50
-    deltax /= const
-    dmax = int(lmax / deltax) + 1
-    dmin = int(lmin / deltax)
-    for x in range(dmin, dmax):
-        graph.DrawLine((x * deltax, imin - 3 / iscale), (x * deltax, imin))
-        if gridlines:
-            graph.DrawLine((x * deltax, imin), (x * deltax, imax), 'grey')
-        graph.DrawText(x * deltax, (x * deltax, imin - 5 / iscale), text_location=sg.TEXT_LOCATION_TOP, font='Arial 10')
-
-    # draw y-axis
-    graph.DrawText('I', (lmin - 30 / lscale, (imin + imax) / 2), font='Arial 12')
-    # calculate spacing
-    deltay = round((imax - imin) / 5)
-    const = 1
-    while not deltay:
-        const *= 10
-        deltay = int(const * (imax - imin) / 5)
-    deltay /= const
-    dmax = int(imax / deltay) + 1
-    dmin = int(imin / deltay)
-    for d in range(dmin, dmax):
-        graph.DrawLine((lmin - 3 / lscale, d * deltay), (lmin, d * deltay))
-        if gridlines:
-            graph.DrawLine((lmin, d * deltay), (lmax, d * deltay), 'grey')
-        graph.DrawText(d * deltay, (lmin - 5 / lscale, d * deltay), text_location=sg.TEXT_LOCATION_RIGHT,
-                       font='Arial 10')
-
-    graph.DrawRectangle((lmin, imin), (lmax, imax), line_width=2)
-    # draw graph
-    draw_spectrum(lcal, ical, lmin, lmax)
-    while True:
-        event, values = window.read()
-        print(event,values)
-        if event in (None, 'Close'):
-            window.close()
-            return mod_file, imin, imax, caltext
-
-        elif event is 'graph':  # if there's a "Graph" event, then it's a mouse
-            x, y = (values['graph'])
-            window['cursor'].update(f'Lambda:{x:8.2f}  Int:{y:8.2f}')
-
-        elif event is 'Save':
-            window.Minimize()
-            filename = sg.popup_get_file('Choose filename (PNG) to save to', save_as=True, keep_on_top=True,
-                            no_window=True, default_path=llist, default_extension='.png', size=(80,1))
-            window.Normal()
-            time.sleep(1.0)
-            if filename:
-                p, ext = path.splitext(filename)
-                p += '.png'
-            else:
-                # p = str(Path(llist).with_suffix('')) + '_plot.png'
-                p, ext = path.splitext(llist)
-                p += '_plot.png'
-            save_element_as_file(window['graph'], p)
-            info = f'spectrum {llist} plot saved as {str(p)}'
-            logging.info(info)
-            caltext += info + '\n'
-            window.close()
-            return mod_file, imin, imax, caltext
-        elif event is 'scaleI':
-            try:
-                imin = float(values['imin'])
-                imax = float(values['imax'])
-                iscale = canvas_size[1] / (imax - imin)
-                graph.change_coordinates((lmin - 40 / lscale, imin - 40 / iscale),
-                                         (lmax + 10 / lscale, imax + 30 / iscale))
-                draw_spectrum(lcal, ical, lmin, lmax, color='red')
-                graph.update()
-            except:
-                sg.PopupError('invalid values for Imin, Imax, try again', keep_on_top=True)
-        elif event in('Multiply spectrum by factor', 'Divide Spectrum by factor'):
-            factor = float(values['factor'])
-            if event is 'Multiply spectrum by factor':
-                ical = ical*factor
-                info = f'spectrum {llist} multiplied by factor {factor}'
-            else:
-                ical = ical/factor
-                info = f'spectrum {llist} divided by factor {factor}'
-            caltext += info +'\n'
-            logging.info(info)
-            draw_spectrum(lcal, ical, lmin, lmax, color='red')
-            graph.update()
-        elif event is 'Save modified spectrum':
-            window.Minimize()
-            mod_file = sg.PopupGetFile('Save modified spectrum', save_as=True, no_window=True,
-                    default_path=llist, file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),)
-            if mod_file:
-                mod_file = change_extension(mod_file, '.dat')
-                np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
-                info = f'modified spectrum {llist} saved as {mod_file}'
-                logging.info(info)
-                caltext += info + '\n'
-            window.Normal()
-        elif event is 'Normalize to peak value':
-            peak_int = max(ical)
-            ical = ical/peak_int
-            imin = -.1
-            imax = 1.1
-            mod_file = change_extension(llist, 'N.dat')
-            np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
-            info = f'spectrum normalized to peak intensity = {peak_int}\n' \
-                   f'saved as {mod_file}'
-            caltext += info
-            logging.info(info)
-            draw_spectrum(lcal, ical, lmin, lmax, color='red')
-
-
-# -------------------------------------------------------------------
-
-def save_element_as_file(element, filename):
-    """
-    Saves any element as an image file.
-    Element needs to have an underlying Widget available (almost if not all of them do)
-    : param element: The element to save
-    : param filename: The filename to save to. The extension of the filename determines the format (jpg, png, gif, ?)
-    """
-    widget = element.Widget
-    box = (widget.winfo_rootx(), widget.winfo_rooty(), widget.winfo_rootx() + widget.winfo_width(),
-           widget.winfo_rooty() + widget.winfo_height())
-    grab = ImageGrab.grab(bbox=box)
-    grab.save(filename)
-
-
-# -------------------------------------------------------------------
-
-def create_line_list_combo(m_linelist, window):
+def create_line_list_combo(m_linelist, window, combo=True):
     """
     shows values of table create_line_list_combo in Combobox
     :param m_linelist: table with wavelength, line identifier (space separated)
     :param window: Combobox for selecting wavelength
-    :return: None
+    :param combo: if True: update Combo, else only create list
+    :return: label_str
     """
     try:
         lam_calib = []
+        label_str = []
         i = -1
         with open(m_linelist + '.txt')as f:
             for x in f:
@@ -1444,14 +1267,17 @@ def create_line_list_combo(m_linelist, window):
                 (l, name) = x.split(' ', 1)
                 i += 1
                 lam_calib.append(x)
+                label_str.append((float(l), name))
                 if abs(float(l)) < 0.1:
                     index0 = i  # set default index for list
-        window['-LAMBDA-'].update(values=lam_calib, set_to_index=index0)
-    except:
+        if combo:
+            window['-LAMBDA-'].update(values=lam_calib, set_to_index=index0)
+    except FileNotFoundError:
         sg.PopupError(f'no calibration lines {m_linelist}.txt found, use default')
-
+    return label_str, lam_calib
 
 # -------------------------------------------------------------------
+
 
 def read_video_list(file):
     """
@@ -1465,45 +1291,6 @@ def read_video_list(file):
             for line in f:
                 video_list.append(line[:-1])
     return video_list
-
-
-# -------------------------------------------------------------------
-
-def plot_raw_spectrum(rawspec, graph, canvasx):
-    """
-    plots  a raw (uncalibrated)spectrum for selection of calibration lines
-    :param rawspec: filename of uncalibrated spectrum with extension .dat
-    :param graph: window to display spectrum
-    :param canvasx: width of graph (needed to size points in graph)
-    :return:
-    lmin, lmax: pixel range
-    imin, imax: intensity range
-    lcal, ical: pixel, intensity array
-    """
-    lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
-    lmin = lcal[0]
-    lmax = lcal[len(lcal) - 1]
-    # y coordinate autoscale
-    imin = min(ical)
-    imax = max(ical)
-    idelta = 0.05 * (imax - imin)
-    imin -= idelta
-    imax += idelta
-    points = []
-    for l0 in range(len(lcal)):
-        points.append((lcal[l0], ical[l0]))
-    # graph = window['graph']
-    graph.change_coordinates((lmin, imin), (lmax, imax))
-    # erase graph with rectangle
-    graph.DrawRectangle((lmin, imin), (lmax, imax), fill_color='white', line_width=1)
-    graph.DrawText(rawspec, (0.5 * (lmax - lmin), 0.95 * (imax - imin)))
-    # draw graph
-    for l0 in range(0, len(lcal)):
-        if lmin <= lcal[l0] < lmax:
-            graph.DrawCircle(points[l0], 2 / canvasx, line_color='red', fill_color='red')
-            if l0:
-                graph.DrawLine(points[l0 - 1], points[l0], 'red', 1)
-    return lmin, lmax, imin, imax, lcal, ical
 
 
 # -------------------------------------------------------------------
@@ -1559,14 +1346,16 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     np.savetxt(cal2dat, np.transpose([llin, y2]), fmt='%8.3f %8.5f')
     return caldat, cal2dat, lmin, lmax, caltext
 
+
 def change_extension(file_name, extension):
-    '''
+    """
     :param file_name: original filename (str)
     :param extension: new extension, (str), eg. '.txt'
     :return: filename with new extension
-    '''
+    """
     base, ext = path.splitext(file_name)
     return base + extension
+
 
 def log_window(logfile):
     with open(logfile, "r") as f:
@@ -1579,9 +1368,10 @@ def log_window(logfile):
         event, values = window.read()
         if event is 'End':
             window['-MLINE-'].update(value='', append=True)
-        if event in  ('Exit', None):
+        if event in ('Exit', None):
             break
     window.close()
+
 
 def edit_text_window(text_file):
     file = sg.PopupGetFile('Edit Text File', default_path=text_file, no_window=True,
@@ -1599,9 +1389,10 @@ def edit_text_window(text_file):
                 with open(file, 'w') as f:
                     f.write(values['-MLINE-'])
                 break
-            if event in  ('Cancel', None):
+            if event in ('Cancel', None):
                 break
         window.close()
+
 
 def view_fits_header(fits_file):
     file = sg.PopupGetFile('View Fits-Header', default_path=fits_file, no_window=True,
@@ -1621,6 +1412,7 @@ def view_fits_header(fits_file):
                 break
         window.close()
 
+
 def about(version):
     font = ('Helvetica', 12)
     window = sg.Window('M_spec', [[sg.Text('M_SPEC', font=('Helvetica', 20))],
@@ -1634,11 +1426,12 @@ def about(version):
             break
     window.close()
 
+
 def add_images(imscale, contrast=1, average=True):
     files = []
-    window = sg.Window('Add registered images', [[sg.Input('', key='add_images', size=(80,1)),
+    window = sg.Window('Add registered images', [[sg.Input('', key='add_images', size=(80, 1)),
                 sg.Button('Load Files')],
-                [sg.Text('Number Images:'), sg.Input('0', size=(8,1), key='nim'),
+                [sg.Text('Number Images:'), sg.Input('0', size=(8, 1), key='nim'),
                  sg.Button('Darker'), sg.Button('Brighter')],
                 [sg.Image('tmp.png', key='sum_image')],
                 [sg.Button('Save'), sg.Button('Cancel')]])
@@ -1662,12 +1455,12 @@ def add_images(imscale, contrast=1, average=True):
                 if average and number_images:
                     sum_image /= number_images
                 get_fits_keys(header, fits_dict, res_dict)
-                fits_dict.pop('M_STARTI', None) # delete fits_dict['M_STARTI']
+                fits_dict['M_STARTI'] = '0'  # set value for special addition
                 dist = False
                 for key in header.keys():
                     if key is 'D_A3':
                         dist = True
-                fits_dict['M_NIM'] = number_images
+                fits_dict['M_NIM'] = str(number_images)
                 write_fits_image(sum_image, 'tmp.fit', fits_dict, dist=dist)
                 show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
                 window['add_images'].update(short_files)
@@ -1679,7 +1472,7 @@ def add_images(imscale, contrast=1, average=True):
         if event is 'Brighter':
             contrast = 2.0 * contrast
             show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
-        if event is'Save' and files:
+        if event is 'Save' and files:
             sum_file = sg.PopupGetFile('Save images', save_as=True, no_window=True, default_extension='.fit')
             if sum_file:
                 write_fits_image(sum_image, sum_file, fits_dict)
