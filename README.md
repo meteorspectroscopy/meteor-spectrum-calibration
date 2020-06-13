@@ -8,6 +8,7 @@ Result: calibrated meteor spectrum as file wavelength vs. intensity .dat
 <img src= https://github.com/meteorspectroscopy/meteor-spectrum/blob/master/doc/m_spec%20plot%20spectrum.PNG>
 
 For a description of the processing see: https://meteorspectroscopy.org/2020/03/27/meteor-spectra-analysis-new-version/
-or the manual in doc folder
-Further information can be found at https://meteorspectroscopy.org/
+or the manual in the doc folder.
+
+Further information about the theoretical background can be found at https://meteorspectroscopy.org/
 
