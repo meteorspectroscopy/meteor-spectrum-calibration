@@ -3,14 +3,17 @@
 # Author: Martin Dubs, 2020
 # -------------------------------------------------------------------
 import configparser
+import ctypes
 import logging
-import platform
-import subprocess
-import warnings
 import os
 import os.path as path
+import platform
+import subprocess
 import time
+import warnings
 from datetime import datetime, date
+
+import PySimpleGUI as sg
 import numpy as np
 from astropy.io import fits
 from astropy.time import Time
@@ -18,8 +21,6 @@ from scipy import optimize, interpolate
 from scipy.ndimage import map_coordinates
 from skimage import io, img_as_float
 from skimage import transform as tf
-import PySimpleGUI as sg
-import ctypes
 
 ctypes.windll.user32.SetProcessDPIAware()   # Set unit of GUI to pixels
 
@@ -98,10 +99,8 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
         config = configparser.ConfigParser()
         config.read(conf)
         for section in config.sections():
-            # if debug: print(f'[{section}]')
             partext += f'[{section}]\n'
             for key in config[section]:
-                # if debug: print(f'- [{key}] = ', {config[section][key]})
                 partext += f'- [{key}] = {config[section][key]}\n'
 
         for key in config['Lasercal'].keys():
@@ -270,7 +269,6 @@ def extract_video_images(avifile, pngdir, pngname, bobdoubler, binning, bff, max
         cshell = False
     else:
         cshell = True
-    # print('Platform: ', sys)
     logging.info(f'Platorm: {sys}')
     out = path.join(pngdir, pngname)
     nim = 0
@@ -319,7 +317,8 @@ def extract_video_images(avifile, pngdir, pngname, bobdoubler, binning, bff, max
                 subprocess.call(command, shell=cshell)
                 nim = check_files(out, maxim)
 
-            print(f'last file written: {out}' + str(nim) + '.png')
+            if debug:
+                print(f'last file written: {out}' + str(nim) + '.png')
             # get dattim from filename
             dattim, sta = tfits(avifile)
         except:
@@ -554,7 +553,8 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         else:
             multichannel = False
         ima = tf.rescale(back, (yscale, 1), multichannel=multichannel)  # scale sum and peak image start
-        print('imy imx , x00 y00: ', ima.shape, center)
+        if debug:
+            print('imy imx , x00 y00: ', ima.shape, center)
     else:
         ima = back
     imsum = 0 * ima
@@ -594,7 +594,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
     write_fits_image(imsum, fullmdist + '_sum.fit', fits_dict, dist=dist)
     write_fits_image(impeak, fullmdist + '_peak.fit', fits_dict, dist=dist)
     nmp = a
-    print(nmp, ' images processed of ', nm)
+    # print(nmp, ' images processed of ', nm)
     logging.info(f'{nmp} images processed of {nm}')
     tdist = (time.time() - t1) / nmp
     disttext = f'{nmp} images processed of {nm}\n'
@@ -603,7 +603,6 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         logging.info(info)
         disttext += info + '\n'
         # print(f'process time background, dark and dist {t2:8.2f} sec')
-        print(f'process time for single distortion: {tdist:8.2f} sec')
         dattim = fits_dict['DATE-OBS']
         sta = fits_dict['M_STATIO']
         logging.info(f"'DATE-OBS' = {dattim}")
@@ -644,22 +643,19 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     outfile: filename of sum-image, e.g. for sum of 20 added images: out/r_add20
     fits_dict: updated values of fits-header
     """
-    # dx, dy half width of rectangle
+    def _shift(xy):
+        return xy - np.array(dxy)[None, :]
+
     index = start
     sum_image = []
     outfile = ''
     dist = False
     fits_dict.pop('M_NIM', None)  # M_NIM only defined for added images
-    print('start x y dx dy: ', x0, y0, 2 * dx, 2 * dy)
     logging.info(f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}')
     regtext = f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}' + '\n'
     image_list = create_file_list(infile, nim, ext='', start=start)
-    #      123456789012345678901234567890123456789012345678901234567890
     regtext += f'        file        peak      x         y    wx   wy\n'
-    print('          file         peak     x      y     wx     wy')
 
-    def _shift(xy):
-        return xy - np.array(dxy)[None, :]
 
     try:
         for image_file in image_list:
@@ -720,7 +716,6 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
             os.remove(outfil + str(index - start + 1) + '.fit')
         index += -1
         info = f'problem with register_images, last image: {image_file}, number of images: {index}'
-        print(info)
         logging.info(info)
         regtext += info + '\n'
     nim = index - start + 1
@@ -777,7 +772,7 @@ def _fit_gaussian_2d(data):
 
 # -------------------------------------------------------------------
 
-def get_fits_keys(header, fits_dict, res_dict, keyprint=True):
+def get_fits_keys(header, fits_dict, res_dict, keyprint=False):
     """
     gets fits-header from image and appends or overwrites the current fits-header
     dictionary. It also converts the specially coded D_ keys to res_dict keys
@@ -849,7 +844,6 @@ def set_image_scale(image, opt_dict):
         max_width = opt_dict['win_width'] - 350
         max_height = opt_dict['win_height'] - 111
         imscale = min(max_width / imx, max_height / imy)
-    # if debug: print(max_width,max_height, imx, imy, imscale)
     return imscale
 
 # -------------------------------------------------------------------
@@ -873,7 +867,6 @@ def show_image_array(image, imscale, image_element):
         warnings.simplefilter("ignore")
         io.imsave('tmp.png', np.flipud(im * 255).astype(np.uint8))
         image_element.update(filename='tmp.png')
-        # if debug: print('show_image_array',imscale)
     return
 
 
@@ -930,7 +923,8 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
     (imy, imx) = im.shape[:2]
     imbw = np.flipud(io.imread('tmp.png'))  # get shape
     (canvasy, canvasx) = imbw.shape[:2]
-    print('canvas:', canvasx, canvasy)
+    if debug:
+        print('canvas:', canvasx, canvasy)
     wlocw = (wloc[0] + 300, wloc[1] + 50)
     image_file = 'tmp.png'
     # check for old files
@@ -990,7 +984,7 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
                 y0 = xy0[1]
                 dx = int((size[0] + 1) / 2)
                 dy = int((size[1] + 1) / 2)
-                print('x0, y0, newr dx, dy: ', x0, y0, 2 * dx, 2 * dy)
+                # print('x0, y0, newr dx, dy: ', x0, y0, 2 * dx, 2 * dy)
 
         elif event in ('Ok', 'Cancel'):
             winselect_active = False
@@ -1040,7 +1034,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
         dist = True
     else:
         dist = False
-    print(np.max(im))
+    if debug:
+        print(np.max(im))
     im = im / np.max(im)
     imtilt = im
     fits_dict = get_fits_keys(header, fits_dict, res_dict, keyprint=False)
@@ -1049,7 +1044,6 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
     (imy, imx) = im.shape[:2]
     imbw = np.flipud(io.imread('tmp.png'))  # get shape
     (canvasy, canvasx) = imbw.shape[:2]
-    # print('canvas:', canvasx, canvasy)
     wlocw = (wloc[0] + 300, wloc[1] + 100)
     image_file = 'tmp.png'
     # -------------------------------------------------------------------
@@ -1102,12 +1096,12 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
             # The drawing has ended because mouse up
             y0 = int(0.5 * (start_point[1] + end_point[1]))
             w = int(abs(0.5 * (start_point[1] - end_point[1])))
-            info = winselect["info"]
-            info.update(value=f"selected lines from {ymin} to {ymax}")
+            info = f"selected lines from {ymin} to {ymax}"
+            winselect["info"].update(value=info)
             start_point, end_point = None, None  # enable grabbing a new rect
             dragging = False
-            print('ymin, ymax, y0, w: ', ymin, ymax, y0, w)
-            restext += f"selected lines from {ymin} to {ymax}" + '\n'
+            # print('ymin, ymax, y0, w: ', ymin, ymax, y0, w)
+            restext += info + '\n'
             window['-RESULT3-'].update(regtext + restext)
 
         elif event == '-APPLY_TS-':
@@ -1130,8 +1124,6 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
                     fits_dict['M_ROWMIN'] = str(ymin)
                     fits_dict['M_ROWMAX'] = str(ymax)
                     fits_dict['COMMENT'] = str(fits_dict['COMMENT'])  # [:20] # shorten to max size
-                    print(f'ymin = {ymin}, ymax = {ymax}, {ymax - ymin + 1} rows')
-                    print(f'tilt = {tilt:8.4f}, slant = {slant:7.3f}')
                     restext += f'tilt = {tilt:8.4f}, slant = {slant:7.3f}' + '\n'
                     window['-RESULT3-'].update(regtext + restext, autoscroll=True)
 
@@ -1231,7 +1223,8 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext)
             x0p = coeff[1]
             fwp = np.sqrt(1.5 / coeff[2])
             # parabolic fit
-            print(f'x0p ={x0p:8.2f} FWHMP={fwp:8.3f}')
+            if debug:
+                print(f'x0p ={x0p:8.2f} FWHMP={fwp:8.3f}')
             points = []
             l0: int
             for l0 in range(peak0 - 2, peak0 + 3):
@@ -1295,11 +1288,12 @@ def read_video_list(file):
 
 # -------------------------------------------------------------------
 
-def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
+def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c, debug):
     """
     calculates the fit for the calibration table with residuals
     from the polynomial fit
     and apply those to the pixels vector
+    :param debug:
     :param rawspec: uncalibrated spectrum
     :param xcalib: measured pixel positions
     :param lcalib: calibration wavelengths
@@ -1313,16 +1307,11 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     """
     np.set_printoptions(precision=4, suppress=False)
     lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
-    print('c Peak =: ', c)
     logging.info(f'polynom for fit lambda c: {c}')
     i = np.arange(0, len(lcal), 1)  # create pixels vector for uncalibrated image
     lam = np.poly1d(c)(i)
     res = np.poly1d(c)(xcalib) - lcalib
     rms_x = np.sqrt(np.average(np.square(res)))
-    print(f'rms_x = {rms_x:8.4f}')
-    # np.set_printoptions(precision=3, suppress=True)
-    print('    pixel    lambda    fit      error\n',
-          np.transpose(np.array([xcalib, lcalib, lcalib + res, res])))
     logging.info('    pixel     lambda      fit        error')
     caltext = '   Pixel     lambda        fit    error\n'
     for i in range(0, len(xcalib)):
@@ -1358,6 +1347,10 @@ def change_extension(file_name, extension):
 
 
 def log_window(logfile):
+    """
+    displays logfile in new window (cannot be edited)
+    :param logfile: filename with actual date, e.g. m_spec200430.log
+    """
     with open(logfile, "r") as f:
         log = f.read()
     window = sg.Window('Logfile:' + logfile,
@@ -1374,6 +1367,10 @@ def log_window(logfile):
 
 
 def edit_text_window(text_file):
+    """
+    displays editor window, file is saved under the same name
+    :param text_file: filename
+    """
     file = sg.PopupGetFile('Edit Text File', default_path=text_file, no_window=True,
                     file_types=(('Text Files', '*.txt'), ('ALL Files', '*.*'),))
     if file:
@@ -1395,6 +1392,10 @@ def edit_text_window(text_file):
 
 
 def view_fits_header(fits_file):
+    """
+    shows window with fits-header keys and values, not editable
+    :param fits_file: filename of fits-file
+    """
     file = sg.PopupGetFile('View Fits-Header', default_path=fits_file, no_window=True,
                         file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),), )
     if file:
@@ -1405,29 +1406,33 @@ def view_fits_header(fits_file):
             text += line
         window = sg.Window('View Fits-Header: ' + file,
                        [[sg.Multiline(text, size=(60, 30), autoscroll=True, key='-MLINE-', font='Courier')],
-                        [sg.Button('Exit')]], keep_on_top=True)
-        while True:  # Event Loop
-            event, values = window.read()
-            if event in ('Exit', None):
-                break
-        window.close()
+                        [sg.Button('Exit')]], keep_on_top=True).read(close=True)
 
 
 def about(version):
+    """
+    shows program information, author, copyright, version
+    :param version: version of main script
+    """
     font = ('Helvetica', 12)
     window = sg.Window('M_spec', [[sg.Text('M_SPEC', font=('Helvetica', 20))],
                         [sg.Text('Analysis of meteor spectra from Video files', font=font)],
                         [sg.Text(f'Version = {version}', font=font)],
                         [sg.Text('copyright M. Dubs, 2020', font=font)],
-                        [sg.Image('Martin.png'), sg.Button('Ok', font=font)]],  keep_on_top=True)
-    while True:  # Event Loop
-        event, values = window.read()
-        if event in ('Ok', None):
-            break
-    window.close()
+                        [sg.Image('Martin.png'), sg.Button('Ok', font=font)]],
+                         keep_on_top=True).read(close=True)
 
 
 def add_images(imscale, contrast=1, average=True):
+    """
+    shows window for selection of images to add and resulting sum-image
+    or by default the average of the images
+    :param imscale: scale factor for displaying images,
+                    does not change true image size
+    :param contrast: brightness of displayed images
+    :param average: if True, calculate average
+    :return: filename of sum-image, number of images or '', 0
+    """
     files = []
     window = sg.Window('Add registered images', [[sg.Input('', key='add_images', size=(80, 1)),
                 sg.Button('Load Files')],

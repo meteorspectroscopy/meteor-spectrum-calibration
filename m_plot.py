@@ -2,12 +2,14 @@
 # m_plot functions for m_spec
 # Author: Martin Dubs, 2020
 # -------------------------------------------------------------------
-import numpy as np
 import logging
 import os.path as path
 import time
+
 import PySimpleGUI as sg
+import numpy as np
 from PIL import ImageGrab
+
 import m_specfun as m_fun
 
 version = '0.9.18'
