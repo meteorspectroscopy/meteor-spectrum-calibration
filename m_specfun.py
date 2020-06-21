@@ -22,7 +22,8 @@ from scipy.ndimage import map_coordinates
 from skimage import io, img_as_float
 from skimage import transform as tf
 
-ctypes.windll.user32.SetProcessDPIAware()   # Set unit of GUI to pixels
+if platform.system() == 'Windows':
+    ctypes.windll.user32.SetProcessDPIAware()   # Set unit of GUI to pixels
 
 version = '0.9.18'
 today = date.today()
