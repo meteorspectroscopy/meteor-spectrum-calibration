@@ -19,13 +19,18 @@ from astropy.io import fits
 from astropy.time import Time
 from scipy import optimize, interpolate
 from scipy.ndimage import map_coordinates
-from skimage import io, img_as_float
+from skimage import img_as_float
 from skimage import transform as tf
+from skimage import io as ios
+from PIL import Image
+import PIL
+import io
+import base64
 
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()   # Set unit of GUI to pixels
 
-version = '0.9.18'
+version = '0.9.19'
 today = date.today()
 logfile = 'm_spec' + today.strftime("%y%m%d") + '.log'
 # turn off other loggers
@@ -71,17 +76,19 @@ plot_w = 1000
 plot_h = 500
 i_min = -0.5
 i_max = 5
+graph_size = 2000
+show_images = True
 optkey = ['zoom', 'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x',
           'calc_off_y', 'setup_off_x', 'setup_off_y', 'debug', 'fit-report',
           'scale_win2ima', 'comment', 'pngdir', 'png_name', 'outpath', 'mdist', 'colorflag', 'bob',
-          'plot_w', 'plot_h', 'i_min', 'i_max']
+          'plot_w', 'plot_h', 'i_min', 'i_max', 'graph_size', 'show_images']
 optvar = [zoom, wsize[0], wsize[1], wloc[0], wloc[1], xoff_calc, yoff_calc,
           xoff_setup, yoff_setup, debug, fit_report, win2ima, opt_comment, pngdir, png_name,
-          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max]
+          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max, graph_size, show_images]
 opt_dict = dict(list(zip(optkey, optvar)))
 
-
 # -------------------------------------------------------------------
+
 
 def read_configuration(conf, par_dict, res_dict, opt_dict):
     """
@@ -131,9 +138,10 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
             for key in config['Options'].keys():
                 if key in (
                         'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x', 'calc_off_y', 'setup_off_x',
-                        'setup_off_y'):
+                        'setup_off_y', 'graph_size'):
                     opt_dict[key] = int(config['Options'][key])
-                elif key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win', 'colorflag', 'bob'):
+                elif key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win',
+                             'colorflag', 'bob', 'show_images'):
                     opt_dict[key] = bool(int(config['Options'][key]))
                 elif key in ('zoom', 'i_min', 'i_max'):
                     opt_dict[key] = float(config['Options'][key])
@@ -184,7 +192,7 @@ def write_configuration(conf, par_dict, res_dict, fits_dict, opt_dict):
     for key in fits_dict.keys():
         config.set('Fits', key.upper(), str(fits_dict[key]))
     for key in opt_dict.keys():
-        if key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win', 'colorflag', 'bob'):
+        if key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win', 'colorflag', 'bob', 'show_images'):
             configsetbool('Options', key, opt_dict[key])
         else:
             config.set('Options', key, str(opt_dict[key]))
@@ -230,7 +238,7 @@ def get_png_image(filename, colorflag=False):
     :param colorflag: True: colour image, False: image converted to b/w
     :return: image as 2 or 3-D array
     """
-    image = np.flipud(img_as_float(io.imread(filename)))
+    image = np.flipud(img_as_float(ios.imread(filename)))
     if not colorflag:
         image = np.sum(image, axis=2) / 3
     return image
@@ -427,8 +435,8 @@ def create_background_image(im, nb, colorflag=False):  # returns background imag
 
 # -------------------------------------------------------------------
 
-def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, dist=False, background=False,
-            center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False, cval=0):
+def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, graph_size, dist=False,
+            background=False, center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False, show_images=True, cval=0):
     # subtracts background and transforms images in a single step
     """
     subtracts background image from png images and stores the result
@@ -532,6 +540,9 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         xy[..., 1] = y0 + r * np.sin(phi)
         return xy
 
+    idg = None
+    dattim = ''
+    sta = ''
     # scale image
     back, header = get_fits_image(backfile)
     # notice order of coordinates in rescale
@@ -584,6 +595,10 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
                     idist = tf.warp(idist, _distortion_mapping, map_args=warp_args, order=2,
                                     mode='constant', cval=cval)
             write_fits_image(idist, fileout + '.fit', fits_dict, dist=dist)
+            if show_images:
+                image_data, im_scale = get_img_filename(fileout + '.fit', opt_dict, window)
+                if idg: window['-D_IMAGE-'].delete_figure(idg)
+                idg = window['-D_IMAGE-'].draw_image(data=image_data, location=(0, graph_size))
             # create sum and peak image
             imsum = imsum + idist
             file = path.basename(fileout + '.fit')
@@ -604,8 +619,12 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         logging.info(info)
         disttext += info + '\n'
         # print(f'process time background, dark and dist {t2:8.2f} sec')
-        dattim = fits_dict['DATE-OBS']
-        sta = fits_dict['M_STATIO']
+        if fits_dict['DATE-OBS']:
+            dattim = fits_dict['DATE-OBS']
+            sta = fits_dict['M_STATIO']
+        else:
+            logging.info('no fits-header DATE-OBS, M-STATIO')
+            disttext += '\n!!!no fits-header DATE-OBS, M-STATIO!!!\n'
         logging.info(f"'DATE-OBS' = {dattim}")
         logging.info(f"'M-STATIO' = {sta}")
         info = f'Bobdoubler, start image = {im}{first}'
@@ -615,9 +634,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             logging.info('without ' + info)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        io.imsave(outpath + '/' + mdist + '_peak.png', np.flipud(impeak * 255).astype(np.uint8))
-        # load_image(outpath + '/' + mdist + '_peak.png', opt_dict,
-        #                                           colorflag=colorflag)
+        ios.imsave(outpath + '/' + mdist + '_peak.png', np.flipud(impeak * 255).astype(np.uint8))
     return a, imsum, impeak, disttext
 
 
@@ -656,7 +673,6 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     regtext = f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}' + '\n'
     image_list = create_file_list(infile, nim, ext='', start=start)
     regtext += f'        file        peak      x         y    wx   wy\n'
-
 
     try:
         for image_file in image_list:
@@ -827,59 +843,15 @@ def get_fits_image(fimage):
 
 # -------------------------------------------------------------------
 
-def set_image_scale(image, opt_dict):
-    """
-    sets image scale of displayed image, depending on options
-    if scale_win2ima: imscale = zoom, window size adapted to image size
-    else imscale adapted to window size
-    :param image: image array selected for display
-    :param opt_dict: options dictionary
-    :return: imscale
-    """
-    (imy, imx) = image.shape[:2]
-    if opt_dict['scale_win2ima']:  # fit window to image size
-        imscale = opt_dict['zoom']
-        opt_dict['win_width'] = max(int(imx * zoom), 600) + 350
-        opt_dict['win_height'] = max(int(imy * zoom), 540) + 111
-    else:  # fit image size to window
-        max_width = opt_dict['win_width'] - 350
-        max_height = opt_dict['win_height'] - 111
-        imscale = min(max_width / imx, max_height / imy)
-    return imscale
-
-# -------------------------------------------------------------------
-
-
-def show_image_array(image, imscale, image_element):
-    """
-    displays image in GUI
-    :param image: image to be displayed
-    :param imscale: scale to fit image in GUI
-    :param image_element: where to display image
-    :return: None
-    """
-    if len(image.shape) == 3:
-        multichannel = True
-    else:
-        multichannel = False
-    im = tf.rescale(image, imscale, multichannel=multichannel)
-    im = np.clip(im, 0.0, 1.0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        io.imsave('tmp.png', np.flipud(im * 255).astype(np.uint8))
-        image_element.update(filename='tmp.png')
-    return
-
-
-# -------------------------------------------------------------------
-
-def show_fits_image(file, imscale, image_element, contr=1.0):
+def show_fits_image(file, imscale, image_element, contr=1.0, show=True):
     """
     loads fits-image, adjusts contrast and scale and displays in GUI
+    replaced by draw_scaled_image
     :param file: fits-file with extension
     :param imscale: scale for displayed image
     :param image_element: where to display image in GUI
     :param contr: image contrast
+    :param show: if True, image_element isupdated, otherwise only 'tmp.png' is created
     :return:
     """
     imbw, header = get_fits_image(file)
@@ -887,26 +859,25 @@ def show_fits_image(file, imscale, image_element, contr=1.0):
         im = tf.rescale(imbw, imscale, multichannel=False)
     else:
         im = tf.rescale(imbw, imscale, multichannel=True)
-    # im = np.maximum(0.0, im)
     im = im / np.max(im) * 255 * contr
     im = np.clip(im, 0.0, 255)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        io.imsave('tmp.png', np.flipud(im).astype(np.uint8))
-    image_element.update(filename='tmp.png')
+        ios.imsave('tmp.png', np.flipud(im).astype(np.uint8))
+    if show:
+        image_element.update(filename='tmp.png')
     return
 
 
 # -------------------------------------------------------------------
 
-def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil, maxim):
+def select_rectangle(infile, start, res_dict, fits_dict, wloc, outfil, maxim):
     """
     displays new window with image infile + start + 'fit
     a rectangle around the selected line can be selected with dragging the mouse
     :param infile: filebase of image
     :param start: index of selected image
-    :param par_dict: dictionary
-    :param res_dict: "
+    :param res_dict: dictionary
     :param fits_dict: "
     :param wloc: location of displayed window for selection
     :param outfil:
@@ -921,17 +892,15 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
     get_fits_keys(header, fits_dict, res_dict, keyprint=False)
     # #===================================================================
     # new rect_plt
+    # first get size of graph from tmp.png and size of image
+    # graph coordinates are in image pixels!
     (imy, imx) = im.shape[:2]
-    imbw = np.flipud(io.imread('tmp.png'))  # get shape
+    image_file = 'tmp.png'      # scaled image
+    imbw = np.flipud(ios.imread(image_file))  # get shape
     (canvasy, canvasx) = imbw.shape[:2]
-    if debug:
-        print('canvas:', canvasx, canvasy)
     wlocw = (wloc[0] + 300, wloc[1] + 50)
-    image_file = 'tmp.png'
     # check for old files
     delete_old_files(outfil, maxim, ext='.fit')
-    par_dict['i_imx'] = imx
-    par_dict['i_imy'] = imy
     image_elem_sel = [sg.Graph(
         canvas_size=(canvasx, canvasy),
         graph_bottom_left=(0, 0),  # starts at top, set y-scale here
@@ -951,12 +920,13 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
     # get the graph element for ease of use later
     graph = winselect['-GRAPH-']  # type: sg.Graph
     graph.draw_image(image_file, location=(0, imy)) if image_file else None
+    winselect.refresh()
     dragging = False
     start_point = end_point = prior_rect = None
     x0 = y0 = dx = dy = 0
     while winselect_active:
         event, values = winselect.read()
-        graph.draw_rectangle((0, 0), (imx, imy), line_color='blue')
+        idg = graph.draw_rectangle((0, 0), (imx, imy), line_color='blue')
         if event == "-GRAPH-":  # if there's a "Graph" event, then it's a mouse
             x, y = (values["-GRAPH-"])
             if not dragging:
@@ -985,9 +955,9 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
                 y0 = xy0[1]
                 dx = int((size[0] + 1) / 2)
                 dy = int((size[1] + 1) / 2)
-                # print('x0, y0, newr dx, dy: ', x0, y0, 2 * dx, 2 * dy)
 
         elif event in ('Ok', 'Cancel'):
+            graph.delete_figure(idg)
             winselect_active = False
             winselect.close()
     return event, x0, y0, dx, dy
@@ -995,7 +965,8 @@ def select_rectangle(infile, start, par_dict, res_dict, fits_dict, wloc, outfil,
 
 # -------------------------------------------------------------------
 
-def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, contr, wloc, restext, regtext, window):
+def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
+                              contr, wloc, restext, regtext, window):
     """
     displays new window with image outfile.fit for selection of rows to be added
     allows adjustment of tilt and slant after selection of rows
@@ -1004,6 +975,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
     :param par_dict:
     :param res_dict:
     :param fits_dict:
+    :param opt_dict:
     :param imscale:
     :param contr:
     :param wloc:
@@ -1030,6 +1002,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
     slant = 0.0
     ymin = 0
     ymax = 0
+    idg = None
     im, header = get_fits_image(outfile)
     if 'D_X00' in header.keys():
         dist = True
@@ -1040,10 +1013,10 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
     im = im / np.max(im)
     imtilt = im
     fits_dict = get_fits_keys(header, fits_dict, res_dict, keyprint=False)
-    write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)
+    write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)  # used for calibration, if no tilt, slant
     # new rect_plt
     (imy, imx) = im.shape[:2]
-    imbw = np.flipud(io.imread('tmp.png'))  # get shape
+    imbw = np.flipud(ios.imread('tmp.png'))  # get shape
     (canvasy, canvasx) = imbw.shape[:2]
     wlocw = (wloc[0] + 300, wloc[1] + 100)
     image_file = 'tmp.png'
@@ -1052,8 +1025,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
     par_dict['i_imy'] = imy
     image_elem_sel = [sg.Graph(
         canvas_size=(canvasx, canvasy),
-        graph_bottom_left=(0, 0),  # starts at top, set y-scale here
-        graph_top_right=(imx, imy),  # set x-scale here
+        graph_bottom_left=(0, 0),
+        graph_top_right=(imx, imy),  # set x- and y-scale here
         key='-GRAPH-',
         change_submits=True,  # mouse click events
         drag_submits=True)]
@@ -1096,12 +1069,10 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
         elif event is not None and event.endswith('+UP'):
             # The drawing has ended because mouse up
             y0 = int(0.5 * (start_point[1] + end_point[1]))
-            w = int(abs(0.5 * (start_point[1] - end_point[1])))
             info = f"selected lines from {ymin} to {ymax}"
             winselect["info"].update(value=info)
             start_point, end_point = None, None  # enable grabbing a new rect
             dragging = False
-            # print('ymin, ymax, y0, w: ', ymin, ymax, y0, w)
             restext += info + '\n'
             window['-RESULT3-'].update(regtext + restext)
 
@@ -1112,7 +1083,6 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
                 try:
                     tilt = float(values['-TILT-'])
                     slant = float(values['-SLANT-'])
-                    # print('tilt,slant', tilt,slant)
                     image = im
                     center = (image.shape[1] / 2, y0)
                     warp_args = {'center': center,
@@ -1128,23 +1098,27 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
                     restext += f'tilt = {tilt:8.4f}, slant = {slant:7.3f}' + '\n'
                     window['-RESULT3-'].update(regtext + restext, autoscroll=True)
 
-                except TypeError or ValueError:
+                except:
                     sg.PopupError('bad values for tilt or slant, try again',
                                   keep_on_top=True)
                 write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)
-                show_fits_image(outfile + 'st', imscale, window['-R_IMAGE-'], contr)
-                graph.draw_image(image_file, location=(0, imy)) if image_file else None
+                draw_scaled_image(outfile + 'st' + '.fit', [window['-R_IMAGE-']],
+                                  opt_dict, window, idg, contr=contr, tmp_image=True)
+                image_data, im_scale = get_img_filename(outfile + 'st' + '.fit', opt_dict, window)
+                if idg: graph.delete_figure(idg)
+                idg = window['-R_IMAGE-'].draw_image(data=image_data, location=(0, graph_size))
+                graph.draw_image(image_file, location=(0, imy))
                 graph.draw_rectangle((0, ymin), (imx, ymax), line_color='red')
                 graph.update()
 
         elif event == 'Ok':
-            show_fits_image(outfile + 'st', imscale, window['-R_IMAGE-'], contr)
+            draw_scaled_image(outfile + 'st' + '.fit', [window['-R_IMAGE-']],
+                              opt_dict, window, idg, contr=contr, tmp_image=True)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                # im = np.maximum(0.0, imtilt)
                 im = imtilt / np.max(imtilt) * 255 * contr
                 im = np.clip(im, 0.0, 255)
-                io.imsave(outfile + 'st.png', np.flipud(im.astype(np.uint8)))
+                ios.imsave(outfile + 'st.png', np.flipud(im.astype(np.uint8)))
             logging.info(f' file {outfile}.fit loaded for addition of rows')
             logging.info(f"start = {fits_dict['M_STARTI']}, nim = {fits_dict['M_NIM']}")
             logging.info(f'added from {ymin} to {ymax}, {(ymax - ymin + 1)} rows')
@@ -1161,6 +1135,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, imscale, c
             fits_dict.pop('M_ROWMIN', None)
             fits_dict.pop('M_ROWMAX', None)
             winselect_active = False
+            if idg: graph.delete_figure(idg)
             winselect.close()
             window['-SAVE_RAW-'].update(disabled=False, button_color=bc_enabled)
             window['-CAL_R-'].update(disabled=False, button_color=bc_enabled)
@@ -1289,12 +1264,11 @@ def read_video_list(file):
 
 # -------------------------------------------------------------------
 
-def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c, debug):
+def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     """
     calculates the fit for the calibration table with residuals
     from the polynomial fit
     and apply those to the pixels vector
-    :param debug:
     :param rawspec: uncalibrated spectrum
     :param xcalib: measured pixel positions
     :param lcalib: calibration wavelengths
@@ -1405,7 +1379,7 @@ def view_fits_header(fits_file):
         for key in header:
             line = f'{key:>20}: {header[key]}\n'
             text += line
-        window = sg.Window('View Fits-Header: ' + file,
+        sg.Window('View Fits-Header: ' + file,
                        [[sg.Multiline(text, size=(60, 30), autoscroll=True, key='-MLINE-', font='Courier')],
                         [sg.Button('Exit')]], keep_on_top=True).read(close=True)
 
@@ -1416,7 +1390,7 @@ def about(version):
     :param version: version of main script
     """
     font = ('Helvetica', 12)
-    window = sg.Window('M_spec', [[sg.Text('M_SPEC', font=('Helvetica', 20))],
+    sg.Window('M_spec', [[sg.Text('M_SPEC', font=('Helvetica', 20))],
                         [sg.Text('Analysis of meteor spectra from Video files', font=font)],
                         [sg.Text(f'Version = {version}', font=font)],
                         [sg.Text('copyright M. Dubs, 2020', font=font)],
@@ -1424,23 +1398,26 @@ def about(version):
                          keep_on_top=True).read(close=True)
 
 
-def add_images(imscale, contrast=1, average=True):
+def add_images(graph_size, contrast=1, average=True):
     """
     shows window for selection of images to add and resulting sum-image
     or by default the average of the images
-    :param imscale: scale factor for displaying images,
-                    does not change true image size
+    :param graph_size: canvas size of graph in pixel
     :param contrast: brightness of displayed images
     :param average: if True, calculate average
     :return: filename of sum-image, number of images or '', 0
     """
     files = []
+    idg = None
+    max_width = opt_dict['win_width'] - 350  # graph size as for main window
+    max_height = opt_dict['win_height'] - 111
+    graph_element = sg.Graph(
+                canvas_size=(max_width, max_height), graph_bottom_left=(0, 0), graph_top_right=graph_size,
+                key='graph', change_submits=True, drag_submits=True)
     window = sg.Window('Add registered images', [[sg.Input('', key='add_images', size=(80, 1)),
-                sg.Button('Load Files')],
-                [sg.Text('Number Images:'), sg.Input('0', size=(8, 1), key='nim'),
-                 sg.Button('Darker'), sg.Button('Brighter')],
-                [sg.Image('tmp.png', key='sum_image')],
-                [sg.Button('Save'), sg.Button('Cancel')]])
+                sg.Button('Load Files')], [sg.Text('Number Images:'), sg.Input('0', size=(8, 1), key='nim'),
+                sg.Button('Darker'), sg.Button('Brighter')],
+                [graph_element], [sg.Button('Save'), sg.Button('Cancel')]])
     while True:  # Event Loop
         event, values = window.read()
         if event is 'Load Files':
@@ -1450,34 +1427,43 @@ def add_images(imscale, contrast=1, average=True):
                 sum_image = []
                 number_images = 0
                 short_files = path.dirname(files[0])
-                for file in files:
-                    short_files += ' ' + path.basename(file)
-                    image, header = get_fits_image(change_extension(file, ''))
-                    if sum_image == []:
-                        sum_image = image
-                    else:
-                        sum_image += image
-                    number_images += 1
-                if average and number_images:
-                    sum_image /= number_images
-                get_fits_keys(header, fits_dict, res_dict)
-                fits_dict['M_STARTI'] = '0'  # set value for special addition
-                dist = False
-                for key in header.keys():
-                    if key is 'D_A3':
-                        dist = True
-                fits_dict['M_NIM'] = str(number_images)
-                write_fits_image(sum_image, 'tmp.fit', fits_dict, dist=dist)
-                show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
-                window['add_images'].update(short_files)
-                window['nim'].update(str(number_images))
-                window.refresh()
+                try:
+                    for file in files:
+                        short_files += ' ' + path.basename(file)
+                        image, header = get_fits_image(change_extension(file, ''))
+                        if sum_image == []:
+                            sum_image = image
+                        else:
+                            sum_image += image
+                        number_images += 1
+                    if average and number_images:
+                        sum_image /= number_images
+                    get_fits_keys(header, fits_dict, res_dict)
+                    fits_dict['M_STARTI'] = '0'  # set value for special addition
+                    dist = False
+                    for key in header.keys():
+                        if key is 'D_A3':
+                            dist = True
+                    fits_dict['M_NIM'] = str(number_images)
+                    write_fits_image(sum_image, 'tmp.fit', fits_dict, dist=dist)
+                    # show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
+                    draw_scaled_image('tmp.fit', [window['graph']],
+                                      opt_dict, window, idg, contr=contrast)
+                    window['add_images'].update(short_files)
+                    window['nim'].update(str(number_images))
+                    window.refresh()
+                except ValueError:
+                    sg.PopupError('Images cannot be added, different size?')
         if event is 'Darker':
             contrast = 0.5 * contrast
-            show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
+            draw_scaled_image('tmp.fit', [window['graph']],
+                          opt_dict, window, idg, contr=contrast)
+            window.refresh()
         if event is 'Brighter':
             contrast = 2.0 * contrast
-            show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
+            draw_scaled_image('tmp.fit', [window['graph']],
+                          opt_dict, window, idg, contr=contrast)
+        window.refresh()
         if event is 'Save' and files:
             sum_file = sg.PopupGetFile('Save images', save_as=True, no_window=True, default_extension='.fit')
             if sum_file:
@@ -1487,3 +1473,87 @@ def add_images(imscale, contrast=1, average=True):
         if event in ('Cancel', None):
             window.close()
             return '', 0
+# -------------------------------------------------------------------
+
+
+def set_image_scale(imx, imy, opt_dict, window):
+    """
+    sets image scale of displayed image, depending on options
+    if scale_win2ima: imscale = zoom, window size adapted to image size
+    else imscale adapted to window size
+    :param imx: width of image
+    :param imy: heigth of image
+    :param opt_dict: options dictionary
+    :param window: main window of UI
+    :return: imscale
+    """
+    # (imy, imx) = image.shape[:2]
+    if opt_dict['scale_win2ima']:  # fit window to image size
+        imscale = opt_dict['zoom']
+        opt_dict['win_width'] = max(int(imx * zoom), 600) + 350
+        opt_dict['win_height'] = max(int(imy * zoom), 540) + 111
+    else:  # fit image size to window
+        opt_dict['win_width'], opt_dict['win_height'] = window.Size
+        max_width = opt_dict['win_width'] - 350
+        max_height = opt_dict['win_height'] - 111
+        imscale = min(max_width / imx, max_height / imy)
+    return imscale
+
+# -------------------------------------------------------------------
+
+
+def get_img_filename(f, opt_dict, window, contr=1, tmp_image=False, resize=True):
+    """
+    Generate image data using PIL
+    works for image files .jpg, .png, .tif, .ico etc.
+    extended for 32 and 64 bit fits-images
+    f: image file PIL-readable (.png, .jpg etc) or fits-file (32 or 64 bit, b/w, color images)
+    return: byte-array from buffer
+    """
+    im_scale = 1.0
+    if f.lower().endswith('.fit'):
+        ima, header = get_fits_image(f)  # get numpy array and fits-header
+        # cur_width, cur_height = ima.shape[1], ima.shape[0]  # size of image
+        ima = ima / np.max(ima) * contr
+        ima = np.clip(ima, 0.0, 1.0)  # Image does not like negative values
+        ima = np.flipud(np.uint8(255 * ima))  # converts floating point to int8-array
+        # https://stackoverflow.com/questions/10965417/how-to-convert-a-numpy-array-to-pil-image-applying-matplotlib-colormap
+        # needed for imag.resize, converts numpy array to PIL format
+        imag = Image.fromarray(np.array(ima))
+    else:
+        imag = PIL.Image.open(f)
+    if resize:
+        cur_width, cur_height = imag.size  # size of image
+        im_scale = set_image_scale(cur_width, cur_height, opt_dict, window)
+        imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), PIL.Image.ANTIALIAS)
+    bio = io.BytesIO()
+    imag.save(bio, format="PNG")
+    if tmp_image:
+        imag.save('tmp.png')
+    del imag
+    return bio.getvalue(), im_scale
+
+
+def get_img_data(data, resize=None):
+    """Generate PIL.Image data using PIL
+    """
+    imag = PIL.Image.open(io.BytesIO(base64.b64decode(data)))
+    cur_width, cur_height = imag.size
+    if resize:
+        new_width, new_height = resize
+        scale = min(new_height / cur_height, new_width / cur_width)
+        imag = imag.resize((cur_width * scale, cur_height * scale), PIL.Image.ANTIALIAS)
+    bio = io.BytesIO()
+    imag.save(bio, format="PNG")
+    del imag
+    return bio.getvalue()
+
+
+def draw_scaled_image(file, graph_list, opt_dict, window, idg, contr=1, tmp_image=False, resize=True):
+    image_data, im_scale = get_img_filename(file, opt_dict, window, contr, tmp_image, resize)
+    for graph in graph_list:
+        if idg: graph.delete_figure(idg)
+        idg = graph.draw_image(data=image_data, location=(0, opt_dict['graph_size']))
+        window.refresh()
+    return im_scale, idg
+

@@ -12,7 +12,7 @@ from PIL import ImageGrab
 
 import m_specfun as m_fun
 
-version = '0.9.18'
+version = '0.9.19'
 
 
 def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale=True, gridlines=True,
@@ -206,7 +206,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                                          (lmax + 10 / lscale, imax + 30 / iscale))
                 draw_spectrum(lcal, ical, lmin, lmax, color='red')
                 graph.update()
-            except TypeError or ValueError:
+            except:
                 sg.PopupError('invalid values for Imin, Imax, try again', keep_on_top=True)
         elif event in ('Multiply spectrum by factor', 'Divide Spectrum by factor'):
             factor = float(values['factor'])
