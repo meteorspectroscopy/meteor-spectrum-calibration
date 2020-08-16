@@ -12,7 +12,7 @@ from PIL import ImageGrab
 
 import m_specfun as m_fun
 
-version = '0.9.19'
+version = '0.9.21'
 
 
 def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale=True, gridlines=True,
@@ -50,11 +50,11 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
         lcal, ical = np.loadtxt(llist, unpack=True, ndmin=2)
     mod_file = ''
     caltext = ''
-    x = 0
-    y = 0
+    x = y = 0
     c_array = ['blue', 'green', 'red', 'black', 'grey', 'brown',
                'blue', 'green', 'red', 'black', 'grey', 'brown']
     if multi_plot:
+        index = 0
         l_array = []
         i_array = []
         f_array = []
@@ -62,7 +62,6 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                           no_window=True, multiple_files=True,
                           file_types=(('Spectra', '*.dat'), ('ALL Files', '*.*'),), )
         if spec_list:
-            index = 0
             imin = 0
             imax = 0
             for spec in spec_list:
@@ -288,9 +287,19 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                     new_label = values['label']
                     if new_label != lam_calib[kk]:
                         x = new_label.lstrip()
-                        (lam_peak, name) = x.split(' ', 1)
+                        if len(x.split(' ', 1)) == 2:
+                            (lam_peak, name) = x.split(' ', 1)
+                        else:
+                            window.Minimize()
+                            window_label.close()
+                            sg.PopupError(' type: wavelength (space) description, two values required ')
+                            window.Normal()
+                            break
                         lam_peak = float(lam_peak)
-                    graph.DrawLine((lam_peak, i_peak + 20 / iscale), (lam_peak, y - 20 / iscale), 'black', 2)
+                    if y > i_peak:
+                        graph.DrawLine((lam_peak, i_peak + 20 / iscale), (lam_peak, y - 20 / iscale), 'black', 2)
+                    else:
+                        graph.DrawLine((lam_peak, i_peak - 20 / iscale), (lam_peak, y + 20 / iscale), 'black', 2)
                     graph.DrawText(new_label, location=(lam_peak, y),
                                    text_location=sg.TEXT_LOCATION_CENTER,
                                    font='Arial 12', color='black')
