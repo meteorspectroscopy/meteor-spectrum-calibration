@@ -708,7 +708,7 @@ def main():
                     window['-INDEX_R-'].update(mdist + str(i_reg))
                 else:
                     sg.PopupError(f'File {infile + str(i_reg)}.fit not found')
-            if fits_dict['DATE-OBS']:
+            if 'DATE-OBS' in fits_dict.keys():
                 dat_tim = fits_dict['DATE-OBS']
                 sta = fits_dict['M_STATIO']
             else:

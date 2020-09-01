@@ -31,8 +31,8 @@ if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
 version = '0.9.21'
-today = date.today()
-logfile = 'm_spec' + today.strftime("%y%m%d") + '.log'
+# today = date.today()
+logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
@@ -220,7 +220,7 @@ def write_fits_image(image, filename, fits_dict, dist=True):
     :param filename: filename with extension .fit
     :param fits_dict: content of fits header
     :param dist: True: distorted image; False: undistorted image
-    :return: None
+    :return: 1 if error, else 0
     """
     if len(image.shape) == 3:
         if image.shape[2] > 3:  # cannot read plots with multiple image planes
@@ -253,7 +253,7 @@ def get_png_image(filename, colorflag=False):
     :return: image as 2 or 3-D array
     """
     image = np.flipud(img_as_float(ios.imread(filename)))
-    if not colorflag:
+    if not colorflag and len(image.shape) == 3:
         image = np.sum(image, axis=2) / 3
     return image
 
@@ -292,7 +292,7 @@ def extract_video_images(avifile, pngname, bobdoubler, binning, bff, maxim):
         cshell = False
     else:
         cshell = True
-    logging.info(f'Platorm: {sys}')
+    logging.info(f'Platform: {sys}')
     out = pngname
     pngdir, tmp = path.split(pngname)
     nim = 0
@@ -637,7 +637,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         logging.info(info)
         disttext += info + '\n'
         # print(f'process time background, dark and dist {t2:8.2f} sec')
-        if fits_dict['DATE-OBS']:
+        if 'DATE-OBS' in fits_dict.keys():
             dattim = fits_dict['DATE-OBS']
             sta = fits_dict['M_STATIO']
         else:
@@ -875,7 +875,7 @@ def get_fits_image(fimage):
 def show_fits_image(file, imscale, image_element, contr=1.0, show=True):
     """
     not needed at present, left in place for further use
-    loads fits-image, adjusts contrast and scale and displays in GUI
+    loads fits-image, adjusts contrast and scale and displays in GUI as tmp.png
     replaced by draw_scaled_image
     :param file: fits-file with extension
     :param imscale: scale for displayed image
@@ -1422,13 +1422,20 @@ def view_fits_header(fits_file):
                    [sg.Button('Exit')]], keep_on_top=True).read(close=True)
 
 
-def about(version):
+def about(version, program='M_Spec'):
     """
     shows program information, author, copyright, version
     :param version: version of main script
+    :param program: default: 'M_Spec', alternative: 'M_Calib'
     """
+    subtitle = 'Analysis of meteor spectra from Video files'
+    if program == 'M_Calib':
+        subtitle = 'Calibration of meteor spectra with grating\n'
+        subtitle += 'mounted perpendicular to optical axis\n'
+        subtitle += 'see:\nhttps://meteorspectroscopy.org/welcome/documents/\n\n'
+        subtitle += 'Martin Dubs, 2019'
     font = ('Helvetica', 12)
-    sg.Window('M_spec', [[sg.Text('M_SPEC', font=('Helvetica', 20))],
+    sg.Window(program, [[sg.Text(program, font=('Helvetica', 20))],
                          [sg.Text('Analysis of meteor spectra from Video files', font=font)],
                          [sg.Text(f'Version = {version}', font=font)],
                          [sg.Text('copyright M. Dubs, 2020', font=font)],
