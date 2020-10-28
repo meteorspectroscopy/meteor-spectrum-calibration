@@ -36,14 +36,9 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
     # --------------------------------------------------------------
     def draw_spectrum(lcal, ical, lmin, lmax, color='blue'):
         for l0 in range(0, len(lcal)):
-            if lmax > lmin:
-                if lmin <= lcal[l0] <= lmax:
-                    if l0:
-                        graph.DrawLine((lcal[l0 - 1], ical[l0 - 1]), (lcal[l0], ical[l0]), color, 2)
-            else:  # reverse axis for negative orders
-                if lmin >= lcal[l0] >= lmax:
-                    if l0:
-                        graph.DrawLine((lcal[l0 - 1], ical[l0 - 1]), (lcal[l0], ical[l0]), color, 2)
+            if (lmax > lmin and lmin <= lcal[l0] <= lmax) or (lmax < lmin and lmin >= lcal[l0] >= lmax):
+                if l0:
+                    graph.DrawLine((lcal[l0 - 1], ical[l0 - 1]), (lcal[l0], ical[l0]), color, 2)
 
     # --------------------------------------------------------------
     if llist:
@@ -107,8 +102,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                                    'Save modified spectrum', 'Normalize to peak value',
                                    'Compare with spectrum', 'Label Peak']]
 
-    window = sg.Window(llist, layout, keep_on_top=True, right_click_menu=right_click_menu,
-                       grab_anywhere=True).Finalize()
+    window = sg.Window(llist, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
     graph = window['graph']
     label_str, lam_calib = m_fun.create_line_list_combo('m_linelist', window, combo=False)
 
@@ -173,21 +167,21 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             window.close()
             return mod_file, imin, imax, caltext
 
-        elif event is 'graph':  # if there's a "Graph" event, then it's a mouse
+        elif event == 'graph':  # if there's a "Graph" event, then it's a mouse
             x, y = (values['graph'])
             window['cursor'].update(f'Lambda:{x:8.2f}  Int:{y:8.2f}')
 
-        elif event is 'Save':
+        elif event == 'Save':
             window.Minimize()
-            filename = sg.popup_get_file('Choose filename (PNG) to save to', save_as=True, keep_on_top=True,
-                            no_window=True, default_path=llist, default_extension='.png', size=(80, 1))
+            filename, info = m_fun.my_get_file(llist, save_as=True,
+                                               file_types=(('Image Files', '*.png'), ('ALL Files', '*.*')),
+                                               title='Save spectrum plot (.PNG)', default_extension='*.png', )
             window.Normal()
             time.sleep(1.0)
             if filename:
                 p, ext = path.splitext(filename)
                 p += '.png'
             else:
-                # p = str(Path(llist).with_suffix('')) + '_plot.png'
                 p, ext = path.splitext(llist)
                 p += '_plot.png'
             save_element_as_file(window['graph'], p)
@@ -196,7 +190,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             caltext += info + '\n'
             window.close()
             return mod_file, imin, imax, caltext
-        elif event is 'scaleI':
+        elif event == 'scaleI':
             try:
                 imin = float(values['imin'])
                 imax = float(values['imax'])
@@ -208,22 +202,25 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             except:
                 sg.PopupError('invalid values for Imin, Imax, try again', keep_on_top=True)
         elif event in ('Multiply spectrum by factor', 'Divide Spectrum by factor'):
-            factor = float(values['factor'])
-            if event is 'Multiply spectrum by factor':
-                ical = ical * factor
-                info = f'spectrum {llist} multiplied by factor {factor}'
-            else:
-                ical = ical / factor
-                info = f'spectrum {llist} divided by factor {factor}'
+            try:
+                factor = float(values['factor'])
+                if event == 'Multiply spectrum by factor':
+                    ical = ical * factor
+                    info = f'spectrum {llist} multiplied by factor {factor}'
+                else:
+                    ical = ical / factor
+                    info = f'spectrum {llist} divided by factor {factor}'
+            except:
+                sg.PopupError('invalid value for Factor, try again', keep_on_top=True)
+                info = 'invalid factor'
             caltext += info + '\n'
             logging.info(info)
             draw_spectrum(lcal, ical, lmin, lmax, color='red')
             graph.update()
-        elif event is 'Save modified spectrum':
+        elif event == 'Save modified spectrum':
             window.Minimize()
-            mod_file = sg.PopupGetFile('Save modified spectrum', save_as=True, no_window=True,
-                           default_path=llist,
-                           file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),), )
+            mod_file, info = m_fun.my_get_file(llist, title='Save modified spectrum', save_as=True,
+                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if mod_file:
                 mod_file = m_fun.change_extension(mod_file, '.dat')
                 np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
@@ -231,7 +228,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                 logging.info(info)
                 caltext += info + '\n'
             window.Normal()
-        elif event is 'Normalize to peak value':
+        elif event == 'Normalize to peak value':
             peak_int = max(ical)
             ical = ical / peak_int
             imin = -.1
@@ -243,11 +240,10 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             caltext += info
             logging.info(info)
             draw_spectrum(lcal, ical, lmin, lmax, color='red')
-        elif event is 'Compare with spectrum':
+        elif event == 'Compare with spectrum':
             window.Minimize()
-            comp_file = sg.PopupGetFile('Compare with spectrum', save_as=False, no_window=True,
-                            default_path=llist,
-                            file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),), )
+            comp_file, info = m_fun.my_get_file(llist, title='Compare with spectrum', save_as=False,
+                        file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if comp_file:
                 window.Normal()
                 caltext += f'File {comp_file} loaded\n'
@@ -259,7 +255,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                 graph.DrawText(comp_file, (lmax - 20 / lscale, imax - 40 / iscale),
                                text_location=sg.TEXT_LOCATION_RIGHT,
                                font='Arial 12', color='red')
-        elif event is 'Label Peak':
+        elif event == 'Label Peak':
             layout_label = [[sg.InputText('Cursor', size=(40, 1), key='cursor', disabled=True)],
                             [sg.InputText('', size=(40, 1), key='label')],
                             [sg.Button('Apply'), sg.Button('Cancel')]]
@@ -351,7 +347,6 @@ def plot_raw_spectrum(rawspec, graph, canvasx):
     points = []
     for l0 in range(len(lcal)):
         points.append((lcal[l0], ical[l0]))
-    # graph = window['graph']
     graph.change_coordinates((lmin, imin), (lmax, imax))
     # erase graph with rectangle
     graph.DrawRectangle((lmin, imin), (lmax, imax), fill_color='white', line_width=1)

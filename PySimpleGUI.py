@@ -1,6 +1,5 @@
 #!/usr/bin/python3
-
-version = __version__ = "4.20.0 Released 6-Jun-2020"
+version = __version__ = "4.29.0 Released 25-Aug-2020"
 
 port = 'PySimpleGUI'
 
@@ -32,7 +31,7 @@ port = 'PySimpleGUI'
 """
 Copyright 2018, 2019, 2020 PySimpleGUI.org
 
-OK, let's get the bullshit out of the way
+OK, let's get the BS out of the way
 
 This software is available for your use under a MODIFIED LGPL3+ license
 
@@ -96,36 +95,32 @@ The User Manual and the Cookbook are both designed to paint some nice looking GU
 
 """
 
-# do the Python 2 or 3 check so the right tkinter stuff can get pulled in
 import sys
 
-if sys.version_info[0] >= 3:
-    import tkinter as tk
-    from tkinter import filedialog
-    from tkinter.colorchooser import askcolor
-    from tkinter import ttk
-    import tkinter.scrolledtext as tkst
-    import tkinter.font
-else:  # Do NOT remove any of these regardless of what your IDE or lint says. They are transformed in the 3 to 2 process
-    import Tkinter as tk
-    import tkFileDialog
-    import ttk
-    import tkColorChooser
-    import tkFont
-    import ScrolledText
-
+# all of the tkinter involved imports
+import tkinter as tk
+from tkinter import filedialog
+from tkinter.colorchooser import askcolor
+from tkinter import ttk
+import tkinter.scrolledtext as tkst
+import tkinter.font
+# end of tkitner specific imports
 import datetime
 import time
 import pickle
 import calendar
 import datetime
 import textwrap
+
 import inspect
+import traceback
+import difflib
+
 try:        # Because Raspberry Pi is still on 3.4....it's not critical if this module isn't imported on the Pi
-    from typing import List, Any, Union, Tuple, Dict    # because this code has to run on 2.7 can't use real type hints.  Must do typing only in comments
+    from typing import List, Any, Union, Tuple, Dict, SupportsAbs, Optional  # because this code has to run on 2.7 can't use real type hints.  Must do typing only in comments
 except:
     print('*** Skipping import of Typing module. "pip3 install typing" to remove this warning ***')
-from random import randint
+import random
 import warnings
 from math import floor
 from math import fabs
@@ -138,6 +133,12 @@ except:
 from threading import Thread
 import itertools
 import os
+import queue
+try:
+    import webbrowser
+    webbrowser_available = True
+except:
+    webbrowser_available = False
 
 warnings.simplefilter('always', UserWarning)
 
@@ -213,6 +214,10 @@ def _timeit_summary(func):
 
     return wrapper
 
+
+# Handy python statements to increment and decrement with wrapping that I don't want to forget
+# count = (count + (MAX - 1)) % MAX           # Decrement - roll over to MAX from 0
+# count = (count + 1) % MAX                   # Increment to MAX then roll over to 0
 
 """
     Welcome to the "core" PySimpleGUI code....
@@ -336,6 +341,7 @@ DEFAULT_TTK_THEME = THEME_DEFAULT
 USE_TTK_BUTTONS = None
 
 DEFAULT_PROGRESS_BAR_COLOR = (GREENS[0], '#D0D0D0')  # a nice green progress bar
+DEFAULT_PROGRESS_BAR_COMPUTE = ('#000000', '#000000') # Means that the progress bar colors should be computed from other colors
 DEFAULT_PROGRESS_BAR_COLOR_OFFICIAL = (GREENS[0], '#D0D0D0')  # a nice green progress bar
 DEFAULT_PROGRESS_BAR_SIZE = (20, 20)  # Size of Progress Bar (characters for length, pixels for width)
 DEFAULT_PROGRESS_BAR_BORDER_WIDTH = 1
@@ -400,6 +406,24 @@ MENU_DISABLED_CHARACTER = '!'
 MENU_KEY_SEPARATOR = '::'
 
 ENABLE_TK_WINDOWS = False
+
+SUPPRESS_ERROR_POPUPS = False
+SUPPRESS_RAISE_KEY_ERRORS = False
+SUPPRESS_KEY_GUESSING = False
+
+ENABLE_TREEVIEW_869_PATCH = True
+OLD_TABLE_TREE_SELECTED_ROW_COLORS = ('#FFFFFF', '#4A6984')
+ALTERNATE_TABLE_AND_TREE_SELECTED_ROW_COLORS = ('SystemHighlightText', 'SystemHighlight')
+
+# Some handy unicode symbols
+SYMBOL_SQUARE = '█'
+SYMBOL_CIRCLE = '⚫'
+SYMBOL_CIRCLE_OUTLINE = '◯'
+SYMBOL_UP =    '▲'
+SYMBOL_RIGHT = '►'
+SYMBOL_LEFT =  '◄'
+SYMBOL_DOWN =  '▼'
+SYMBOL_X = '❎'
 
 
 # ====================================================================== #
@@ -502,9 +526,9 @@ class ToolTip:
         :param widget: The tkinter widget
         :type widget: widget type varies
         :param text: text for the tooltip. It can inslude \n
-        :type text: str
+        :type text: (str)
         :param timeout: Time in milliseconds that mouse must remain still before tip is shown
-        :type timeout: int
+        :type timeout: (int)
         """
         self.widget = widget
         self.text = text
@@ -560,7 +584,11 @@ class ToolTip:
         x = self.widget.winfo_rootx() + self.x + DEFAULT_TOOLTIP_OFFSET[0]
         y = self.widget.winfo_rooty() + self.y + DEFAULT_TOOLTIP_OFFSET[1]
         self.tipwindow = tk.Toplevel(self.widget)
-        self.tipwindow.wm_overrideredirect(True)
+        # if not sys.platform.startswith('darwin'):
+        try:
+            self.tipwindow.wm_overrideredirect(True)
+        except:
+            print('* Error performing wm_overrideredirect *')
         self.tipwindow.wm_geometry("+%d+%d" % (x, y))
         self.tipwindow.wm_attributes("-topmost", 1)
 
@@ -591,10 +619,7 @@ class ToolTip:
 #                       Element CLASS                                       #
 # ------------------------------------------------------------------------- #
 class Element():
-    """
-    The base class for all Elements.
-    Holds the basic description of an Element like size and colors
-    """
+    """ The base class for all Elements. Holds the basic description of an Element like size and colors """
 
     def __init__(self, type, size=(None, None), auto_size_text=None, font=None, background_color=None, text_color=None, key=None, pad=None, tooltip=None,
                  visible=True, metadata=None):
@@ -604,7 +629,7 @@ class Element():
         :param type: The type of element. These constants all start with "ELEM_TYPE_"
         :type type: (int) (could be enum)
         :param size: w=characters-wide, h=rows-high
-        :type size: Tuple[int, int]  (width, height)
+        :type size: (int, int)  (width, height)
         :param auto_size_text: True if the Widget should be shrunk to exactly fit the number of chars to show
         :type auto_size_text: bool
         :param font: specifies the font family, size, etc (see docs for exact formats)
@@ -614,7 +639,7 @@ class Element():
         :param text_color: element's text color. Can be in #RRGGBB format or a color name "black"
         :type text_color: (str)
         :param key: Identifies an Element. Should be UNIQUE to this window.
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
@@ -622,7 +647,7 @@ class Element():
         :param visible: set visibility state of the element (Default = True)
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
         self.Size = size
         self.Type = type
@@ -679,8 +704,9 @@ class Element():
         self.MenuItemChosen = item_chosen.replace('&', '')
         self.ParentForm.LastButtonClicked = self.MenuItemChosen
         self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        _exit_mainloop(self.ParentForm)
+            # Window._window_that_exited = self.ParentForm
+            # self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
 
     def _FindReturnKeyBoundButton(self, form):
         """
@@ -726,13 +752,9 @@ class Element():
         :param event:
 
         """
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = self.DisplayText
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        self._generic_callback_handler(self.DisplayText)
+        return
+
 
     def _ReturnKeyHandler(self, event):
         """
@@ -746,6 +768,32 @@ class Element():
         if button_element is not None:
             button_element.ButtonCallBack()
 
+
+    def _generic_callback_handler(self, alternative_to_key=None, force_key_to_be=None):
+        """
+        Peforms the actions that were in many of the callback functions previously.  Combined so that it's
+        easier to modify and is in 1 place now
+
+        :param event: From tkinter and is not used
+        :type event: Any
+        :param alternate_to_key: If key is None, then use this value instead
+        :type alternate_to_key: Any
+        """
+        if force_key_to_be is not None:
+            self.ParentForm.LastButtonClicked = force_key_to_be
+        elif self.Key is not None:
+            self.ParentForm.LastButtonClicked = self.Key
+        else:
+            self.ParentForm.LastButtonClicked = alternative_to_key
+        self.ParentForm.FormRemainedOpen = True
+
+        _exit_mainloop(self.ParentForm)
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     Window._window_that_exited = self.ParentForm
+        #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+
+
+
     def _ListboxSelectHandler(self, event):
         """
         Internal callback function for when a listbox item is selected
@@ -753,15 +801,7 @@ class Element():
         :param event: Information from tkinter about the callback
 
         """
-        # first, get the results table built
-        # modify the Results table in the parent FlexForm object
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        self._generic_callback_handler('')
 
     def _ComboboxSelectHandler(self, event):
         """
@@ -769,39 +809,22 @@ class Element():
         :param event: Event data from tkinter (not used)
 
         """
-        # first, get the results table built
-        # modify the Results table in the parent FlexForm object
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        self._generic_callback_handler('')
+
 
     def _RadioHandler(self):
         """
         Internal callback for when a radio button is selected and enable events was set for radio
         """
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+        self._generic_callback_handler('')
+
 
     def _CheckboxHandler(self):
         """
         Internal callback for when a checkbnox is selected and enable events was set for checkbox
         """
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+        self._generic_callback_handler('')
+
 
     def _TabGroupSelectHandler(self, event):
         """
@@ -809,13 +832,8 @@ class Element():
 
         :param event: Event data passed in by tkinter (not used)
         """
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+        self._generic_callback_handler('')
+
 
     def _KeyboardHandler(self, event):
         """
@@ -823,13 +841,8 @@ class Element():
 
         :param event: Event data passed in by tkinter (not used)
         """
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+        self._generic_callback_handler('')
+
 
     def _ClickHandler(self, event):
         """
@@ -837,41 +850,40 @@ class Element():
 
         :param event: Event data passed in by tkinter (not used)
         """
-        if self.Key is not None:
-            self.ParentForm.LastButtonClicked = self.Key
-        else:
-            self.ParentForm.LastButtonClicked = ''
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+        self._generic_callback_handler('')
 
     def _user_bind_callback(self, bind_string, event):
         """
         Used when user binds a tkinter event directly to an element
 
         :param bind_string: The event that was bound so can lookup the key modifier
+        :type bind_string: Mike_please_insert_type_here
         :param event: Event data passed in by tkinter (not used)
         """
         key_suffix = self.user_bind_dict.get(bind_string, '')
         self.user_bind_event = event
         if self.Key is not None:
             if isinstance(self.Key, str):
-                self.ParentForm.LastButtonClicked = self.Key + str(key_suffix)
+                key = self.Key + str(key_suffix)
             else:
-                self.ParentForm.LastButtonClicked = (self.Key, key_suffix)
+                key = (self.Key, key_suffix)
         else:
-            self.ParentForm.LastButtonClicked = bind_string
-        self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+            key = bind_string
+
+        self._generic_callback_handler(force_key_to_be=key)
 
     def bind(self, bind_string, key_modifier):
         """
         Used to add tkinter events to an Element.
         The tkinter specific data is in the Element's member variable user_bind_event
         :param bind_string: The string tkinter expected in its bind function
+        :type bind_string: (str)
         :param key_modifier: Additional data to be added to the element's key when event is returned
+        :type key_modifier: (str)
         """
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
+            return
+
         self.Widget.bind(bind_string, lambda evt: self._user_bind_callback(bind_string, evt))
         self.user_bind_dict[bind_string] = key_modifier
 
@@ -880,33 +892,30 @@ class Element():
         """
         Removes a previously bound tkinter event from an Element.
         :param bind_string: The string tkinter expected in its bind function
+        :type bind_string: (str)
         """
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
+            return
         self.Widget.unbind(bind_string)
         self.user_bind_dict.pop(bind_string, None)
 
-
-
-    def ButtonReboundCallback(self, event):
-        """
-        *** DEPRICATED ***
-        Use Element.bind instead
-
-        :param event: (unknown) Not used in this function.
-        """
-        # print(f'Button callback event = {event}, {other}')
-        try:
-            self.ButtonCallBack()
-        except:
-            print('** ButtonReboundCallback - warning your element does not have a ButtonCallBack method **')
 
     def SetTooltip(self, tooltip_text):
         """
         Called by application to change the tooltip text for an Element.  Normally invoked using the Element Object such as: window.Element('key').SetToolTip('New tip').
 
         :param tooltip_text: the text to show in tooltip.
-        :type tooltip_text: str
+        :type tooltip_text: (str)
         """
+
+        if self.TooltipObject:
+            try:
+                self.TooltipObject.leave()
+            except:
+                pass
+
         self.TooltipObject = ToolTip(self.Widget, text=tooltip_text, timeout=DEFAULT_TOOLTIP_TIME)
+
 
     def SetFocus(self, force=False):
         """
@@ -924,13 +933,14 @@ class Element():
         except:
             print('Was unable to set focus.  The Widget passed in was perhaps not present in this element?  Check your elements .Widget property')
 
+
     def set_size(self, size=(None, None)):
         """
         Changes the size of an element to a specific size.
         It's possible to specify None for one of sizes so that only 1 of the element's dimensions are changed.
 
         :param size: The size in characters, rows typically. In some cases they are pixels
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         """
         try:
             if size[0] != None:
@@ -980,13 +990,17 @@ class Element():
         except:
             print('Warning, error hiding element row for key =', self.Key)
 
+
     def expand(self, expand_x=False, expand_y=False, expand_row=True):
         """
         Causes the Element to expand to fill available space in the X and Y directions.  Can specify which or both directions
 
-        :param expand_x: (Bool) If True Element will expand in the Horizontal directions
-        :param expand_y:  (Bool) If True Element will expand in the Vertical directions
-        :param expand_row:  (Bool) If True the row containing the element will also expand. Without this your element is "trapped" within the row
+        :param expand_x: If True Element will expand in the Horizontal directions
+        :type expand_x: (bool)
+        :param expand_y: If True Element will expand in the Vertical directions
+        :type expand_y: (bool)
+        :param expand_row: If True the row containing the element will also expand. Without this your element is "trapped" within the row
+        :type expand_row: (bool)
         """
         if expand_x and expand_y:
             fill = tk.BOTH
@@ -997,6 +1011,8 @@ class Element():
         else:
             return
 
+        if not self._widget_was_created():
+            return
         self.Widget.pack(expand=True, fill=fill)
         self.ParentRowFrame.pack(expand=expand_row, fill=fill)
 
@@ -1004,13 +1020,66 @@ class Element():
     def set_cursor(self,cursor):
         """
         Sets the cursor for the current Element.
-        :param cursor: (str) The tkinter cursor name
+        :param cursor: The tkinter cursor name
+        :type cursor: (str)
         """
         try:
             self.Widget.config(cursor=cursor)
         except Exception as e:
             print('Warning bad cursor specified ', cursor)
             print(e)
+
+    def set_vscroll_position(self, percent_from_top):
+        """
+        Attempts to set the vertical scroll postition for an element's Widget
+        :param percent_from_top: From 0 to 1.0, the percentage from the top to move scrollbar to
+        :type percent_from_top: (float)
+        """
+        try:
+            self.Widget.yview_moveto(percent_from_top)
+        except Exception as e:
+            print('Warning setting the vertical scroll (yview_moveto failed)')
+            print(e)
+
+
+    def _widget_was_created(self):
+        """
+        Determines if a Widget was created for this element.
+
+        :return: True if a Widget has been created previously (Widget is not None)
+        :rtype: (bool)
+        """
+        if self.Widget is not None:
+            return True
+        else:
+            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+            if not SUPPRESS_ERROR_POPUPS:
+                popup_error('Unable to complete operation on element with key {}'.format(self.Key),
+                    'You cannot perform operations (such as calling update) on an Element until Window is read or finalized.',
+                         'Adding a "finalize=True" parameter to your Window creation will likely fix this.', image=_random_error_icon())
+            return False
+
+
+    def _grab_anywhere_on(self):
+        """
+        Turns on Grab Anywhere functionality AFTER a window has been created.  Don't try on a window that's not yet
+        been Finalized or Read.
+        """
+        self.Widget.bind("<ButtonPress-1>", self.ParentForm._StartMove)
+        self.Widget.bind("<ButtonRelease-1>", self.ParentForm._StopMove)
+        self.Widget.bind("<B1-Motion>", self.ParentForm._OnMotion)
+
+
+    def _grab_anywhere_off(self):
+        """
+        Turns off Grab Anywhere functionality AFTER a window has been created.  Don't try on a window that's not yet
+        been Finalized or Read.
+        """
+        self.Widget.unbind("<ButtonPress-1>")
+        self.Widget.unbind("<ButtonRelease-1>")
+        self.Widget.unbind("<B1-Motion>")
+
+
 
 
     def __call__(self, *args, **kwargs):
@@ -1022,9 +1091,8 @@ class Element():
                     Then you can call the Update method for that element by writing:
                     window.FindElement('T')('new text value')
         """
-        return self.Update(*args, **kwargs)
+        return self.update(*args, **kwargs)
 
-    button_rebound_callback = ButtonReboundCallback
     set_tooltip = SetTooltip
     set_focus = SetFocus
 
@@ -1038,15 +1106,14 @@ class InputText(Element):
     """
 
     def __init__(self, default_text='', size=(None, None), disabled=False, password_char='',
-                 justification=None, background_color=None, text_color=None, font=None, tooltip=None,
-
-                 change_submits=False, enable_events=False, do_not_clear=True, key=None, focus=False, pad=None,
-                 use_readonly_for_disable=True, right_click_menu=None, visible=True, metadata=None):
+                 justification=None, background_color=None, text_color=None, font=None, tooltip=None, border_width=None,
+                 change_submits=False, enable_events=False, do_not_clear=True, key=None, k=None, focus=False, pad=None,
+                 use_readonly_for_disable=True, readonly=False, disabled_readonly_background_color=None, disabled_readonly_text_color=None, right_click_menu=None, visible=True, metadata=None):
         """
-        :param default_text: Text initially shown in the input box as a default value(Default value = '')
-        :type default_text: (str)
+        :param default_text: Text initially shown in the input box as a default value(Default value = ''). Will automatically be converted to string
+        :type default_text: (Any)
         :param size: w=characters-wide, h=rows-high
-        :type size: Tuple[int, int]  (width, height)
+        :type size: (int, int)  (width, height)
         :param disabled: set disable state for element (Default = False)
         :type disabled: (bool)
         :param password_char: Password character if this is a password field (Default value = '')
@@ -1061,26 +1128,36 @@ class InputText(Element):
         :type font: Union[str, Tuple[str, int]]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
-        :param change_submits: * DEPRICATED DO NOT USE! Same as enable_events
+        :param border_width: width of border around element in pixels
+        :type border_width: (int)
+        :param change_submits: * DEPRICATED DO NOT USE. Use `enable_events` instead
         :type change_submits: (bool)
         :param enable_events: If True then changes to this element are immediately reported as an event. Use this instead of change_submits (Default = False)
         :type enable_events: (bool)
         :param do_not_clear: If False then the field will be set to blank after ANY event (button, any event) (Default = True)
         :type do_not_clear: (bool)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param focus: Determines if initial focus should go to this element.
         :type focus: (bool)
-        :param pad: . Amount of padding to put around element. Normally (horizontal pixels, vertical pixels) but can be split apart further into ((horizontal left, horizontal right), (vertical above, vertical below))
+        :param pad: Amount of padding to put around element. Normally (horizontal pixels, vertical pixels) but can be split apart further into ((horizontal left, horizontal right), (vertical above, vertical below))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param use_readonly_for_disable: If True (the default) tkinter state set to 'readonly'. Otherwise state set to 'disabled'
         :type use_readonly_for_disable: (bool)
+        :param readonly: If True tkinter state set to 'readonly'.  Use this in place of use_readonly_for_disable as another way of achieving readonly.  Note cannot set BOTH readonly and disabled as tkinter only supplies a single flag
+        :type readonly: (bool)
+        :param disabled_readonly_background_color: If state is set to readonly or disabled, the color to use for the background
+        :type disabled_readonly_background_color: (str)
+        :param disabled_readonly_text_color: If state is set to readonly or disabled, the color to use for the text
+        :type disabled_readonly_text_color: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
         :type right_click_menu: List[List[Union[List[str],str]]]
         :param visible: set visibility state of the element (Default = True)
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
         self.DefaultText = default_text
         self.PasswordCharacter = password_char
@@ -1093,7 +1170,12 @@ class InputText(Element):
         self.ChangeSubmits = change_submits or enable_events
         self.RightClickMenu = right_click_menu
         self.UseReadonlyForDisable = use_readonly_for_disable
+        self.disabled_readonly_background_color = disabled_readonly_background_color
+        self.disabled_readonly_text_color = disabled_readonly_text_color
+        self.ReadOnly = readonly
+        self.BorderWidth = border_width if border_width is not None else DEFAULT_BORDER_WIDTH
         self.TKEntry = self.Widget = None  # type: tk.Entry
+        key = key if key is not None else k
         super().__init__(ELEM_TYPE_INPUT_TEXT, size=size, background_color=bg, text_color=fg, key=key, pad=pad,
                          font=font, tooltip=tooltip, visible=visible, metadata=metadata)
 
@@ -1116,8 +1198,7 @@ class InputText(Element):
         :param move_cursor_to: Moves the cursor to a particular offset. Defaults to 'end'
         :type move_cursor_to: Union[int, str]
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
         if disabled is True:
             self.TKEntry['state'] = 'readonly' if self.UseReadonlyForDisable else 'disabled'
@@ -1142,7 +1223,9 @@ class InputText(Element):
         if visible is False:
             self.TKEntry.pack_forget()
         elif visible is True:
+            # print(f'Other widgets on row = {self.ParentRowFrame.pack_slaves()}')
             self.TKEntry.pack(padx=self.pad_used[0], pady=self.pad_used[1])
+            # self.TKEntry.pack(padx=self.pad_used[0], pady=self.pad_used[1], in_=self.ParentRowFrame)
 
     def Get(self):
         """
@@ -1178,7 +1261,7 @@ class Combo(Element):
     """
 
     def __init__(self, values, default_value=None, size=(None, None), auto_size_text=None, background_color=None,
-                 text_color=None, change_submits=False, enable_events=False, disabled=False, key=None, pad=None,
+                 text_color=None, change_submits=False, enable_events=False, disabled=False, key=None, k=None, pad=None,
                  tooltip=None, readonly=False, font=None, visible=True, metadata=None):
         """
         :param values: values to choose. While displayed as text, the items returned are what the caller supplied, not text
@@ -1186,7 +1269,7 @@ class Combo(Element):
         :param default_value: Choice to be displayed as initial value. Must match one of values variable contents
         :type default_value: (Any)
         :param size: width = characters-wide, height = rows-high
-        :type size: Tuple[int, int] (width, height)
+        :type size: (int, int) (width, height)
         :param auto_size_text: True if element should be the same size as the contents
         :type auto_size_text: (bool)
         :param background_color: color of background
@@ -1199,20 +1282,22 @@ class Combo(Element):
         :type enable_events: (bool)
         :param disabled: set disable state for element
         :type disabled: (bool)
-        :para key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
-        :param:  Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
+        :param key: Used with window.FindElement and with return values to uniquely identify this element
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
+        :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
-        :para tooltip: text that will appear when mouse hovers over this element
+        :param tooltip: text that will appear when mouse hovers over this element
         :type tooltip: (str)
-        :par readonly: make element readonly (user can't change). True means user cannot change
+        :param readonly: make element readonly (user can't change). True means user cannot change
         :type readonly: (bool)
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
         self.Values = values
         self.DefaultValue = default_value
@@ -1222,6 +1307,7 @@ class Combo(Element):
         self.Readonly = readonly
         bg = background_color if background_color else DEFAULT_INPUT_ELEMENTS_COLOR
         fg = text_color if text_color is not None else DEFAULT_INPUT_TEXT_COLOR
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_INPUT_COMBO, size=size, auto_size_text=auto_size_text, background_color=bg,
                          text_color=fg, key=key, pad=pad, tooltip=tooltip, font=font or DEFAULT_FONT, visible=visible, metadata=metadata)
@@ -1244,14 +1330,12 @@ class Combo(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
         if values is not None:
             try:
                 self.TKCombo['values'] = values
-                self.TKCombo.current(0)
+                # self.TKCombo.current(0)       # don't set any value if a new set of values was made
             except:
                 pass
             self.Values = values
@@ -1332,14 +1416,14 @@ class OptionMenu(Element):
     """
 
     def __init__(self, values, default_value=None, size=(None, None), disabled=False, auto_size_text=None,
-                 background_color=None, text_color=None, key=None, pad=None, tooltip=None, visible=True, metadata=None):
+                 background_color=None, text_color=None, key=None, k=None, pad=None, tooltip=None, visible=True, metadata=None):
         """
         :param values: Values to be displayed
         :type values: List[Any] or Tuple[Any]
         :param default_value: the value to choose by default
         :type default_value: (Any)
         :param size: size in characters (wide) and rows (high)
-        :type size: Tuple[int, int] (width, height)
+        :type size: (int, int) (width, height)
         :param disabled: control enabled / disabled
         :type disabled: (bool)
         :param auto_size_text: True if size of Element should match the contents of the items
@@ -1349,14 +1433,17 @@ class OptionMenu(Element):
         :param text_color: color of the text
         :type text_color: (str)
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
-        :param tooltip: (str) text that will appear when mouse hovers over this element
+        :param tooltip: text that will appear when mouse hovers over this element
         :type tooltip: (str)
-        :param visible: (bool) set visibility state of the element
+        :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
+        :type metadata: (Any)
         """
         self.Values = values
         self.DefaultValue = default_value
@@ -1364,6 +1451,7 @@ class OptionMenu(Element):
         self.Disabled = disabled
         bg = background_color if background_color else DEFAULT_INPUT_ELEMENTS_COLOR
         fg = text_color if text_color is not None else DEFAULT_INPUT_TEXT_COLOR
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_INPUT_OPTION_MENU, size=size, auto_size_text=auto_size_text, background_color=bg,
                          text_color=fg, key=key, pad=pad, tooltip=tooltip, visible=visible, metadata=metadata)
@@ -1380,10 +1468,9 @@ class OptionMenu(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if values is not None:
             self.Values = values
             self.TKOptionMenu['menu'].delete(0, 'end')
@@ -1431,7 +1518,7 @@ class Listbox(Element):
 
     def __init__(self, values, default_values=None, select_mode=None, change_submits=False, enable_events=False,
                  bind_return_key=False, size=(None, None), disabled=False, auto_size_text=None, font=None, no_scrollbar=False,
-                 background_color=None, text_color=None, key=None, pad=None, tooltip=None, right_click_menu=None,
+                 background_color=None, text_color=None, key=None, k=None, pad=None, tooltip=None, right_click_menu=None,
                  visible=True, metadata=None):
         """
         :param values: list of values to display. Can be any type including mixed types as long as they have __str__ method
@@ -1454,12 +1541,17 @@ class Listbox(Element):
         :type auto_size_text: (bool)
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
+        :param font: specifies the font family, size, etc
+        :param no_scrollbar: ???
+        :type no_scrollbar: ??? (bool)
         :param background_color: color of background
         :type background_color: (str)
         :param text_color: color of the text
         :type text_color: (str)
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
@@ -1469,7 +1561,7 @@ class Listbox(Element):
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
         self.Values = values
         self.DefaultValues = default_values
@@ -1493,6 +1585,8 @@ class Listbox(Element):
         self.vsb = None  # type: tk.Scrollbar
         self.TKListbox = self.Widget = None  # type: tk.Listbox
         self.NoScrollbar = no_scrollbar
+        key = key if key is not None else k
+
         super().__init__(ELEM_TYPE_INPUT_LISTBOX, size=size, auto_size_text=auto_size_text, font=font,
                          background_color=bg, text_color=fg, key=key, pad=pad, tooltip=tooltip, visible=visible, metadata=metadata)
 
@@ -1513,9 +1607,9 @@ class Listbox(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if disabled == True:
             self.TKListbox.configure(state='disabled')
         elif disabled == False:
@@ -1632,7 +1726,7 @@ class Radio(Element):
     """
 
     def __init__(self, text, group_id, default=False, disabled=False, size=(None, None), auto_size_text=None,
-                 background_color=None, text_color=None, font=None, key=None, pad=None, tooltip=None,
+                 background_color=None, text_color=None, font=None, key=None, k=None, pad=None, tooltip=None,
                  change_submits=False, enable_events=False, visible=True, metadata=None):
         """
         :param text: Text to display next to button
@@ -1643,8 +1737,8 @@ class Radio(Element):
         :type default: (bool)
         :param disabled: set disable state
         :type disabled: (bool)
-        :param size: int] (width, height) width = characters-wide, height = rows-high
-        :type size: Tuple[int,
+        :param size: (width, height) width = characters-wide, height = rows-high
+        :type size: (int, int)
         :param auto_size_text: if True will size the element to match the length of the text
         :type auto_size_text: (bool)
         :param background_color: color of background
@@ -1654,7 +1748,9 @@ class Radio(Element):
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
@@ -1666,7 +1762,7 @@ class Radio(Element):
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.InitialState = default
@@ -1690,6 +1786,8 @@ class Radio(Element):
             self.CircleBackgroundColor = background_color if background_color else theme_background_color()
         self.ChangeSubmits = change_submits or enable_events
         self.EncodedRadioValue = None
+        key = key if key is not None else k
+
         super().__init__(ELEM_TYPE_INPUT_RADIO, size=size, auto_size_text=auto_size_text, font=font,
                          background_color=background_color, text_color=self.TextColor, key=key, pad=pad,
                          tooltip=tooltip, visible=visible, metadata=metadata)
@@ -1705,15 +1803,16 @@ class Radio(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if value is not None:
             try:
                 if value is True:
                     self.TKIntVar.set(self.EncodedRadioValue)
                 elif value is False:
-                    self.TKIntVar.set(0)
+                    if self.TKIntVar.get() == self.EncodedRadioValue:
+                        self.TKIntVar.set(0)
             except:
                 print('Error updating Radio')
             self.InitialState = value
@@ -1762,15 +1861,14 @@ class Checkbox(Element):
     """
 
     def __init__(self, text, default=False, size=(None, None), auto_size_text=None, font=None, background_color=None,
-                 text_color=None, change_submits=False, enable_events=False, disabled=False, key=None, pad=None,
-                 tooltip=None, visible=True, metadata=None):
+                 text_color=None, change_submits=False, enable_events=False, disabled=False, key=None, k=None, pad=None, tooltip=None, visible=True, metadata=None):
         """
         :param text: Text to display next to checkbox
         :type text: (str)
         :param default: Set to True if you want this checkbox initially checked
         :type default: (bool)
         :param size: (width, height) width = characters-wide, height = rows-high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param auto_size_text: if True will size the element to match the length of the text
         :type auto_size_text: (bool)
         :param font: specifies the font family, size, etc
@@ -1786,7 +1884,9 @@ class Checkbox(Element):
         :param disabled: set disable state
         :type disabled: (bool)
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
@@ -1794,7 +1894,7 @@ class Checkbox(Element):
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.Text = text
@@ -1818,6 +1918,7 @@ class Checkbox(Element):
             self.CheckboxBackgroundColor = background_color if background_color else theme_background_color()
 
         self.ChangeSubmits = change_submits or enable_events
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_INPUT_CHECKBOX, size=size, auto_size_text=auto_size_text, font=font,
                          background_color=background_color, text_color=self.TextColor, key=key, pad=pad,
@@ -1851,9 +1952,9 @@ class Checkbox(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if value is not None:
             try:
                 self.TKIntVar.set(value)
@@ -1918,8 +2019,7 @@ class Spin(Element):
     """
 
     def __init__(self, values, initial_value=None, disabled=False, change_submits=False, enable_events=False,
-                 size=(None, None), auto_size_text=None, font=None, background_color=None, text_color=None, key=None,
-                 pad=None, tooltip=None, visible=True, metadata=None):
+                 size=(None, None), auto_size_text=None, font=None, background_color=None, text_color=None, key=None, k=None, pad=None, tooltip=None, visible=True, metadata=None):
         """
         :param values: List of valid values
         :type values: Tuple[Any] or List[Any]
@@ -1932,7 +2032,7 @@ class Spin(Element):
         :param enable_events: Turns on the element specific events. Spin events happen when an item changes
         :type enable_events: (bool)
         :param size: (width, height) width = characters-wide, height = rows-high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param auto_size_text: if True will size the element to match the length of the text
         :type auto_size_text: (bool)
         :param font: specifies the font family, size, etc
@@ -1942,7 +2042,9 @@ class Spin(Element):
         :param text_color: color of the text
         :type text_color: (str)
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
@@ -1950,7 +2052,7 @@ class Spin(Element):
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.Values = values
@@ -1960,6 +2062,7 @@ class Spin(Element):
         self.Disabled = disabled
         bg = background_color if background_color else DEFAULT_INPUT_ELEMENTS_COLOR
         fg = text_color if text_color is not None else DEFAULT_INPUT_TEXT_COLOR
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_INPUT_SPIN, size, auto_size_text, font=font, background_color=bg, text_color=fg,
                          key=key, pad=pad, tooltip=tooltip, visible=visible, metadata=metadata)
@@ -1978,9 +2081,9 @@ class Spin(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if values != None:
             old_value = self.TKStringVar.get()
             self.Values = values
@@ -2015,8 +2118,10 @@ class Spin(Element):
         else:
             self.ParentForm.LastButtonClicked = ''
         self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        _exit_mainloop(self.ParentForm)
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     Window._window_that_exited = self.ParentForm
+        #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
 
     def Get(self):
         """
@@ -2047,7 +2152,7 @@ class Multiline(Element):
 
     def __init__(self, default_text='', enter_submits=False, disabled=False, autoscroll=False, border_width=None,
                  size=(None, None), auto_size_text=None, background_color=None, text_color=None, change_submits=False,
-                 enable_events=False, do_not_clear=True, key=None, focus=False, font=None, pad=None, tooltip=None,
+                 enable_events=False, do_not_clear=True, key=None, k=None, write_only=False, auto_refresh=False, reroute_stdout=False, reroute_stderr=False, reroute_cprint=False, focus=False, font=None, pad=None, tooltip=None, justification=None,
                  right_click_menu=None, visible=True, metadata=None):
         """
         :param default_text: Initial text to show
@@ -2060,22 +2165,34 @@ class Multiline(Element):
         :type autoscroll: (bool)
         :param border_width: width of border around element in pixels
         :type border_width: (int)
-        :param size: int] (width, height) width = characters-wide, height = rows-high
-        :type size: Tuple[int,
+        :param size: (width, height) width = characters-wide, height = rows-high
+        :type size: (int, int)
         :param auto_size_text: if True will size the element to match the length of the text
         :type auto_size_text: (bool)
         :param background_color: color of background
         :type background_color: (str)
         :param text_color: color of the text
         :type text_color: (str)
-        :param chfange_submits: DO NOT USE. Only listed for backwards compat - Use enable_events instead
-        :type chfange_submits: (bool)
+        :param change_submits: DO NOT USE. Only listed for backwards compat - Use enable_events instead
+        :type change_submits: (bool)
         :param enable_events: Turns on the element specific events. Spin events happen when an item changes
         :type enable_events: (bool)
         :param do_not_clear: if False the element will be cleared any time the Window.Read call returns
-        :type do_not_clear: bool
+        :type do_not_clear: (bool)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
+        :param write_only: If True then no entry will be added to the values dictionary when the window is read
+        :type write_only: bool
+        :param auto_refresh: If True then anytime the element is updated, the window will be refreshed so that the change is immediately displayed
+        :type auto_refresh: (bool)
+        :param reroute_stdout: If True then all output to stdout will be output to this element
+        :type reroute_stdout: (bool)
+        :param reroute_stderr: If True then all output to stdout will be output to this element
+        :type reroute_stderr: (bool)
+        :param reroute_cprint: If True your cprint calls will output to this element. It's the same as you calling cprint_set_output_destination
+        :type reroute_cprint: (bool)
         :param focus: if True initial focus will go to this element
         :type focus: (bool)
         :param font: specifies the font family, size, etc
@@ -2084,12 +2201,14 @@ class Multiline(Element):
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
+        :param justification: text justification. left, right, center. Can use single characters l, r, c.
+        :type justification: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
         :type right_click_menu: List[List[Union[List[str],str]]]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.DefaultText = default_text
@@ -2106,11 +2225,24 @@ class Multiline(Element):
         self.TagCounter = 0
         self.TKText = self.Widget = None  # type: tkst.ScrolledText
         self.tags = set()
+        self.WriteOnly = write_only
+        self.AutoRefresh = auto_refresh
+        key = key if key is not None else k
+        self.previous_stdout = self.previous_stderr = None
+        self.reroute_cprint = reroute_cprint
+        self.Justification = 'left' if justification is None else justification
+        self.justification_tag = self.just_center_tag = self.just_left_tag = self.just_right_tag = None
+        if reroute_stdout:
+            self.reroute_stdout_to_here()
+        if reroute_stderr:
+            self.reroute_stderr_to_here()
+
+
         super().__init__(ELEM_TYPE_INPUT_MULTILINE, size=size, auto_size_text=auto_size_text, background_color=bg,
                          text_color=fg, key=key, pad=pad, tooltip=tooltip, font=font or DEFAULT_FONT, visible=visible, metadata=metadata)
         return
 
-    def Update(self, value=None, disabled=None, append=False, font=None, text_color=None, background_color=None, text_color_for_value=None, background_color_for_value=None, visible=None, autoscroll=None):
+    def Update(self, value=None, disabled=None, append=False, font=None, text_color=None, background_color=None, text_color_for_value=None, background_color_for_value=None, visible=None, autoscroll=None, justification=None):
         """
         Changes some of the settings for the Multiline Element. Must call `Window.Read` or `Window.Finalize` prior
         :param value: new text to display
@@ -2129,39 +2261,59 @@ class Multiline(Element):
         :type visible: (bool)
         :param autoscroll: if True then contents of element are scrolled down when new text is added to the end
         :type autoscroll: (bool)
+        :param justification: text justification. left, right, center. Can use single characters l, r, c. Sets only for this value, not entire element
+        :type justification: (str)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if autoscroll is not None:
             self.Autoscroll = autoscroll
 
+        if justification is not None:
+            if justification.startswith('l'):
+                just_tag = 'left'
+            if justification.startswith('r'):
+                just_tag = 'right'
+            if justification.startswith('c'):
+                just_tag = 'center'
+        else:
+            just_tag = self.justification_tag
+
+        starting_point = self.Widget.index(tk.INSERT)
+        tag = None
         if value is not None:
             value = str(value)
             if background_color_for_value is not None or text_color_for_value is not None:
-                tag = 'Multiline(' + str(text_color_for_value) + ','+ str(background_color_for_value)+')'
-                if  tag not in self.tags:
-                    self.tags.add(tag)
-                if background_color_for_value is not None:
-                    self.TKText.tag_configure(tag, background=background_color_for_value)
-                if text_color_for_value is not None:
-                    self.TKText.tag_configure(tag, foreground=text_color_for_value)
-            else:
-                tag = None
+                try:
+                    tag = 'Multiline(' + str(text_color_for_value) + ','+ str(background_color_for_value)+')'
+                    if  tag not in self.tags:
+                        self.tags.add(tag)
+                    if background_color_for_value is not None:
+                        self.TKText.tag_configure(tag, background=background_color_for_value)
+                    if text_color_for_value is not None:
+                        self.TKText.tag_configure(tag, foreground=text_color_for_value)
+                except Exception as e:
+                    print('* Multiline.update - bad color likely specified:', e)
             if self.Disabled:
                 self.TKText.configure(state='normal')
             try:
                 if not append:
                     self.TKText.delete('1.0', tk.END)
-                if tag is not None:
-                    self.TKText.insert(tk.END, value, tag)
+                if tag is not None or just_tag is not None:
+                    self.TKText.insert(tk.END, value, (just_tag, tag))
                 else:
                     self.TKText.insert(tk.END, value)
-            except:
-                pass
+
+                # self.TKText.tag_add(just_tag, starting_point, starting_point)
+
+            except Exception as e:
+                print("* Error setting multiline *", e)
             if self.Disabled:
                 self.TKText.configure(state='disabled')
             self.DefaultText = value
+
         if self.Autoscroll:
             self.TKText.see(tk.END)
         if disabled is True:
@@ -2181,6 +2333,12 @@ class Multiline(Element):
         elif visible is True:
             self.TKText.pack(padx=self.pad_used[0], pady=self.pad_used[1])
 
+        if self.AutoRefresh and self.ParentForm:
+            try:        # in case the window was destroyed
+                self.ParentForm.refresh()
+            except:
+                pass
+
     def Get(self):
         """
         Return current contents of the Multiline Element
@@ -2193,12 +2351,12 @@ class Multiline(Element):
 
 
 
-    def print(self, *args, end=None, sep=None, text_color=None, background_color=None, autoscroll=True):
+    def print(self, *args, end=None, sep=None, text_color=None, background_color=None, justification=None):
         """
         Print like Python normally prints except route the output to a multline element and also add colors if desired
 
         :param args: The arguments to print
-        :type args: List[Any]
+        :type args: (Any)
         :param end: The end char to use just like print uses
         :type end: (str)
         :param sep: The separation character like print uses
@@ -2207,8 +2365,70 @@ class Multiline(Element):
         :type text_color: (str)
         :param background_color: The background color of the line
         :type background_color: (str)
+        :param justification: text justification. left, right, center. Can use single characters l, r, c. Sets only for this value, not entire element
+        :type justification: (str)
         """
-        _print_to_element(self, *args, end=end, sep=sep, text_color=text_color, background_color=background_color, autoscroll=autoscroll)
+        _print_to_element(self, *args, end=end, sep=sep, text_color=text_color, background_color=background_color, justification=justification )
+
+
+    def reroute_stdout_to_here(self):
+        """
+        Sends stdout (prints) to this element
+        """
+        self.previous_stdout = sys.stdout
+        sys.stdout = self
+
+
+    def reroute_stderr_to_here(self):
+        """
+        Sends stderr to this element
+        """
+        self.previous_stderr = sys.stderr
+        sys.stderr = self
+
+    def restore_stdout(self):
+        """
+        Restore a previously re-reouted stdout back to the original destination
+        """
+        if self.previous_stdout:
+           sys.stdout = self.previous_stdout
+
+
+    def restore_stderr(self):
+        """
+        Restore a previously re-reouted stderr back to the original destination
+        """
+        if self.previous_stderr:
+            sys.stderr = self.previous_stderr
+
+
+    def write(self, txt):
+        """
+        Called by Python (not tkinter?) when stdout or stderr wants to write
+
+        :param txt: text of output
+        :type txt: (str)
+        """
+        try:
+            self.update(txt, append=True)
+        except:
+            pass
+
+
+    def flush(self):
+        """
+        Flush parameter was passed into a print statement.
+        For now doing nothing.  Not sure what action should be taken to ensure a flush happens regardless.
+        """
+        return
+
+
+    def __del__(self):
+        """
+        If this Widget is deleted, be sure and restore the old stdout, stderr
+        """
+        self.restore_stdout()
+        self.restore_stderr()
 
 
 
@@ -2231,13 +2451,12 @@ class Text(Element):
     """
 
     def __init__(self, text='', size=(None, None), auto_size_text=None, click_submits=False, enable_events=False,
-                 relief=None, font=None, text_color=None, background_color=None, border_width=None, justification=None, pad=None, key=None,
-                 right_click_menu=None, tooltip=None, visible=True, metadata=None):
+                 relief=None, font=None, text_color=None, background_color=None, border_width=None, justification=None, pad=None, key=None, k=None, right_click_menu=None, grab=None, tooltip=None, visible=True, metadata=None):
         """
         :param text: The text to display. Can include /n to achieve multiple lines.  Will convert (optional) parameter into a string
-        :type text: (Any)
+        :type text: Any
         :param size: (width, height) width = characters-wide, height = rows-high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param auto_size_text: if True size of the Text Element will be sized to fit the string provided in 'text' parm
         :type auto_size_text: (bool)
         :param click_submits: DO NOT USE. Only listed for backwards compat - Use enable_events instead
@@ -2259,15 +2478,19 @@ class Text(Element):
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
         :type right_click_menu: List[List[Union[List[str],str]]]
+        :param grab: If True can grab this element and move the window around. Default is False
+        :type grab: (bool)
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.DisplayText = str(text)
@@ -2282,9 +2505,10 @@ class Text(Element):
         self.RightClickMenu = right_click_menu
         self.TKRightClickMenu = None
         self.BorderWidth = border_width
+        self.Grab = grab
+        key = key if key is not None else k
 
-        super().__init__(ELEM_TYPE_TEXT, size, auto_size_text, background_color=bg, font=font if font else DEFAULT_FONT,
-                         text_color=self.TextColor, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
+        super().__init__(ELEM_TYPE_TEXT, size, auto_size_text, background_color=bg, font=font if font else DEFAULT_FONT, text_color=self.TextColor, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
 
     def Update(self, value=None, background_color=None, text_color=None, font=None, visible=None):
         """
@@ -2301,8 +2525,7 @@ class Text(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
         if value is not None:
             self.DisplayText = str(value)
@@ -2351,7 +2574,7 @@ class StatusBar(Element):
 
     def __init__(self, text, size=(None, None), auto_size_text=None, click_submits=None, enable_events=False,
                  relief=RELIEF_SUNKEN, font=None, text_color=None, background_color=None, justification=None, pad=None,
-                 key=None, tooltip=None, visible=True, metadata=None):
+                 key=None, k=None, right_click_menu=None, tooltip=None, visible=True, metadata=None):
         """
         :param text: Text that is to be displayed in the widget
         :type text: (str)
@@ -2376,13 +2599,17 @@ class StatusBar(Element):
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
+        :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
+        :type right_click_menu: List[List[Union[List[str],str]]]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.DisplayText = text
@@ -2395,6 +2622,9 @@ class StatusBar(Element):
         else:
             bg = background_color
         self.TKText = self.Widget = None  # type: tk.Label
+        key = key if key is not None else k
+        self.RightClickMenu = right_click_menu
+
         super().__init__(ELEM_TYPE_STATUSBAR, size=size, auto_size_text=auto_size_text, background_color=bg,
                          font=font or DEFAULT_FONT, text_color=self.TextColor, pad=pad, key=key, tooltip=tooltip,
                          visible=visible, metadata=metadata)
@@ -2415,9 +2645,9 @@ class StatusBar(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if value is not None:
             self.DisplayText = value
             stringvar = self.TKStringVar
@@ -2470,7 +2700,7 @@ class TKProgressBar():
         :param BarColor: The 2 colors that make up a progress bar. One is the background, the other is the bar
         :type BarColor: Tuple[str, str]
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
         """
 
         self.Length = length
@@ -2582,6 +2812,7 @@ class TKOutput(tk.Frame):
         self.frame.pack(side="left", padx=pad[0], pady=pad[1], expand=True, fill='y')
         self.previous_stdout = sys.stdout
         self.previous_stderr = sys.stderr
+        self.parent = parent
 
         sys.stdout = self
         sys.stderr = self
@@ -2590,6 +2821,7 @@ class TKOutput(tk.Frame):
     def write(self, txt):
         """
         Called by Python (not tkinter?) when stdout or stderr wants to write
+        Refreshes the window after the write so that the change is immediately displayed
 
         :param txt: text of output
         :type txt: (str)
@@ -2597,6 +2829,7 @@ class TKOutput(tk.Frame):
         try:
             self.output.insert(tk.END, str(txt))
             self.output.see(tk.END)
+            self.parent.update()
         except:
             pass
 
@@ -2633,10 +2866,10 @@ class Output(Element):
     """
 
     def __init__(self, size=(None, None), background_color=None, text_color=None, pad=None, font=None, tooltip=None,
-                 key=None, right_click_menu=None, visible=True, metadata=None):
+                 key=None, k=None, right_click_menu=None, visible=True, metadata=None):
         """
         :param size: (width, height) w=characters-wide, h=rows-high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param background_color: color of background
         :type background_color: (str)
         :param text_color: color of the text
@@ -2648,19 +2881,22 @@ class Output(Element):
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
         :type right_click_menu: List[List[Union[List[str],str]]]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self._TKOut = self.Widget = None  # type: TKOutput
         bg = background_color if background_color else DEFAULT_INPUT_ELEMENTS_COLOR
         fg = text_color if text_color is not None else DEFAULT_INPUT_TEXT_COLOR
         self.RightClickMenu = right_click_menu
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_OUTPUT, size=size, background_color=bg, text_color=fg, pad=pad, font=font,
                          tooltip=tooltip, key=key, visible=visible, metadata=metadata)
@@ -2687,9 +2923,9 @@ class Output(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if value is not None:
             self._TKOut.output.delete('1.0', tk.END)
             self._TKOut.output.insert(tk.END, value)
@@ -2711,9 +2947,9 @@ class Output(Element):
         Causes the Element to expand to fill available space in the X and Y directions.  Can specify which or both directions
 
         :param expand_x: If True Element will expand in the Horizontal directions
-        :type expand_x: (Bool)
+        :type expand_x: (bool)
         :param expand_y: If True Element will expand in the Vertical directions
-        :type expand_y: (Bool)
+        :type expand_y: (bool)
         """
 
         if expand_x and expand_y:
@@ -2754,8 +2990,7 @@ class Button(Element):
                  file_types=(("ALL Files", "*.*"),), initial_folder=None, disabled=False, change_submits=False,
                  enable_events=False, image_filename=None, image_data=None, image_size=(None, None),
                  image_subsample=None, border_width=None, size=(None, None), auto_size_button=None, button_color=None, disabled_button_color=None,
-                 use_ttk_buttons=None,
-                 font=None, bind_return_key=False, focus=False, pad=None, key=None, visible=True, metadata=None):
+                 use_ttk_buttons=None, font=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, visible=True, metadata=None):
         """
         :param button_text: Text to be displayed on the button
         :type button_text: (str)
@@ -2771,8 +3006,8 @@ class Button(Element):
         :type initial_folder: (str)
         :param disabled: If True button will be created disabled
         :type disabled: (bool)
-        :param click_submits: DO NOT USE. Only listed for backwards compat - Use enable_events instead
-        :type click_submits: (bool)
+        :param change_submits: DO NOT USE. Only listed for backwards compat - Use enable_events instead
+        :type change_submits: (bool)
         :param enable_events: Turns on the element specific events. If this button is a target, should it generate an event when filled in
         :type enable_events: (bool)
         :param image_filename: image filename if there is a button image. GIFs and PNGs only.
@@ -2780,17 +3015,17 @@ class Button(Element):
         :param image_data: Raw or Base64 representation of the image to put on button. Choose either filename or data
         :type image_data: Union[bytes, str]
         :param image_size: Size of the image in pixels (width, height)
-        :type image_size: Tuple[int, int]
+        :type image_size: (int, int)
         :param image_subsample: amount to reduce the size of the image. Divides the size by this number. 2=1/2, 3=1/3, 4=1/4, etc
         :type image_subsample: (int)
         :param border_width: width of border around button in pixels
         :type border_width: (int)
         :param size: (width, height) of the button in characters wide, rows high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param auto_size_button: if True the button size is sized to fit the text
         :type auto_size_button: (bool)
-        :param button_color: (text color, background color) of button. Easy to remember which is which if you say "ON" between colors. "red" on "green".
-        :type button_color: Tuple[str, str]
+        :param button_color: of button. Easy to remember which is which if you say "ON" between colors. "red" on "green".
+        :type button_color: Tuple[str, str] or str
         :param disabled_button_color: colors to use when button is disabled (text, background). Use None for a color if don't want to change. Only ttk buttons support both text and background colors. tk buttons only support changing text color
         :type disabled_button_color: Tuple[str, str]
         :param use_ttk_buttons: True = use ttk buttons. False = do not use ttk buttons.  None (Default) = use ttk buttons only if on a Mac and not with button images
@@ -2804,11 +3039,13 @@ class Button(Element):
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.AutoSizeButton = auto_size_button
@@ -2817,7 +3054,23 @@ class Button(Element):
         self.Widget = self.TKButton = None  # type: tk.Button
         self.Target = target
         self.ButtonText = str(button_text)
-        self.ButtonColor = button_color if button_color != None else DEFAULT_BUTTON_COLOR
+        # Button colors can be a tuple (text, background) or a string with format "text on background"
+        if button_color is None:
+            button_color = DEFAULT_BUTTON_COLOR
+        else:
+            try:
+                if isinstance(button_color,str):
+                    button_color = button_color.split(' on ')
+            except Exception as e:
+                print('* cprint warning * you messed up with color formatting', e)
+        self.ButtonColor = button_color
+        # experimental code to compute disabled button text color
+        # if disabled_button_color is None:
+        #     try:
+        #         disabled_button_color = (get_complimentary_hex(theme_button_color()[0]), theme_button_color()[1])
+        #         # disabled_button_color = disabled_button_color
+        #     except:
+        #         print('* Problem computing disabled button color *')
         self.DisabledButtonColor = disabled_button_color if disabled_button_color is not None else (None, None)
         self.ImageFilename = image_filename
         self.ImageData = image_data
@@ -2838,7 +3091,7 @@ class Button(Element):
         self.calendar_month_names = None
         self.calendar_day_abbreviations = None
         self.calendar_title = ''
-        self.calendar_selection = None
+        self.calendar_selection = ''
         self.InitialFolder = initial_folder
         self.Disabled = disabled
         self.ChangeSubmits = change_submits or enable_events
@@ -2847,6 +3100,8 @@ class Button(Element):
             self.UseTtkButtons = True
         # if image_filename or image_data:
         #     self.UseTtkButtons = False              # if an image is to be displayed, then force the button to not be a TTK Button
+        key = key if key is not None else k
+
         super().__init__(ELEM_TYPE_BUTTON, size=size, font=font, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
         return
 
@@ -2874,21 +3129,14 @@ class Button(Element):
             self.ParentForm.LastButtonClicked = self.Key
         else:
             self.ParentForm.LastButtonClicked = self.ButtonText
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick out of loop if read was called
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     Window._window_that_exited = self.ParentForm
+        #     self.ParentForm.TKroot.quit()  # kick out of loop if read was called
+        _exit_mainloop(self.ParentForm)
 
-    # -------  Button Callback  ------- #
-    def ButtonCallBack(self):
-        """
-        Not user callable! Called by tkinter when a button is clicked.  This is where all the fun begins!
-        """
-        # global _my_windows
 
-        # print('Button callback')
 
-        # print(f'Button Callback - Parent = {self.ParentForm}   Position = {self.Position}')
-        # Buttons modify targets or return from the form
-        # If modifying target, get the element object at the target and modify its StrVar
+    def _find_target(self):
         target = self.Target
         target_element = None
         if target[0] == ThisRow:
@@ -2915,6 +3163,49 @@ class Button(Element):
                     should_submit_window = True
             except:
                 pass
+        return target_element, strvar, should_submit_window
+
+    # -------  Button Callback  ------- #
+    def ButtonCallBack(self):
+        """
+        Not user callable! Called by tkinter when a button is clicked.  This is where all the fun begins!
+        """
+        # global _my_windows
+
+        # print('Button callback')
+
+        # print(f'Button Callback - Parent = {self.ParentForm}   Position = {self.Position}')
+        # Buttons modify targets or return from the form
+        # If modifying target, get the element object at the target and modify its StrVar
+        # target = self.Target
+        # target_element = None
+        # if target[0] == ThisRow:
+        #     target = [self.Position[0], target[1]]
+        #     if target[1] < 0:
+        #         target[1] = self.Position[1] + target[1]
+        # strvar = None
+        # should_submit_window = False
+        # if target == (None, None):
+        #     strvar = self.TKStringVar
+        # else:
+        #     if not isinstance(target, str):
+        #         if target[0] < 0:
+        #             target = [self.Position[0] + target[0], target[1]]
+        #         target_element = self.ParentContainer._GetElementAtLocation(target)
+        #     else:
+        #         target_element = self.ParentForm.FindElement(target)
+        #     try:
+        #         strvar = target_element.TKStringVar
+        #     except:
+        #         pass
+        #     try:
+        #         if target_element.ChangeSubmits:
+        #             should_submit_window = True
+        #     except:
+        #         pass
+
+        target_element, strvar, should_submit_window = self._find_target()
+
         filetypes = (("ALL Files", "*.*"),) if self.FileTypes is None else self.FileTypes
         if self.BType == BUTTON_TYPE_BROWSE_FOLDER:
             if sys.platform == 'darwin':        # macs don't like seeing the parent window (go firgure)
@@ -2970,8 +3261,11 @@ class Button(Element):
                 self.ParentForm.LastButtonClicked = self.ButtonText
             self.ParentForm.FormRemainedOpen = False
             self.ParentForm._Close()
-            if self.ParentForm.CurrentlyRunningMainloop:
-                self.ParentForm.TKroot.quit()
+            # if self.ParentForm.CurrentlyRunningMainloop:
+            #     Window._window_that_exited = self.ParentForm
+            #     self.ParentForm.TKroot.quit()
+            _exit_mainloop(self.ParentForm)
+
             if self.ParentForm.NonBlocking:
                 self.ParentForm.TKroot.destroy()
                 Window._DecrementOpenCount()
@@ -2983,8 +3277,12 @@ class Button(Element):
             else:
                 self.ParentForm.LastButtonClicked = self.ButtonText
             self.ParentForm.FormRemainedOpen = True
-            if self.ParentForm.CurrentlyRunningMainloop:  # if this window is running the mainloop, kick out
-                self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+            _exit_mainloop(self.ParentForm)
+
+            # if self.ParentForm.CurrentlyRunningMainloop:  # if this window is running the mainloop, kick out
+            #     Window._window_that_exited = self.ParentForm
+            #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+
         elif self.BType == BUTTON_TYPE_CLOSES_WIN_ONLY:  # special kind of button that does not exit main loop
             self.ParentForm._Close()
             if self.ParentForm.NonBlocking:
@@ -2992,30 +3290,34 @@ class Button(Element):
                 Window._DecrementOpenCount()
         elif self.BType == BUTTON_TYPE_CALENDAR_CHOOSER:  # this is a return type button so GET RESULTS and destroy window
             # ------------ new chooser code -------------
-
-            if self.calendar_default_date_M_D_Y == (None, None, None):
-                now = datetime.datetime.now()
-                cur_month, cur_day, cur_year = now.month, now.day, now.year
-            else:
-                cur_month, cur_day, cur_year = self.calendar_default_date_M_D_Y
-
-            date_chosen = popup_get_date(start_mon=cur_month, start_day=cur_day, start_year=cur_year, close_when_chosen=self.calendar_close_when_chosen, no_titlebar=self.calendar_no_titlebar, begin_at_sunday_plus=self.calendar_begin_at_sunday_plus, locale=self.calendar_locale, location=self.calendar_location, month_names=self.calendar_month_names, day_abbreviations=self.calendar_day_abbreviations, title=self.calendar_title)
-            if date_chosen is not None:
-                month, day, year = date_chosen
-                now = datetime.datetime.now()
-                hour, minute, second = now.hour, now.minute, now.second
-                try:
-                    date_string = calendar.datetime.datetime(year, month, day, hour, minute, second).strftime(self.calendar_format)
-                except Exception as e:
-                    print('Bad format string', e)
-                    date_string = 'Bad format string'
-
-                if target_element is not None:
-                    target_element.update(date_string)
-                self.calendar_selection = date_string
-
-                strvar.set(date_string)
-                self.TKStringVar.set(date_string)
+            self.ParentForm.LastButtonClicked = self.Key    # key should have been generated already if not set by user
+            self.ParentForm.FormRemainedOpen = True
+            should_submit_window = False
+            _exit_mainloop(self.ParentForm)
+            #
+            # if self.calendar_default_date_M_D_Y == (None, None, None):
+            #     now = datetime.datetime.now()
+            #     cur_month, cur_day, cur_year = now.month, now.day, now.year
+            # else:
+            #     cur_month, cur_day, cur_year = self.calendar_default_date_M_D_Y
+            #
+            # date_chosen = popup_get_date(start_mon=cur_month, start_day=cur_day, start_year=cur_year, close_when_chosen=self.calendar_close_when_chosen, no_titlebar=self.calendar_no_titlebar, begin_at_sunday_plus=self.calendar_begin_at_sunday_plus, locale=self.calendar_locale, location=self.calendar_location, month_names=self.calendar_month_names, day_abbreviations=self.calendar_day_abbreviations, title=self.calendar_title)
+            # if date_chosen is not None:
+            #     month, day, year = date_chosen
+            #     now = datetime.datetime.now()
+            #     hour, minute, second = now.hour, now.minute, now.second
+            #     try:
+            #         date_string = calendar.datetime.datetime(year, month, day, hour, minute, second).strftime(self.calendar_format)
+            #     except Exception as e:
+            #         print('Bad format string', e)
+            #         date_string = 'Bad format string'
+            #
+            #     if target_element is not None:
+            #         target_element.update(date_string)
+            #     self.calendar_selection = date_string
+            #
+            #     strvar.set(date_string)
+            #     self.TKStringVar.set(date_string)
 
             # ------------ old chooser code -------------
             # should_submit_window = False
@@ -3044,8 +3346,10 @@ class Button(Element):
         if should_submit_window:
             self.ParentForm.LastButtonClicked = target_element.Key
             self.ParentForm.FormRemainedOpen = True
-            if self.ParentForm.CurrentlyRunningMainloop:
-                self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+            # if self.ParentForm.CurrentlyRunningMainloop:
+            #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+            _exit_mainloop(self.ParentForm)
+
 
         return
 
@@ -3055,8 +3359,8 @@ class Button(Element):
         Changes some of the settings for the Button Element. Must call `Window.Read` or `Window.Finalize` prior
         :param text: sets button text
         :type text: (str)
-        :param button_color: (text color, background color) of button. Easy to remember which is which if you say "ON" between colors. "red" on "green"
-        :type button_color: Tuple[str, str]
+        :param button_color: of button. Easy to remember which is which if you say "ON" between colors. "red" on "green"
+        :type button_color: Tuple[str, str] or (str)
         :param disabled: disable or enable state of the element
         :type disabled: (bool)
         :param image_data: Raw or Base64 representation of the image to put on button. Choose either filename or data
@@ -3070,12 +3374,12 @@ class Button(Element):
         :param image_subsample: amount to reduce the size of the image. Divides the size by this number. 2=1/2, 3=1/3, 4=1/4, etc
         :type image_subsample: (int)
         :param image_size: Size of the image in pixels (width, height)
-        :type image_size: Tuple[int, int]
+        :type image_size: (int, int)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if self.UseTtkButtons:
             style_name = str(self.Key) + 'custombutton.TButton'
             button_style = ttk.Style()
@@ -3083,6 +3387,11 @@ class Button(Element):
             self.TKButton.configure(text=text)
             self.ButtonText = text
         if button_color != (None, None):
+            if isinstance(button_color, str):
+                try:
+                    button_color = button_color.split(' on ')
+                except Exception as e:
+                    print('** Error in formatting your button color **', button_color, e)
             if self.UseTtkButtons:
                 if button_color[0] is not None:
                     button_style.configure(style_name, foreground=button_color[0])
@@ -3181,8 +3490,7 @@ class ButtonMenu(Element):
 
     def __init__(self, button_text, menu_def, tooltip=None, disabled=False,
                  image_filename=None, image_data=None, image_size=(None, None), image_subsample=None, border_width=None,
-                 size=(None, None), auto_size_button=None, button_color=None, font=None, pad=None, key=None,
-                 tearoff=False, visible=True, metadata=None):
+                 size=(None, None), auto_size_button=None, button_color=None, font=None, pad=None, key=None, k=None, tearoff=False, visible=True, metadata=None):
         """
         :param button_text: Text to be displayed on the button
         :type button_text: (str)
@@ -3197,29 +3505,31 @@ class ButtonMenu(Element):
         :param image_data: Raw or Base64 representation of the image to put on button. Choose either filename or data
         :type image_data: Union[bytes, str]
         :param image_size: Size of the image in pixels (width, height)
-        :type image_size: Tuple[int, int]
+        :type image_size: (int, int)
         :param image_subsample: amount to reduce the size of the image. Divides the size by this number. 2=1/2, 3=1/3, 4=1/4, etc
         :type image_subsample: (int)
         :param border_width: width of border around button in pixels
         :type border_width: (int)
         :param size:(width, height) of the button in characters wide, rows high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param auto_size_button: if True the button size is sized to fit the text
         :type auto_size_button: (bool)
-        :param button_color: (text color, background color) of button. Easy to remember which is which if you say "ON" between colors. "red" on "green"
-        :type button_color: Tuple[str, str]
+        :param button_color: of button. Easy to remember which is which if you say "ON" between colors. "red" on "green"
+        :type button_color: Tuple[str, str] or str
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tearoff: Determines if menus should allow them to be torn off
         :type tearoff: (bool)
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.MenuDefinition = menu_def
@@ -3239,6 +3549,7 @@ class ButtonMenu(Element):
         self.TKButtonMenu = None  # type: tk.Menubutton
         self.TKMenu = None  # type: tk.Menu
         # self.temp_size = size if size != (NONE, NONE) else
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_BUTTONMENU, size=size, font=font, pad=pad, key=key, tooltip=tooltip,
                          text_color=self.TextColor, background_color=self.BackgroundColor, visible=visible, metadata=metadata)
@@ -3256,8 +3567,9 @@ class ButtonMenu(Element):
         self.MenuItemChosen = item_chosen.replace('&', '')
         self.ParentForm.LastButtonClicked = self.Key
         self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        _exit_mainloop(self.ParentForm)
 
     def Update(self, menu_definition, visible=None):
         """
@@ -3269,9 +3581,9 @@ class ButtonMenu(Element):
         :type visible: (bool)
         """
 
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         self.MenuDefinition = menu_definition
         if menu_definition is not None:
             self.TKMenu = tk.Menu(self.TKButtonMenu, tearoff=self.Tearoff)  # create the menubar
@@ -3308,19 +3620,18 @@ class ProgressBar(Element):
     Progress Bar Element - Displays a colored bar that is shaded as progress of some operation is made
     """
 
-    def __init__(self, max_value, orientation=None, size=(None, None), auto_size_text=None, bar_color=(None, None), style=None, border_width=None, relief=None,
-                 key=None, pad=None, visible=True, metadata=None):
+    def __init__(self, max_value, orientation=None, size=(None, None), auto_size_text=None, bar_color=None, style=None, border_width=None, relief=None, key=None, k=None, pad=None, visible=True, metadata=None):
         """
         :param max_value: max value of progressbar
         :type max_value: (int)
         :param orientation: 'horizontal' or 'vertical'
         :type orientation: (str)
         :param size: Size of the bar.  If horizontal (chars wide, pixels high), vert (pixels wide, rows high)
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param auto_size_text: Not sure why this is here
         :type auto_size_text: (bool)
-        :param bar_color: The 2 colors that make up a progress bar. One is the background, the other is the bar
-        :type bar_color: Tuple[str, str]
+        :param bar_color: The 2 colors that make up a progress bar. Easy to remember which is which if you say "ON" between colors. "red" on "green".
+        :type bar_color: Tuple[str, str] or str
         :param style: Progress bar style defined as one of these 'default', 'winnative', 'clam', 'alt', 'classic', 'vista', 'xpnative'
         :type style: (str)
         :param border_width: The amount of pixels that go around the outside of the bar
@@ -3328,13 +3639,15 @@ class ProgressBar(Element):
         :param relief: relief style. Values are same as progress meter relief values.  Can be a constant or a string: `RELIEF_RAISED RELIEF_SUNKEN RELIEF_FLAT RELIEF_RIDGE RELIEF_GROOVE RELIEF_SOLID` (Default value = DEFAULT_PROGRESS_BAR_RELIEF)
         :type relief: (str)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.MaxValue = max_value
@@ -3342,17 +3655,31 @@ class ProgressBar(Element):
         self.Cancelled = False
         self.NotRunning = True
         self.Orientation = orientation if orientation else DEFAULT_METER_ORIENTATION
-        self.BarColor = bar_color
+
+        # Progress Bar colors can be a tuple (text, background) or a string with format "bar on background" - examples "red on white" or ("red", "white")
+        if bar_color is None:
+            bar_color = DEFAULT_PROGRESS_BAR_COLOR
+        else:
+            try:
+                if isinstance(bar_color,str):
+                    bar_color = bar_color.split(' on ')
+            except Exception as e:
+                print('* ProgressBar warning * you messed up with color formatting', e)
+
+        self.BarColor = bar_color       # should be a tuple at this point
         self.BarStyle = style if style else DEFAULT_TTK_THEME
         self.BorderWidth = border_width if border_width else DEFAULT_PROGRESS_BAR_BORDER_WIDTH
         self.Relief = relief if relief else DEFAULT_PROGRESS_BAR_RELIEF
         self.BarExpired = False
+        key = key if key is not None else k
+
         super().__init__(ELEM_TYPE_PROGRESS_BAR, size=size, auto_size_text=auto_size_text, key=key, pad=pad,
                          visible=visible, metadata=metadata)
 
     # returns False if update failed
     def UpdateBar(self, current_count, max=None):
         """
+        DEPRECATED BUT STILL USABLE - has been combined with the normal ProgressBar.update method.
         Change what the bar shows by changing the current count and optionally the max count
 
         :param current_count: sets the current value
@@ -3372,20 +3699,41 @@ class ProgressBar(Element):
             return False
         return True
 
-    def Update(self, visible=None):
+
+    def Update(self, current_count, max=None, visible=None):
         """
         Changes some of the settings for the ProgressBar Element. Must call `Window.Read` or `Window.Finalize` prior
+        Now has the ability to modify the count so that the update_bar method is not longer needed separately
 
+        :param current_count: sets the current value
+        :type current_count: (int)
+        :param max: changes the max value
+        :type max: (int)
         :param visible: control visibility of element
         :type visible: (bool)
+        :return: Returns True if update was OK.  False means something wrong with window or it was closed
+        :rtype: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
-            return
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
+            return False
+
+        if self.ParentForm.TKrootDestroyed:
+            return False
+
         if visible is False:
             self.TKProgressBar.TKProgressBarForReal.pack_forget()
         elif visible is True:
             self.TKProgressBar.TKProgressBarForReal.pack(padx=self.pad_used[0], pady=self.pad_used[1])
+
+        self.TKProgressBar.Update(current_count, max=max)
+        try:
+            self.ParentForm.TKroot.update()
+        except:
+            Window._DecrementOpenCount()
+            # _my_windows.Decrement()
+            return False
+        return True
+
 
     set_focus = Element.SetFocus
     set_tooltip = Element.SetTooltip
@@ -3405,8 +3753,7 @@ class Image(Element):
     Image Element - show an image in the window. Should be a GIF or a PNG only
     """
 
-    def __init__(self, filename=None, data=None, background_color=None, size=(None, None), pad=None, key=None,
-                 tooltip=None, right_click_menu=None, visible=True, enable_events=False, metadata=None):
+    def __init__(self, filename=None, data=None, background_color=None, size=(None, None), pad=None, key=None, k=None, tooltip=None, right_click_menu=None, visible=True, enable_events=False, metadata=None):
         """
         :param filename: image filename if there is a button image. GIFs and PNGs only.
         :type filename: (str)
@@ -3415,11 +3762,13 @@ class Image(Element):
         :param background_color: color of background
         :type background_color:
         :param size: (width, height) size of image in pixels
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
@@ -3429,7 +3778,7 @@ class Image(Element):
         :param enable_events: Turns on the element specific events. For an Image element, the event is "image clicked"
         :type enable_events: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.Filename = filename
@@ -3445,6 +3794,7 @@ class Image(Element):
         self.TotalAnimatedFrames = 0
         self.LastFrameTime = 0
         self.Source = filename if filename is not None else data
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_IMAGE, size=size, background_color=background_color, pad=pad, key=key,
                          tooltip=tooltip, visible=visible, metadata=metadata)
@@ -3452,7 +3802,9 @@ class Image(Element):
 
     def Update(self, filename=None, data=None, size=(None, None), visible=None):
         """
-        Changes some of the settings for the Image Element. Must call `Window.Read` or `Window.Finalize` prior
+        Changes some of the settings for the Image Element. Must call `Window.Read` or `Window.Finalize` prior.
+        To clear an image that's been displayed, call with NONE of the options set.  A blank update call will
+        delete the previously shown image.
         :param filename: filename to the new image to display.
         :type filename: (str)
         :param data: Base64 encoded string OR a tk.PhotoImage object
@@ -3463,10 +3815,10 @@ class Image(Element):
         :type visible: (bool)
         """
 
-        image = None
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
+        image = None
         if filename is not None:
             image = tk.PhotoImage(file=filename)
         elif data is not None:
@@ -3476,8 +3828,7 @@ class Image(Element):
             except Exception as e:
                 image = data
                 # return  # an error likely means the window has closed so exit
-        else:
-            return
+
         if image is not None:
             if type(image) is not bytes:
                 width, height = size[0] or image.width(), size[1] or image.height()
@@ -3492,6 +3843,10 @@ class Image(Element):
             self.tktext_label.pack_forget()
         elif visible is True:
             self.tktext_label.pack(padx=self.pad_used[0], pady=self.pad_used[1])
+        # if everything is set to None, then delete the image
+        if filename is None and image is None and visible is None and size == (None, None):
+            self.tktext_label.image = None
+
 
     def UpdateAnimation(self, source, time_between_frames=0):
         """
@@ -3605,8 +3960,8 @@ class Image(Element):
 # ---------------------------------------------------------------------- #
 class Canvas(Element):
 
-    def __init__(self, canvas=None, background_color=None, size=(None, None), pad=None, key=None, tooltip=None,
-                 right_click_menu=None, visible=True, metadata=None):
+    def __init__(self, canvas=None, background_color=None, size=(None, None), pad=None, key=None, k=None, tooltip=None,
+                 right_click_menu=None, visible=True, border_width=0, metadata=None):
         """
         :param canvas: Your own tk.Canvas if you already created it. Leave blank to create a Canvas
         :type canvas: (tk.Canvas)
@@ -3617,20 +3972,26 @@ class Canvas(Element):
         :param pad:  Amount of padding to put around element
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
         :type right_click_menu: List[List[Union[List[str],str]]]
         :param visible: set visibility state of the element
         :type visible: (bool)
+        :param border_width: width of border around element in pixels. Not normally used with Canvas element
+        :type border_width: (int)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.BackgroundColor = background_color if background_color is not None else DEFAULT_BACKGROUND_COLOR
         self._TKCanvas = canvas
         self.RightClickMenu = right_click_menu
+        self.BorderWidth = border_width
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_CANVAS, background_color=background_color, size=size, pad=pad, key=key,
                          tooltip=tooltip, visible=visible, metadata=metadata)
@@ -3671,10 +4032,10 @@ class Graph(Element):
     """
 
     def __init__(self, canvas_size, graph_bottom_left, graph_top_right, background_color=None, pad=None,
-                 change_submits=False, drag_submits=False, enable_events=False, key=None, tooltip=None,
-                 right_click_menu=None, visible=True, float_values=False, metadata=None):
+                 change_submits=False, drag_submits=False, enable_events=False, key=None, k=None, tooltip=None,
+                 right_click_menu=None, visible=True, float_values=False, border_width=0, metadata=None):
         """
-        :param canvas_size: (width, height) size of the canvas area in pixels
+        :param canvas_size: size of the canvas area in pixels
         :type canvas_size: Tuple[int, int]
         :param graph_bottom_left: (x,y) The bottoms left corner of your coordinate system
         :type graph_bottom_left: Tuple[int, int]
@@ -3684,14 +4045,16 @@ class Graph(Element):
         :type background_color: (str)
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
-        :param change_submits: * DEPRICATED DO NOT USE! Same as enable_events
+        :param change_submits: * DEPRICATED DO NOT USE. Use `enable_events` instead
         :type change_submits: (bool)
         :param drag_submits: if True and Events are enabled for the Graph, will report Events any time the mouse moves while button down
         :type drag_submits: (bool)
         :param enable_events: If True then clicks on the Graph are immediately reported as an event. Use this instead of change_submits
         :type enable_events: (bool)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
@@ -3700,8 +4063,10 @@ class Graph(Element):
         :type visible: (bool)
         :param float_values: If True x,y coordinates are returned as floats, not ints
         :type float_values: (bool)
+        :param border_width: width of border around element in pixels. Not normally used for Graph Elements
+        :type border_width: (int)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.CanvasSize = canvas_size
@@ -3716,6 +4081,8 @@ class Graph(Element):
         self.Images = {}
         self.RightClickMenu = right_click_menu
         self.FloatValues = float_values
+        self.BorderWidth = border_width
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_GRAPH, background_color=background_color, size=canvas_size, pad=pad, key=key,
                          tooltip=tooltip, visible=visible, metadata=metadata)
@@ -3747,10 +4114,10 @@ class Graph(Element):
         """
         Not user callable.  Used to convert tkinter Canvas coords into user's coordinates
 
-        :param x_in: (int) The x coordinate in canvas coordinates
+        :param x_in: The x coordinate in canvas coordinates
         :type x_in: (int)
         :param y_in: (int) The y coordinate in canvas coordinates
-        :type y_in: (int)
+        :type y_in:
         :return: The converted USER coordinates
         :rtype: Union[Tuple[int, int], Tuple[float, float]]
         """
@@ -4129,10 +4496,9 @@ class Graph(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self._TKCanvas2 is None:
-            print('*** WARNING - The Graph element has not been finalized and cannot be drawn upon ***')
-            print('Call Window.Finalize() prior to this operation')
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if background_color is not None and background_color != COLOR_SYSTEM_DEFAULT:
             self._TKCanvas2.configure(background=background_color)
         if visible is False:
@@ -4173,8 +4539,7 @@ class Graph(Element):
         shift_converted = self._convert_xy_to_canvas_xy(x_direction, y_direction)
         shift_amount = (shift_converted[0] - zero_converted[0], shift_converted[1] - zero_converted[1])
         if figure is None:
-            print('*** WARNING - Your figure is None. It most likely means your did not Finalize your Window ***')
-            print('Call Window.Finalize() prior to all graph operations')
+            print('* move_figure warning - your figure is None *')
             return None
         self._TKCanvas2.move(figure, shift_amount[0], shift_amount[1])
 
@@ -4290,10 +4655,15 @@ class Graph(Element):
             self.ParentForm.LastButtonClicked = self.Key
         else:
             self.ParentForm.LastButtonClicked = '__GRAPH__'  # need to put something rather than None
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     self.ParentForm.TKroot.quit()
+        _exit_mainloop(self.ParentForm)
         if self.DragSubmits:
-            self.ParentForm.LastButtonClicked += '+UP'
+            if isinstance(self.ParentForm.LastButtonClicked, str):
+                self.ParentForm.LastButtonClicked = self.ParentForm.LastButtonClicked + '+UP'
+            else:
+                self.ParentForm.LastButtonClicked = (self.ParentForm.LastButtonClicked, '+UP')
+            # self.ParentForm.LastButtonClicked += '+UP'        # this is the old method that required string key
         self.MouseButtonDown = False
 
     # button callback
@@ -4310,8 +4680,9 @@ class Graph(Element):
             self.ParentForm.LastButtonClicked = self.Key
         else:
             self.ParentForm.LastButtonClicked = '__GRAPH__'  # need to put something rather than None
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick out of loop if read was called
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     self.ParentForm.TKroot.quit()  # kick out of loop if read was called
+        _exit_mainloop(self.ParentForm)
         self.MouseButtonDown = True
 
     # button callback
@@ -4330,8 +4701,9 @@ class Graph(Element):
             self.ParentForm.LastButtonClicked = self.Key
         else:
             self.ParentForm.LastButtonClicked = '__GRAPH__'  # need to put something rather than None
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick out of loop if read was called
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     self.ParentForm.TKroot.quit()  # kick out of loop if read was called
+        _exit_mainloop(self.ParentForm)
 
     bring_figure_to_front = BringFigureToFront
     button_press_call_back = ButtonPressCallBack
@@ -4370,8 +4742,8 @@ class Frame(Element):
     """
 
     def __init__(self, title, layout, title_color=None, background_color=None, title_location=None,
-                 relief=DEFAULT_FRAME_RELIEF, size=(None, None), font=None, pad=None, border_width=None, key=None,
-                 tooltip=None, right_click_menu=None, visible=True, element_justification='left', metadata=None):
+                 relief=DEFAULT_FRAME_RELIEF, size=(None, None), font=None, pad=None, border_width=None, key=None, k=None,
+                 tooltip=None, right_click_menu=None, visible=True, element_justification='left', vertical_alignment=None, metadata=None):
         """
         :param title: text that is displayed as the Frame's "label" or title
         :type title: (str)
@@ -4386,7 +4758,7 @@ class Frame(Element):
         :param relief: relief style. Values are same as other elements with reliefs. Choices include RELIEF_RAISED RELIEF_SUNKEN RELIEF_FLAT RELIEF_RIDGE RELIEF_GROOVE RELIEF_SOLID
         :type relief: (enum)
         :param size: (width, height) (note this parameter may not always work)
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
@@ -4394,7 +4766,9 @@ class Frame(Element):
         :param border_width: width of border around element in pixels
         :type border_width: (int)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
@@ -4403,8 +4777,10 @@ class Frame(Element):
         :type visible: (bool)
         :param element_justification: All elements inside the Frame will have this justification 'left', 'right', 'center' are valid values
         :type element_justification: (str)
+        :param vertical_alignment: Place the column at the 'top', 'center', 'bottom' of the row (can also use t,c,r). Defaults to no setting (tkinter decides)
+        :type vertical_alignment: (str)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.UseDictionary = False
@@ -4424,7 +4800,10 @@ class Frame(Element):
         self.RightClickMenu = right_click_menu
         self.ContainerElemementNumber = Window._GetAContainerNumber()
         self.ElementJustification = element_justification
+        self.VerticalAlignment = vertical_alignment
+        self.Widget = None              # type: tk.LabelFrame
         self.Layout(layout)
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_FRAME, background_color=background_color, text_color=title_color, size=size,
                          font=font, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
@@ -4500,7 +4879,7 @@ class Frame(Element):
                            'Instead of a list, the type found was {}'.format(type(row)),
                            'The offensive row = ',
                            row,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             self.AddRow(*row)
         return self
@@ -4529,9 +4908,9 @@ class Frame(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if visible is False:
             self.TKFrame.pack_forget()
         elif visible is True:
@@ -4555,22 +4934,61 @@ class VerticalSeparator(Element):
     Column Element if extra height is needed
     """
 
-    def __init__(self, pad=None):
+    def __init__(self, color=None, pad=None, key=None, k=None):
         """
+        :param color: Color of the line. Defaults to theme's text color. Can be name or #RRGGBB format
+        :type color: (str)
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
+        :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         """
+        key = key if key is not None else k
 
         self.Orientation = 'vertical'  # for now only vertical works
-
-        super().__init__(ELEM_TYPE_SEPARATOR, pad=pad)
-
-    set_focus = Element.SetFocus
-    set_tooltip = Element.SetTooltip
+        self.color = color if color is not None else theme_text_color()
+        super().__init__(ELEM_TYPE_SEPARATOR, pad=pad, key=key)
 
 
 VSeperator = VerticalSeparator
+VSeparator = VerticalSeparator
 VSep = VerticalSeparator
+
+
+# ---------------------------------------------------------------------- #
+#                           Horizontal Separator                           #
+# ---------------------------------------------------------------------- #
+class HorizontalSeparator(Element):
+    """
+    Horizontal Separator Element draws a Horizontal line at the given location.
+    """
+
+    def __init__(self, color=None, pad=None, key=None, k=None):
+        """
+        :param color: Color of the line. Defaults to theme's text color. Can be name or #RRGGBB format
+        :type color: (str)
+        :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
+        :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
+        :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
+        """
+
+        self.Orientation = 'horizontal'  # for now only vertical works
+        self.color = color if color is not None else theme_text_color()
+        key = key if key is not None else k
+
+        super().__init__(ELEM_TYPE_SEPARATOR, pad=pad, key=key)
+
+
+
+HSeparator = HorizontalSeparator
+HSep = HorizontalSeparator
+
+
 
 
 # ---------------------------------------------------------------------- #
@@ -4583,7 +5001,7 @@ class Tab(Element):
     """
 
     def __init__(self, title, layout, title_color=None, background_color=None, font=None, pad=None, disabled=False,
-                 border_width=None, key=None, tooltip=None, right_click_menu=None, visible=True, element_justification='left', metadata=None):
+                 border_width=None, key=None, k=None, tooltip=None, right_click_menu=None, visible=True, element_justification='left', metadata=None):
         """
         :param title: text to show on the tab
         :type title: (str)
@@ -4602,7 +5020,9 @@ class Tab(Element):
         :param border_width: width of border around element in pixels
         :type border_width: (int)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
@@ -4612,7 +5032,7 @@ class Tab(Element):
         :param element_justification: All elements inside the Tab will have this justification 'left', 'right', 'center' are valid values
         :type element_justification: (str)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.UseDictionary = False
@@ -4623,6 +5043,7 @@ class Tab(Element):
         self.ParentWindow = None
         self.Rows = []
         self.TKFrame = None
+        self.Widget = None          # type: tk.Frame
         self.Title = title
         self.BorderWidth = border_width
         self.Disabled = disabled
@@ -4632,11 +5053,11 @@ class Tab(Element):
         self.RightClickMenu = right_click_menu
         self.ContainerElemementNumber = Window._GetAContainerNumber()
         self.ElementJustification = element_justification
+        key = key if key is not None else k
 
         self.Layout(layout)
 
-        super().__init__(ELEM_TYPE_TAB, background_color=background_color, text_color=title_color, font=font, pad=pad,
-                         key=key, tooltip=tooltip, visible=visible, metadata=metadata)
+        super().__init__(ELEM_TYPE_TAB, background_color=background_color, text_color=title_color, font=font, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
         return
 
     def AddRow(self, *args):
@@ -4657,7 +5078,7 @@ class Tab(Element):
                            'This means you have a badly placed ]',
                            'The offensive list is:',
                            element,
-                           'This list will be stripped from your layout' , keep_on_top=True
+                           'This list will be stripped from your layout' , keep_on_top=True, image=_random_error_icon()
                            )
                 continue
             elif callable(element) and not isinstance(element, Element):
@@ -4666,7 +5087,7 @@ class Tab(Element):
                            'This likely means you are missing () from your layout',
                            'The offensive list is:',
                            element,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             if element.ParentContainer is not None:
                 warnings.warn('*** YOU ARE ATTEMPTING TO RESUSE AN ELEMENT IN YOUR LAYOUT! Once placed in a layout, an element cannot be used in another layout. ***', UserWarning)
@@ -4677,7 +5098,7 @@ class Tab(Element):
                            element,
                            'and has a key = ', element.Key,
                            'This item will be stripped from your layout',
-                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True)
+                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True, image=_random_error_icon())
                 continue
             element.Position = (CurrentRowNumber, i)
             element.ParentContainer = self
@@ -4692,6 +5113,7 @@ class Tab(Element):
         Not user callable.  Use layout parameter instead. Creates the layout using the supplied rows of Elements
 
         :param rows: List[List[Element]] The list of rows
+        :type rows: List[List[Element]]
         :return: (Tab) used for chaining
         """
 
@@ -4704,7 +5126,7 @@ class Tab(Element):
                            'Instead of a list, the type found was {}'.format(type(row)),
                            'The offensive row = ',
                            row,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             self.AddRow(*row)
         return self
@@ -4721,9 +5143,9 @@ class Tab(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         state = 'normal'
         if disabled is not None:
             self.Disabled = disabled
@@ -4789,7 +5211,7 @@ class TabGroup(Element):
     def __init__(self, layout, tab_location=None, title_color=None, tab_background_color=None, selected_title_color=None, selected_background_color=None,
                  background_color=None,
                  font=None, change_submits=False, enable_events=False, pad=None, border_width=None, theme=None,
-                 key=None, tooltip=None, visible=True, metadata=None):
+                 key=None, k=None, tooltip=None, visible=True, metadata=None):
         """
         :param layout: Layout of Tabs. Different than normal layouts. ALL Tabs should be on first row
         :type layout: List[List[Tab]]
@@ -4807,7 +5229,7 @@ class TabGroup(Element):
         :type background_color: (str)
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
-        :param change_submits: * DEPRICATED DO NOT USE! Same as enable_events
+        :param change_submits: * DEPRICATED DO NOT USE. Use `enable_events` instead
         :type change_submits: (bool)
         :param enable_events: If True then switching tabs will generate an Event
         :type enable_events: (bool)
@@ -4818,13 +5240,15 @@ class TabGroup(Element):
         :param theme: DEPRICATED - You can only specify themes using set options or when window is created. It's not possible to do it on an element basis
         :type theme: (enum)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.UseDictionary = False
@@ -4847,6 +5271,7 @@ class TabGroup(Element):
         self.ChangeSubmits = change_submits or enable_events
         self.TabLocation = tab_location
         self.ElementJustification = 'left'
+        key = key if key is not None else k
 
         self.Layout(layout)
 
@@ -4873,7 +5298,7 @@ class TabGroup(Element):
                            'This means you have a badly placed ]',
                            'The offensive list is:',
                            element,
-                           'This list will be stripped from your layout' , keep_on_top=True
+                           'This list will be stripped from your layout' , keep_on_top=True, image=_random_error_icon()
                            )
                 continue
             elif callable(element) and not isinstance(element, Element):
@@ -4882,7 +5307,7 @@ class TabGroup(Element):
                            'This likely means you are missing () from your layout',
                            'The offensive list is:',
                            element,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             if element.ParentContainer is not None:
                 warnings.warn('*** YOU ARE ATTEMPTING TO RESUSE AN ELEMENT IN YOUR LAYOUT! Once placed in a layout, an element cannot be used in another layout. ***', UserWarning)
@@ -4893,7 +5318,7 @@ class TabGroup(Element):
                            element,
                            'and has a key = ', element.Key,
                            'This item will be stripped from your layout',
-                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True)
+                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True, image=_random_error_icon())
                 continue
             element.Position = (CurrentRowNumber, i)
             element.ParentContainer = self
@@ -4921,7 +5346,7 @@ class TabGroup(Element):
                            'Instead of a list, the type found was {}'.format(type(row)),
                            'The offensive row = ',
                            row,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             self.AddRow(*row)
         return self
@@ -4996,7 +5421,7 @@ class Slider(Element):
     def __init__(self, range=(None, None), default_value=None, resolution=None, tick_interval=None, orientation=None,
                  disable_number_display=False, border_width=None, relief=None, change_submits=False,
                  enable_events=False, disabled=False, size=(None, None), font=None, background_color=None,
-                 text_color=None, key=None, pad=None, tooltip=None, visible=True, metadata=None):
+                 text_color=None, key=None, k=None, pad=None, tooltip=None, visible=True, metadata=None):
         """
         :param range: slider's range (min value, max value)
         :type range: Union[Tuple[int, int], Tuple[float, float]]
@@ -5014,14 +5439,14 @@ class Slider(Element):
         :type border_width: (int)
         :param relief: relief style. RELIEF_RAISED RELIEF_SUNKEN RELIEF_FLAT RELIEF_RIDGE RELIEF_GROOVE RELIEF_SOLID
         :type relief: (enum)
-        :param change_submits: * DEPRICATED DO NOT USE! Same as enable_events
+        :param change_submits: * DEPRICATED DO NOT USE. Use `enable_events` instead
         :type change_submits: (bool)
         :param enable_events: If True then moving the slider will generate an Event
         :type enable_events: (bool)
         :param disabled: set disable state for element
         :type disabled: (bool)
         :param size: (w=characters-wide, h=rows-high)
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
         :param background_color: color of slider's background
@@ -5029,7 +5454,9 @@ class Slider(Element):
         :param text_color: color of the slider's text
         :type text_color: (str)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param tooltip: text, that will appear when mouse hovers over the element
@@ -5037,7 +5464,7 @@ class Slider(Element):
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.TKScale = self.Widget = None  # type: tk.Scale
@@ -5055,6 +5482,7 @@ class Slider(Element):
         temp_size = size
         if temp_size == (None, None):
             temp_size = (20, 20) if self.Orientation.startswith('h') else (8, 20)
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_INPUT_SLIDER, size=temp_size, font=font, background_color=background_color,
                          text_color=text_color, key=key, pad=pad, tooltip=tooltip, visible=visible, metadata=metadata)
@@ -5073,9 +5501,9 @@ class Slider(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if value is not None:
             try:
                 self.TKIntVar.set(value)
@@ -5105,8 +5533,9 @@ class Slider(Element):
         else:
             self.ParentForm.LastButtonClicked = ''
         self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        _exit_mainloop(self.ParentForm)
 
     set_focus = Element.SetFocus
     set_tooltip = Element.SetTooltip
@@ -5123,7 +5552,7 @@ class TkFixedFrame(tk.Frame):
 
     def __init__(self, master, **kwargs):
         """
-        :param master: (tk.Widget) The parent widget
+        :param master: The parent widget
         :type master: (tk.Widget)
         :param **kwargs: The keyword args
         """
@@ -5260,14 +5689,14 @@ class Column(Element):
     """
 
     def __init__(self, layout, background_color=None, size=(None, None), pad=None, scrollable=False,
-                 vertical_scroll_only=False, right_click_menu=None, key=None, visible=True, justification='left', element_justification='left', metadata=None):
+                 vertical_scroll_only=False, right_click_menu=None, key=None, k=None, visible=True, justification=None, element_justification=None, vertical_alignment=None, grab=None, expand_x=None, expand_y=None, metadata=None):
         """
         :param layout: Layout that will be shown in the Column container
         :type layout: List[List[Element]]
         :param background_color: color of background of entire Column
         :type background_color: (str)
         :param size: (width, height) size in pixels (doesn't work quite right, sometimes only 1 dimension is set by tkinter
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param scrollable: if True then scrollbars will be added to the column
@@ -5277,15 +5706,25 @@ class Column(Element):
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
         :type right_click_menu: List[List[Union[List[str],str]]]
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param justification: set justification for the Column itself. Note entire row containing the Column will be affected
         :type justification: (str)
         :param element_justification: All elements inside the Column will have this justification 'left', 'right', 'center' are valid values
         :type element_justification: (str)
+        :param vertical_alignment: Place the column at the 'top', 'center', 'bottom' of the row (can also use t,c,r). Defaults to no setting (tkinter decides)
+        :type vertical_alignment: (str)
+        :param grab: If True can grab this element and move the window around. Default is False
+        :type grab: (bool)
+        :param expand_x: If True the column will automatically expand in the X direction to fill available space
+        :type expand_x: (bool)
+        :param expand_y: If True the column will automatically expand in the Y direction to fill available space
+        :type expand_y: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.UseDictionary = False
@@ -5300,11 +5739,17 @@ class Column(Element):
         self.TKColFrame = None
         self.Scrollable = scrollable
         self.VerticalScrollOnly = vertical_scroll_only
+
         self.RightClickMenu = right_click_menu
         bg = background_color if background_color is not None else DEFAULT_BACKGROUND_COLOR
         self.ContainerElemementNumber = Window._GetAContainerNumber()
         self.ElementJustification = element_justification
         self.Justification = justification
+        self.VerticalAlignment = vertical_alignment
+        key = key if key is not None else k
+        self.Grab = grab
+        self.ExpandX = expand_x
+        self.ExpandY = expand_y
         self.Layout(layout)
 
         super().__init__(ELEM_TYPE_COLUMN, background_color=bg, size=size, pad=pad, key=key, visible=visible, metadata=metadata)
@@ -5329,7 +5774,7 @@ class Column(Element):
                            'This means you have a badly placed ]',
                            'The offensive list is:',
                            element,
-                           'This list will be stripped from your layout' , keep_on_top=True
+                           'This list will be stripped from your layout' , keep_on_top=True, image=_random_error_icon()
                            )
                 continue
             elif callable(element) and not isinstance(element, Element):
@@ -5338,7 +5783,7 @@ class Column(Element):
                            'This likely means you are missing () from your layout',
                            'The offensive list is:',
                            element,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             if element.ParentContainer is not None:
                 warnings.warn('*** YOU ARE ATTEMPTING TO RESUSE AN ELEMENT IN YOUR LAYOUT! Once placed in a layout, an element cannot be used in another layout. ***', UserWarning)
@@ -5349,7 +5794,7 @@ class Column(Element):
                            element,
                            'and has a key = ', element.Key,
                            'This item will be stripped from your layout',
-                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True)
+                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True, image=_random_error_icon())
                 continue
             element.Position = (CurrentRowNumber, i)
             element.ParentContainer = self
@@ -5378,7 +5823,7 @@ class Column(Element):
                            'Instead of a list, the type found was {}'.format(type(row)),
                            'The offensive row = ',
                            row,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             self.AddRow(*row)
         return self
@@ -5406,9 +5851,9 @@ class Column(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if visible is False:
             if self.TKColFrame:
                 self.TKColFrame.pack_forget()
@@ -5419,6 +5864,15 @@ class Column(Element):
                 self.TKColFrame.pack(padx=self.pad_used[0], pady=self.pad_used[1])
             if self.ParentPanedWindow:
                 self.ParentPanedWindow.add(self.TKColFrame)
+
+    def contents_changed(self):
+        """
+        When a scrollable column has part of its layout changed by making elements visibile or invisible, then this function
+        should be called so that the new scroll area is computed to match the new contents.
+        """
+        self.TKColFrame.canvas.config(scrollregion=self.TKColFrame.canvas.bbox('all'))
+
+
 
     add_row = AddRow
     layout = Layout
@@ -5439,14 +5893,14 @@ class Pane(Element):
     """
 
     def __init__(self, pane_list, background_color=None, size=(None, None), pad=None, orientation='vertical',
-                 show_handle=True, relief=RELIEF_RAISED, handle_size=None, border_width=None, key=None, visible=True, metadata=None):
+                 show_handle=True, relief=RELIEF_RAISED, handle_size=None, border_width=None, key=None, k=None, visible=True, metadata=None):
         """
         :param pane_list: Must be a list of Column Elements. Each Column supplied becomes one pane that's shown
         :type pane_list: List[Column]
         :param background_color: color of background
         :type background_color: (str)
         :param size: (width, height) w=characters-wide, h=rows-high How much room to reserve for the Pane
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param orientation: 'horizontal' or 'vertical' or ('h' or 'v'). Direction the Pane should slide
@@ -5460,11 +5914,13 @@ class Pane(Element):
         :param border_width: width of border around element in pixels
         :type border_width: (int)
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.UseDictionary = False
@@ -5485,6 +5941,7 @@ class Pane(Element):
         bg = background_color if background_color is not None else DEFAULT_BACKGROUND_COLOR
 
         self.Rows = [pane_list]
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_PANE, background_color=bg, size=size, pad=pad, key=key, visible=visible, metadata=metadata)
         return
@@ -5496,9 +5953,9 @@ class Pane(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if visible is False:
             self.PanedWindow.pack_forget()
         elif visible is True:
@@ -5753,31 +6210,35 @@ class Menu(Element):
     menu is shown.  The key portion is returned as part of the event.
     """
 
-    def __init__(self, menu_definition, background_color=None, size=(None, None), tearoff=False, font=None, pad=None, key=None,
-                 visible=True, metadata=None):
+    def __init__(self, menu_definition, background_color=None, size=(None, None), tearoff=False, font=None, pad=None, key=None, k=None, visible=True, metadata=None):
         """
         :param menu_definition: ???
         :type menu_definition: List[List[Tuple[str, List[str]]]
         :param background_color: color of the background
         :type background_color: (str)
         :param size: Not used in the tkinter port
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param tearoff: if True, then can tear the menu off from the window ans use as a floating window. Very cool effect
         :type tearoff: (bool)
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
+        :param font: specifies the font family, size, etc
+        :type font: Union[str, Tuple[str, int]]
         :param key: Value that uniquely identifies this element from all other elements. Used when Finding an element or in return values. Must be unique to the window
-        :type key: (any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.BackgroundColor = background_color if background_color is not None else DEFAULT_BACKGROUND_COLOR
         self.MenuDefinition = menu_definition
         self.Widget = self.TKMenu = None  # type: tk.Menu
         self.MenuItemChosen = None
+        key = key if key is not None else k
 
         super().__init__(ELEM_TYPE_MENUBAR, background_color=background_color, size=size, pad=pad, key=key,
                          visible=visible, font=font, metadata=metadata)
@@ -5798,8 +6259,9 @@ class Menu(Element):
         self.MenuItemChosen = item_chosen
         self.ParentForm.LastButtonClicked = item_chosen
         self.ParentForm.FormRemainedOpen = True
-        if self.ParentForm.CurrentlyRunningMainloop:
-            self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        # if self.ParentForm.CurrentlyRunningMainloop:
+        #     self.ParentForm.TKroot.quit()  # kick the users out of the mainloop
+        _exit_mainloop(self.ParentForm)
 
     def Update(self, menu_definition=None, visible=None):
         """
@@ -5810,9 +6272,9 @@ class Menu(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if menu_definition is not None:
             self.MenuDefinition = menu_definition
             self.TKMenu = tk.Menu(self.ParentForm.TKroot, tearoff=self.Tearoff)  # create the menubar
@@ -5857,9 +6319,9 @@ class Table(Element):
     def __init__(self, values, headings=None, visible_column_map=None, col_widths=None, def_col_width=10,
                  auto_size_columns=True, max_col_width=20, select_mode=None, display_row_numbers=False, num_rows=None,
                  row_height=None, font=None, justification='right', text_color=None, background_color=None,
-                 alternating_row_color=None, header_text_color=None, header_background_color=None, header_font=None, row_colors=None, vertical_scroll_only=True, hide_vertical_scroll=False,
+                 alternating_row_color=None, selected_row_colors=(None, None), header_text_color=None, header_background_color=None, header_font=None, row_colors=None, vertical_scroll_only=True, hide_vertical_scroll=False,
                  size=(None, None), change_submits=False, enable_events=False, bind_return_key=False, pad=None,
-                 key=None, tooltip=None, right_click_menu=None, visible=True, metadata=None):
+                 key=None, k=None, tooltip=None, right_click_menu=None, visible=True, metadata=None):
         """
         :param values: ???
         :type values: List[List[Union[str, int, float]]]
@@ -5893,6 +6355,8 @@ class Table(Element):
         :type background_color: (str)
         :param alternating_row_color: if set then every other row will have this color in the background.
         :type alternating_row_color: (str)
+        :param selected_row_colors: Sets the text color and background color for a selected row. Same format as button colors - tuple ('red', 'yellow') or string 'red on yellow'. Defaults to theme's button color
+        :type selected_row_colors: str or Tuple[str, str]
         :param header_text_color: sets the text color for the header
         :type header_text_color: (str)
         :param header_background_color: sets the background color for the header
@@ -5906,7 +6370,7 @@ class Table(Element):
         :param hide_vertical_scroll: if True vertical scrollbar will be hidden
         :type hide_vertical_scroll: (bool)
         :param size: DO NOT USE! Use num_rows instead
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param change_submits: DO NOT USE. Only listed for backwards compat - Use enable_events instead
         :type change_submits: (bool)
         :param enable_events: Turns on the element specific events. Table events happen when row is clicked
@@ -5916,7 +6380,9 @@ class Table(Element):
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
         :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
@@ -5924,7 +6390,7 @@ class Table(Element):
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.Values = values
@@ -5954,9 +6420,23 @@ class Table(Element):
         self.BindReturnKey = bind_return_key
         self.StartingRowNumber = 0  # When displaying row numbers, where to start
         self.RowHeaderText = 'Row'
+
+        if selected_row_colors == (None, None):
+            # selected_row_colors = DEFAULT_TABLE_AND_TREE_SELECTED_ROW_COLORS
+            selected_row_colors = theme_button_color()
+        else:
+            try:
+                if isinstance(selected_row_colors, str):
+                    selected_row_colors = selected_row_colors.split(' on ')
+            except Exception as e:
+                print('* Table Element Warning * you messed up with color formatting of Selected Row Color', e)
+        self.SelectedRowColors = selected_row_colors
+
         self.RightClickMenu = right_click_menu
         self.RowColors = row_colors
         self.tree_ids = []  # ids returned when inserting items into table - will use to delete colors
+        key = key if key is not None else k
+
         super().__init__(ELEM_TYPE_TABLE, text_color=text_color, background_color=background_color, font=font,
                          size=size, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
         return
@@ -5978,9 +6458,9 @@ class Table(Element):
         :param row_colors: list of tuples of (row, background color) OR (row, foreground color, background color). Changes the colors of listed rows to the color(s) provided (note the optional foreground color)
         :type row_colors: List[Union[Tuple[int, str], Tuple[Int, str, str]]
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if values is not None:
             for id in self.tree_ids:
                 self.TKTreeview.item(id, tags=())
@@ -6040,7 +6520,8 @@ class Table(Element):
         Not user callable.  Callback function that is called when something is selected from Table.
         Stores the selected rows in Element as they are being selected. If events enabled, then returns from Read
 
-        :param event: (unknown) event information from tkinter
+        :param event: event information from tkinter
+        :type event: (unknown)
         """
         selections = self.TKTreeview.selection()
         self.SelectedRows = [int(x) - 1 for x in selections]
@@ -6050,15 +6531,17 @@ class Table(Element):
             else:
                 self.ParentForm.LastButtonClicked = ''
             self.ParentForm.FormRemainedOpen = True
-            if self.ParentForm.CurrentlyRunningMainloop:
-                self.ParentForm.TKroot.quit()
+            # if self.ParentForm.CurrentlyRunningMainloop:
+            #     self.ParentForm.TKroot.quit()
+            _exit_mainloop(self.ParentForm)
 
     def _treeview_double_click(self, event):
         """
         Not user callable.  Callback function that is called when something is selected from Table.
         Stores the selected rows in Element as they are being selected. If events enabled, then returns from Read
 
-        :param event: (unknown) event information from tkinter
+        :param event: event information from tkinter
+        :type event: (unknown)
         """
         selections = self.TKTreeview.selection()
         self.SelectedRows = [int(x) - 1 for x in selections]
@@ -6068,8 +6551,9 @@ class Table(Element):
             else:
                 self.ParentForm.LastButtonClicked = ''
             self.ParentForm.FormRemainedOpen = True
-            if self.ParentForm.CurrentlyRunningMainloop:
-                self.ParentForm.TKroot.quit()
+            # if self.ParentForm.CurrentlyRunningMainloop:
+            #     self.ParentForm.TKroot.quit()
+            _exit_mainloop(self.ParentForm)
 
     def Get(self):
         """
@@ -6097,10 +6581,11 @@ class Tree(Element):
     to hold the user's data and pass to the element for display.
     """
 
+
     def __init__(self, data=None, headings=None, visible_column_map=None, col_widths=None, col0_width=10,
                  def_col_width=10, auto_size_columns=True, max_col_width=20, select_mode=None, show_expanded=False,
                  change_submits=False, enable_events=False, font=None, justification='right', text_color=None,
-                 background_color=None, header_text_color=None, header_background_color=None, header_font=None, num_rows=None, row_height=None, pad=None, key=None, tooltip=None,
+                 background_color=None, selected_row_colors=(None,None), header_text_color=None, header_background_color=None, header_font=None, num_rows=None, row_height=None, pad=None, key=None, k=None, tooltip=None,
                  right_click_menu=None, visible=True, metadata=None):
         """
         :param data: The data represented using a PySimpleGUI provided TreeData class
@@ -6135,6 +6620,8 @@ class Tree(Element):
         :type text_color: (str)
         :param background_color: color of background
         :type background_color: (str)
+        :param selected_row_colors: Sets the text color and background color for a selected row. Same format as button colors - tuple ('red', 'yellow') or string 'red on yellow'. Defaults to theme's button color
+        :type selected_row_colors: str or Tuple[str, str]
         :param header_text_color: sets the text color for the header
         :type header_text_color: (str)
         :param header_background_color: sets the background color for the header
@@ -6148,16 +6635,20 @@ class Tree(Element):
         :param pad: Amount of padding to put around element (left/right, top/bottom) or ((left, right), (top, bottom))
         :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
         :param key: Used with window.FindElement and with return values to uniquely identify this element to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
+        :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+        :type k: Union[str, int, tuple, object]
         :param tooltip: text, that will appear when mouse hovers over the element
         :type tooltip: (str)
-        :param right_click_menu: [Union[List[str],str]]] A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
-        :type right_click_menu: List[List
+        :param right_click_menu: A list of lists of Menu items to show when this element is right clicked. See user docs for exact format.
+        :type right_click_menu: [Union[List[str],str]]]
         :param visible: set visibility state of the element
         :type visible: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
+
+        self.image_dict = {}
 
         self.TreeData = data
         self.ColumnHeadings = headings
@@ -6170,6 +6661,18 @@ class Tree(Element):
         self.TextColor = text_color
         self.HeaderTextColor = header_text_color if header_text_color is not None else LOOK_AND_FEEL_TABLE[CURRENT_LOOK_AND_FEEL]['TEXT_INPUT']
         self.HeaderBackgroundColor = header_background_color if header_background_color is not None else LOOK_AND_FEEL_TABLE[CURRENT_LOOK_AND_FEEL]['INPUT']
+
+        if selected_row_colors == (None, None):
+            # selected_row_colors = DEFAULT_TABLE_AND_TREE_SELECTED_ROW_COLORS
+            selected_row_colors = theme_button_color()
+        else:
+            try:
+                if isinstance(selected_row_colors, str):
+                    selected_row_colors = selected_row_colors.split(' on ')
+            except Exception as e:
+                print('* Table Element Warning * you messed up with color formatting of Selected Row Color', e)
+        self.SelectedRowColors = selected_row_colors
+
         self.HeaderFont = header_font
         self.Justification = justification
         self.InitialState = None
@@ -6185,9 +6688,9 @@ class Tree(Element):
         self.IconList = {}
         self.IdToKey = {'': ''}
         self.KeyToID = {'': ''}
+        key = key if key is not None else k
 
-        super().__init__(ELEM_TYPE_TREE, text_color=text_color, background_color=background_color, font=font, pad=pad,
-                         key=key, tooltip=tooltip, visible=visible, metadata=metadata)
+        super().__init__(ELEM_TYPE_TREE, text_color=text_color, background_color=background_color, font=font, pad=pad, key=key, tooltip=tooltip, visible=visible, metadata=metadata)
         return
 
     def _treeview_selected(self, event):
@@ -6209,8 +6712,9 @@ class Tree(Element):
             else:
                 self.ParentForm.LastButtonClicked = ''
             self.ParentForm.FormRemainedOpen = True
-            if self.ParentForm.CurrentlyRunningMainloop:
-                self.ParentForm.TKroot.quit()
+            # if self.ParentForm.CurrentlyRunningMainloop:
+            #     self.ParentForm.TKroot.quit()
+            _exit_mainloop(self.ParentForm)
 
     def add_treeview_data(self, node):
         """
@@ -6222,10 +6726,15 @@ class Tree(Element):
         if node.key != '':
             if node.icon:
                 try:
-                    if type(node.icon) is bytes:
-                        photo = tk.PhotoImage(data=node.icon)
+                    if node.icon not in self.image_dict:
+                        if type(node.icon) is bytes:
+                            photo = tk.PhotoImage(data=node.icon)
+                        else:
+                            photo = tk.PhotoImage(file=node.icon)
+                        self.image_dict[node.icon] = photo
                     else:
-                        photo = tk.PhotoImage(file=node.icon)
+                        photo = self.image_dict.get(node.icon)
+
                     node.photo = photo
                     id = self.TKTreeview.insert(self.KeyToID[node.parent], 'end', iid=None, text=node.text,
                                                 values=node.values, open=self.ShowExpanded, image=node.photo)
@@ -6249,7 +6758,7 @@ class Tree(Element):
         :param values: Representation of the tree
         :type values: (TreeData)
         :param key: identifies a particular item in tree to update
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
         :param value: sets the node identified by key to a particular value
         :type value: (Any)
         :param text: sets the node identified by ket to this string
@@ -6259,9 +6768,9 @@ class Tree(Element):
         :param visible: control visibility of element
         :type visible: (bool)
         """
-        if self.Widget is None:
-            warnings.warn('You cannot Update element with key = {} until the window has been Read or Finalized'.format(self.Key), UserWarning)
+        if not self._widget_was_created():      # if widget hasn't been created yet, then don't allow
             return
+
         if values is not None:
             children = self.TKTreeview.get_children()
             for i in children:
@@ -6324,10 +6833,12 @@ class TreeData(object):
 
         def __init__(self, parent, key, text, values, icon=None):
             """
+            Represents a node within the TreeData class
+
             :param parent: The parent Node
             :type parent: (TreeData.Node)
             :param key: Used to uniquely identify this node
-            :type key: (Any)
+            :type key: Union[str, int, tuple, object]
             :param text: The text that is displayed at this node's location
             :type text: (str)
             :param values: The list of values that are displayed at this node
@@ -6373,7 +6884,7 @@ class TreeData(object):
         :param parent: the parent Node
         :type parent: (Node)
         :param key: Used to uniquely identify this node
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
         :param text: The text that is displayed at this node's location
         :type text: (str)
         :param values: The list of values that are displayed at this node
@@ -6440,14 +6951,7 @@ class ErrorElement(Element):
         :return:  returns 'self' so call can be chained
         :rtype: (ErrorElement)
         """
-        if not silent_on_error:
-            PopupError('Key error in Update',
-                       'You need to stop this madness and check your spelling',
-                       'Bad key = {}'.format(self.Key),
-                       'Your bad line of code may resemble this:',
-                       'window.FindElement("{}")'.format(self.Key),
-                       'or window["{}"]'.format(self.Key), keep_on_top=True
-                       )
+        print('** Your update is being ignored because you supplied a bad key earlier **')
         return self
 
     def Get(self):
@@ -6483,8 +6987,18 @@ class Window:
     _user_defined_icon = None
     hidden_master_root = None
     _animated_popup_dict = {}
+    _active_windows = {}
+    _move_all_windows = False            # if one window moved, they will move
+    _window_that_exited = None          # type: Window
+    _root_running_mainloop = None       # type: tk.Tk()    # (may be the hidden root or a window's root)
+    _timeout_key = None
+    _TKAfterID = None                   # timer that is used to run reads with timeouts
+    _window_running_mainloop = None     # The window that is running the mainloop
     _container_element_counter = 0  # used to get a number of Container Elements (Frame, Column, Tab)
     _read_call_from_debugger = False
+    _timeout_0_counter = 0              # when timeout=0 then go through each window one at a time
+
+    multi_window_return_values_queue = queue.Queue()  # A queue with return values in case multi-window environment (window, event, values)
 
     def __init__(self, title, layout=None, default_element_size=DEFAULT_ELEMENT_SIZE,
                  default_button_element_size=(None, None),
@@ -6495,16 +7009,16 @@ class Window:
                  alpha_channel=1, return_keyboard_events=False, use_default_focus=True, text_justification=None,
                  no_titlebar=False, grab_anywhere=False, keep_on_top=False, resizable=False, disable_close=False,
                  disable_minimize=False, right_click_menu=None, transparent_color=None, debugger_enabled=True,
-                 finalize=False, element_justification='left', ttk_theme=None, use_ttk_buttons=None, metadata=None):
+                 finalize=False, element_justification='left', ttk_theme=None, use_ttk_buttons=None, modal=False, metadata=None):
         """
         :param title: The title that will be displayed in the Titlebar and on the Taskbar
         :type title: (str)
         :param layout: The layout for the window. Can also be specified in the Layout method
         :type layout: List[List[Elements]]
-        :param default_element_size: (width, height) size in characters (wide) and rows (high) for all elements in this window
-        :type default_element_size: Tuple[int, int]
+        :param default_element_size: size in characters (wide) and rows (high) for all elements in this window
+        :type default_element_size: (int, int) - (width, height)
         :param default_button_element_size: (width, height) size in characters (wide) and rows (high) for all Button elements in this window
-        :type default_button_element_size: Tuple[int, int]
+        :type default_button_element_size: (int, int)
         :param auto_size_text: True if Elements in Window should be sized to exactly fir the length of text
         :type auto_size_text: (bool)
         :param auto_size_buttons: True if Buttons in this Window should be sized to exactly fit the text on this.
@@ -6512,13 +7026,13 @@ class Window:
         :param location: (x,y) location, in pixels, to locate the upper left corner of the window on the screen. Default is to center on screen.
         :type location: Tuple[int, int]
         :param size: (width, height) size in pixels for this window. Normally the window is autosized to fit contents, not set to an absolute size by the user
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param element_padding: Default amount of padding to put around elements in window (left/right, top/bottom) or ((left, right), (top, bottom))
         :type element_padding: Tuple[int, int] or ((int, int),(int,int))
         :param margins: (left/right, top/bottom) Amount of pixels to leave inside the window's frame around the edges before your elements are shown.
         :type margins: Tuple[int, int]
-        :param button_color: (text color, button color) Default button colors for all buttons in the window
-        :type button_color: Tuple[str, str]
+        :param button_color: Default button colors for all buttons in the window
+        :type button_color: Tuple[str, str] or str
         :param font: specifies the font family, size, etc
         :type font: Union[str, Tuple[str, int]]
         :param progress_bar_color: (bar color, background color) Sets the default colors for all progress bars in the window
@@ -6541,8 +7055,8 @@ class Window:
         :type return_keyboard_events: (bool)
         :param use_default_focus: If True will use the default focus algorithm to set the focus to the "Correct" element
         :type use_default_focus: (bool)
-        :param text_justification: Union ['left', 'right', 'center'] Default text justification for all Text Elements in window
-        :type text_justification: (str)
+        :param text_justification: Default text justification for all Text Elements in window
+        :type text_justification: Union['left', 'right', 'center']
         :param no_titlebar: If true, no titlebar nor frame will be shown on window. This means you cannot minimize the window and it will not show up on the taskbar
         :type no_titlebar: (bool)
         :param grab_anywhere: If True can use mouse to click and drag to move the window. Almost every location of the window will work except input fields on some systems
@@ -6569,8 +7083,10 @@ class Window:
         :type ttk_theme: (str)
         :param use_ttk_buttons: Affects all buttons in window. True = use ttk buttons. False = do not use ttk buttons.  None = use ttk buttons only if on a Mac
         :type use_ttk_buttons: (bool)
+        :param modal: If True then this window will be the only window a user can interact with until it is closed
+        :type modal: (bool)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
 
         self.AutoSizeText = auto_size_text if auto_size_text is not None else DEFAULT_AUTOSIZE_TEXT
@@ -6645,6 +7161,16 @@ class Window:
         self.UseTtkButtons = use_ttk_buttons if use_ttk_buttons is not None else USE_TTK_BUTTONS
         self.user_bind_dict = {}  # Used when user defines a tkinter binding using bind method - convert bind string to key modifier
         self.user_bind_event = None  # Used when user defines a tkinter binding using bind method - event data from tkinter
+        self.modal = modal
+        self.thread_queue = None        # type: queue.Queue
+        self.thread_strvar  = None      # type: tk.StringVar
+        self.read_closed_window_count = 0
+        self.config_last_size = (None, None)
+        self.config_last_location = (None, None)
+        self.starting_window_position = (None, None)
+        self.not_completed_initial_movement = True
+        self.config_count = 0
+        self.saw_00 = False
 
         if layout is not None and type(layout) not in (list, tuple):
             warnings.warn('Your layout is not a list or tuple... this is not good!')
@@ -6687,9 +7213,11 @@ class Window:
     @classmethod
     def get_screen_size(self):
         """
+        This is a "Class Method" meaning you call it by writing: width, height = Window.get_screen_size()
         Returns the size of the "screen" as determined by tkinter.  This can vary depending on your operating system and the number of monitors installed on your system.  For Windows, the primary monitor's size is returns. On some multi-monitored Linux systems, the monitors are combined and the total size is reported as if one screen.
 
-        :return: Tuple[int, int] - Size of the screen in pixels as determined by tkinter
+        :return: Size of the screen in pixels as determined by tkinter
+        :rtype: (int, int)
         """
         root = tk.Tk()
         screen_width = root.winfo_screenwidth()  # get window info to move to middle of screen
@@ -6717,7 +7245,7 @@ class Window:
                            'This means you have a badly placed ]',
                            'The offensive list is:',
                            element,
-                           'This list will be stripped from your layout' , keep_on_top=True
+                           'This list will be stripped from your layout' , keep_on_top=True, image=_random_error_icon()
                            )
                 continue
             elif callable(element) and not isinstance(element, Element):
@@ -6726,7 +7254,7 @@ class Window:
                            'This likely means you are missing () from your layout',
                            'The offensive list is:',
                            element,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             if element.ParentContainer is not None:
                 warnings.warn('*** YOU ARE ATTEMPTING TO RESUSE AN ELEMENT IN YOUR LAYOUT! Once placed in a layout, an element cannot be used in another layout. ***', UserWarning)
@@ -6737,7 +7265,7 @@ class Window:
                            element,
                            'and has a key = ', element.Key,
                            'This item will be stripped from your layout',
-                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True)
+                           'Hint - try printing your layout and matching the IDs "print(layout)"', keep_on_top=True, image=_random_error_icon())
                 continue
             element.Position = (CurrentRowNumber, i)
             element.ParentContainer = self
@@ -6752,8 +7280,8 @@ class Window:
         This is NOT the best way to go about creating a window.  Sending the entire layout at one time and passing
         it as a parameter to the Window call is better.
 
-        :param rows: List[List[Elements]] A list of a list of elements
-
+        :param rows: A list of a list of elements
+        :type rows: List[List[Elements]]
         """
         for row in rows:
             try:
@@ -6764,7 +7292,7 @@ class Window:
                            'Instead of a list, the type found was {}'.format(type(row)),
                            'The offensive row = ',
                            row,
-                           'This item will be stripped from your layout', keep_on_top=True)
+                           'This item will be stripped from your layout', keep_on_top=True, image=_random_error_icon())
                 continue
             self.AddRow(*row)
 
@@ -6789,9 +7317,9 @@ class Window:
         """
         Adds new rows to an existing container element inside of this window
 
-        :param container: (Union[Frame, Column, Tab]) - The container Element the layout will be placed inside of
+        :param container: The container Element the layout will be placed inside of
         :type container: (Union[Frame, Column, Tab])
-        :param rows: (List[List[Element]]) - The layout to be added
+        :param rows: The layout to be added
         :type rows: (List[List[Element]])
         :return: (Window) self so could be chained
         :rtype: (Window)
@@ -6833,7 +7361,8 @@ class Window:
         NOT TO BE CALLED BY USERS.  INTERNAL ONLY!
         It's this method that first shows the window to the user, collects results
 
-        :param non_blocking: (bool) if True, this is a non-blocking call
+        :param non_blocking: if True, this is a non-blocking call
+        :type non_blocking: (bool)
         :return: Tuple[Any, Dict] The event, values turple that is returned from Read calls
         """
         self.Shown = True
@@ -6969,9 +7498,52 @@ class Window:
         self.FormRemainedOpen = True
         self.TKroot.quit()  # kick the users out of the mainloop
 
+
+    def _calendar_chooser_button_clicked(self, elem):
+        """
+
+        :param elem:
+        :return:
+        """
+        target_element, strvar, should_submit_window = elem._find_target()
+
+        if elem.calendar_default_date_M_D_Y == (None, None, None):
+            now = datetime.datetime.now()
+            cur_month, cur_day, cur_year = now.month, now.day, now.year
+        else:
+            cur_month, cur_day, cur_year = elem.calendar_default_date_M_D_Y
+
+        date_chosen = popup_get_date(start_mon=cur_month, start_day=cur_day, start_year=cur_year, close_when_chosen=elem.calendar_close_when_chosen,
+                                     no_titlebar=elem.calendar_no_titlebar, begin_at_sunday_plus=elem.calendar_begin_at_sunday_plus,
+                                     locale=elem.calendar_locale, location=elem.calendar_location, month_names=elem.calendar_month_names,
+                                     day_abbreviations=elem.calendar_day_abbreviations, title=elem.calendar_title)
+        if date_chosen is not None:
+            month, day, year = date_chosen
+            now = datetime.datetime.now()
+            hour, minute, second = now.hour, now.minute, now.second
+            try:
+                date_string = calendar.datetime.datetime(year, month, day, hour, minute, second).strftime(elem.calendar_format)
+            except Exception as e:
+                print('Bad format string in calendar chooser button', e)
+                date_string = 'Bad format string'
+
+            if target_element is not None and target_element != elem:
+                target_element.update(date_string)
+            elif target_element == elem:
+                elem.calendar_selection = date_string
+
+            strvar.set(date_string)
+            elem.TKStringVar.set(date_string)
+            if should_submit_window:
+                self.LastButtonClicked = target_element.Key
+                results = _BuildResults(self, False, self)
+        else:
+            should_submit_window = False
+        return should_submit_window
+
+
     # @_timeit_summary
     def Read(self, timeout=None, timeout_key=TIMEOUT_KEY, close=False):
-        # type: (int, Any, bool) -> Tuple[Any, Union[Dict, List]]
         """
         THE biggest deal method in the Window class! This is how you get all of your data from your Window.
             Pass in a timeout (in milliseconds) to wait for a maximum of timeout milliseconds. Will return timeout_key
@@ -6989,7 +7561,26 @@ class Window:
         # ensure called only 1 time through a single read cycle
         if not Window._read_call_from_debugger:
             _refresh_debugger()
-        results = self._read(timeout=timeout, timeout_key=timeout_key)
+
+        Window._root_running_mainloop = self.TKroot
+
+        while True:
+            results = self._read(timeout=timeout, timeout_key=timeout_key)
+            # Post processing for Calendar Chooser Button
+            try:
+                elem = self.find_element(results[0], silent_on_error=True)    # get the element that caused the event
+                if elem.Type == ELEM_TYPE_BUTTON:
+                    if elem.BType == BUTTON_TYPE_CALENDAR_CHOOSER:
+                        if self._calendar_chooser_button_clicked(elem):     # returns True if should break out
+                            # results[0] = self.LastButtonClicked
+                            results = self.ReturnValues
+                            break
+                        else:
+                            continue
+                break
+            except:
+                break            #  wasn't a calendar button for sure
+
         if close:
             self.close()
 
@@ -6998,7 +7589,6 @@ class Window:
 
     # @_timeit
     def _read(self, timeout=None, timeout_key=TIMEOUT_KEY):
-        # type: (int, Any) -> Tuple[Any, Union[Dict, List]]
         """
         THE biggest deal method in the Window class! This is how you get all of your data from your Window.
             Pass in a timeout (in milliseconds) to wait for a maximum of timeout milliseconds. Will return timeout_key
@@ -7025,6 +7615,9 @@ class Window:
         self.TimeoutKey = timeout_key
         self.NonBlocking = False
         if self.TKrootDestroyed:
+            self.read_closed_window_count += 1
+            if self.read_closed_window_count > 100:
+                popup_error('You have tried 100 times to read a closed window.', 'You need to add a check for event == WIN_CLOSED', title='Trying to read a closed window')
             return None, None
         if not self.Shown:
             self._Show()
@@ -7036,6 +7629,11 @@ class Window:
                 self.LastButtonClicked = None
                 return results
             InitializeResults(self)
+
+            if self._queued_thread_event_available():
+                self.ReturnValues = results = _BuildResults(self, False, self)
+                return results
+
             # if the last button clicked was realtime, emulate a read non-blocking
             # the idea is to quickly return realtime buttons without any blocks until released
             if self.LastButtonClickedWasRealtime:
@@ -7076,7 +7674,9 @@ class Window:
             # print(f'In main {self.Title} {self.TKroot}')
             # self.TKroot.protocol("WM_DESTROY_WINDOW", self._OnClosingCallback)
             # self.TKroot.protocol("WM_DELETE_WINDOW", self._OnClosingCallback)
-            self.TKroot.mainloop()
+            Window._window_running_mainloop = self
+            Window._root_running_mainloop.mainloop()
+
             # print('Out main')
             self.CurrentlyRunningMainloop = False
             # if self.LastButtonClicked != TIMEOUT_KEY:
@@ -7109,11 +7709,14 @@ class Window:
                 self.LastButtonClicked = None
             return results
         else:
+            if self._queued_thread_event_available():
+                self.ReturnValues = results = _BuildResults(self, False, self)
+                return results
             if not self.XFound and self.Timeout != 0 and self.Timeout is not None and self.ReturnValues[
                 0] is None:  # Special Qt case because returning for no reason so fake timeout
                 self.ReturnValues = self.TimeoutKey, self.ReturnValues[1]  # fake a timeout
             elif not self.XFound and self.ReturnValues[0] is None:  # TODO HIGHLY EXPERIMENTAL... added due to tray icon interaction
-                # print("*** Faking timeout ***")
+                print("*** Faking timeout ***")
                 self.ReturnValues = self.TimeoutKey, self.ReturnValues[1]  # fake a timeout
             return self.ReturnValues
 
@@ -7152,6 +7755,11 @@ class Window:
             return None, None
         return _BuildResults(self, False, self)
 
+
+
+
+
+
     def Finalize(self):
         """
         Use this method to cause your layout to built into a real tkinter window.  In reality this method is like
@@ -7165,6 +7773,8 @@ class Window:
         if self.TKrootDestroyed:
             return self
         self.Read(timeout=1)
+        # add the window to the list of active windows
+        Window._active_windows[self] = Window.hidden_master_root
         return self
         # OLD CODE FOLLOWS
         if not self.Shown:
@@ -7201,14 +7811,27 @@ class Window:
         """
         Fill in elements that are input fields with data based on a 'values dictionary'
 
-        :param values_dict: {Element key : value} pairs
-        :type values_dict: (Dict[Any:Any])
+        :param values_dict: pairs
+        :type values_dict: (Dict[Any:Any]) - {Element_key : value}
         :return: returns self so can be chained with other methods
         :rtype: (Window)
         """
 
         FillFormWithValues(self, values_dict)
         return self
+
+
+    def _find_closest_key(self, search_key):
+        if not isinstance(search_key, str):
+            search_key = str(search_key)
+        matches = difflib.get_close_matches(search_key, [str(k) for k in self.AllKeysDict.keys()])
+        if not len(matches):
+            return None
+        for k in self.AllKeysDict.keys():
+            if matches[0] == str(k):
+                return k
+        return matches[0] if len(matches) else None
+
 
     def FindElement(self, key, silent_on_error=False):
         """
@@ -7232,7 +7855,7 @@ class Window:
         checked for.
 
         :param key: Used with window.FindElement and with return values to uniquely identify this element
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
         :param silent_on_error: If True do not display popup nor print warning of key errors
         :type silent_on_error: (bool)
         :return:  Return value can be: the Element that matches the supplied key if found; an Error Element if silent_on_error is False; None if silent_on_error True;
@@ -7240,18 +7863,46 @@ class Window:
         """
         try:
             element = self.AllKeysDict[key]
+            key_error = False
         except KeyError:
-            element = None
+            closest_key = self._find_closest_key(key)
             if not silent_on_error:
-                warnings.warn(
-                    "*** WARNING = FindElement did not find the key. Please check your key's spelling. key = %s ***" % key, UserWarning)
-                PopupError('Key error in FindElement Call',
-                           'Bad key = {}'.format(key),
-                           'Your bad line of code may resemble this:',
-                           'window.FindElement("{}")'.format(key),
-                           'or window["{}"]'.format(key), keep_on_top=True
-                           )
+                print('** Error looking up your element using the key: ', key, 'The closest matching key: ', closest_key)
+                trace_details = traceback.format_stack()
+                error_message = ''
+                file_info_pysimplegui = trace_details[-1].split(",")[0]
+                for line in reversed(trace_details):
+                    if line.split(",")[0] != file_info_pysimplegui:
+                        error_message = line
+                        break
+                if error_message != '':
+                    error_parts = error_message.split(', ')
+                    if len(error_parts)  < 4:
+                        error_message = error_parts[0]+'\n'+error_parts[1]+ '\n' + ''.join(error_parts[2:])
+
+                if not SUPPRESS_ERROR_POPUPS:
+                    key_message = 'A close key was found: {}'.format(closest_key) if closest_key is not None else 'No key found that resembles your key'
+
+                    popup_error('Key error in locating your element',
+                           'Bad key = {}\n'.format(key),
+                                key_message,
+                                error_message,
+                               line_width=100,
+                               keep_on_top=True, image=_random_error_icon())
+                # if not SUPPRESS_RAISE_KEY_ERRORS:
+                #     raise KeyError(key)
+                # else:
                 element = ErrorElement(key=key)
+                key_error = True
+            else:
+                element = ErrorElement(key=key)
+                return element
+        if key_error:
+            if closest_key is not None and not SUPPRESS_KEY_GUESSING:
+                element = self.AllKeysDict[closest_key]
+                return element
+            if not SUPPRESS_RAISE_KEY_ERRORS:
+                raise KeyError(key)
         return element
 
     Element = FindElement  # Shortcut function
@@ -7281,8 +7932,10 @@ class Window:
         Loop through all Rows and all Container Elements for this window and create the keys for all of them.
         Note that the calls are recursive as all pathes must be walked
 
-        :param top_window: (Window) The highest level of the window
-        :param window: Union[Column, Frame, TabGroup, Pane, Tab] The "sub-window" (container element) to be searched
+        :param top_window: The highest level of the window
+        :type top_window: (Window)
+        :param window: The "sub-window" (container element) to be searched
+        :type window: Union[Column, Frame, TabGroup, Pane, Tab]
         :param key_dict: The dictionary as it currently stands.... used as part of recursive call
         :return: (dict) Dictionary filled with all keys in the window
         """
@@ -7308,7 +7961,8 @@ class Window:
                                         ELEM_TYPE_INPUT_CHECKBOX, ELEM_TYPE_INPUT_LISTBOX, ELEM_TYPE_INPUT_COMBO,
                                         ELEM_TYPE_INPUT_MULTILINE, ELEM_TYPE_INPUT_OPTION_MENU, ELEM_TYPE_INPUT_SPIN,
                                         ELEM_TYPE_INPUT_RADIO, ELEM_TYPE_INPUT_TEXT, ELEM_TYPE_PROGRESS_BAR,
-                                        ELEM_TYPE_TAB_GROUP):
+                                        ELEM_TYPE_TABLE, ELEM_TYPE_TREE,
+                                        ELEM_TYPE_TAB_GROUP, ELEM_TYPE_SEPARATOR):
                         element.Key = top_window.DictionaryKeyCounter
                         top_window.DictionaryKeyCounter += 1
                 if element.Key is not None:
@@ -7406,7 +8060,8 @@ class Window:
         :return: Tuple containing width and height of screen in pixels
         :rtype: Union[Tuple[None, None], Tuple[width, height]]
         """
-        if self.TKrootDestroyed:
+
+        if self.TKrootDestroyed or self.TKroot is None:
             return Window.get_screen_size()
         screen_width = self.TKroot.winfo_screenwidth()  # get window info to move to middle of screen
         screen_height = self.TKroot.winfo_screenheight()
@@ -7422,6 +8077,8 @@ class Window:
         """
         try:
             self.TKroot.geometry("+%s+%s" % (x, y))
+            self.config_last_location = (int(x), (int(y)))
+
         except:
             pass
 
@@ -7429,6 +8086,8 @@ class Window:
         """
         Minimize this window to the task bar
         """
+        if not self._is_window_created():
+            return
         self.TKroot.iconify()
 
     def Maximize(self):
@@ -7437,6 +8096,9 @@ class Window:
         the root attribute '-fullscreen' is set to True.  For Windows the "root" state is changed to "zoomed"
         The reason for the difference is the title bar is removed in some cases when using fullscreen option
         """
+
+        if not self._is_window_created():
+            return
         if sys.platform != 'linux':
             self.TKroot.state('zoomed')
         else:
@@ -7448,6 +8110,8 @@ class Window:
         """
         Restore a window to a non-maximized state.  Does different things depending on platform.  See Maximize for more.
         """
+        if not self._is_window_created():
+            return
         if self.TKroot.state() == 'iconic':
             self.TKroot.deiconify()
         else:
@@ -7476,12 +8140,13 @@ class Window:
         :param event: event information passed in by tkinter. Contains x,y position of mouse
         :type event: (event)
         """
+
         try:
-            self.TKroot.x = None
-            self.TKroot.y = None
-        except:
-            pass
-        # print('-Stop- move {},{}'.format(event.x,event.y))
+            self.TKroot.x = event.x
+            self.TKroot.y = event.y
+        except Exception as e:
+            print('stop move error', e, event)
+
 
     def _OnMotion(self, event):
         """
@@ -7496,8 +8161,87 @@ class Window:
             y = self.TKroot.winfo_y() + deltay
             self.TKroot.geometry("+%s+%s" % (x, y))  # this is what really moves the window
             # print('{},{}'.format(x,y))
-        except:
-            pass
+
+            if Window._move_all_windows:
+                for window in Window._active_windows:
+                    x = window.TKroot.winfo_x() + deltax
+                    y = window.TKroot.winfo_y() + deltay
+                    window.TKroot.geometry("+%s+%s" % (x, y))  # this is what really moves the window
+        except Exception as e:
+            print('on motion error', e)
+
+
+    def _focus_callback(self, event):
+        print('Focus event = {} window = {}'.format(event, self.Title))
+
+
+    def _config_callback(self, event):
+        print('Config  event = {} window = {}'.format(event, self.Title))
+        #
+        # try:
+        #     deltax = event.x - self.TKroot.x
+        #     deltay = event.y - self.TKroot.y
+        #     x = self.TKroot.winfo_x() + deltax
+        #     y = self.TKroot.winfo_y() + deltay
+        #     self.TKroot.geometry("+%s+%s" % (x, y))  # this is what really moves the window
+        #     # print('{},{}'.format(x,y))
+        #
+        #     if Window._move_all_windows:
+        #         for window in Window._active_windows:
+        #             x = window.TKroot.winfo_x() + deltax
+        #             y = window.TKroot.winfo_y() + deltay
+        #             window.TKroot.geometry("+%s+%s" % (x, y))  # this is what really moves the window
+        # except Exception as e:
+        #     print('on motion error {}'.format(e), 'title = {}'.format(window.Title))
+
+
+    """
+    def _config_callback(self, event):
+        print(f'Config  event = {event} window = {self.Title}')
+        new_x = event.x
+        new_y = event.y
+
+
+        if self.not_completed_initial_movement:
+            if self.starting_window_position != (new_x, new_y):
+                return
+            self.not_completed_initial_movement = False
+            return
+
+        if not self.saw_00:
+            if new_x == 0 and new_y == 0:
+                self.saw_00 = True
+
+        # self.config_count += 1
+        # if self.config_count < 40:
+        #     return
+
+        print('Move LOGIC')
+
+        if self.config_last_size != (event.width, event.height):
+            self.config_last_size = (event.width, event.height)
+
+        if self.config_last_location[0] != new_x or self.config_last_location[1] != new_y:
+            if self.config_last_location == (None, None):
+                self.config_last_location = (new_x, new_y)
+                return
+
+        deltax = self.config_last_location[0] - event.x
+        deltay = self.config_last_location[1] - event.y
+        if deltax == 0 and deltay == 0:
+            print('not moving so returning')
+            return
+        if Window._move_all_windows:
+            print('checking all windows')
+            for window in Window._active_windows:
+                if window == self:
+                    continue
+                print(f'** Moving window {window.Title}')
+                x = window.TKroot.winfo_x() + deltax
+                y = window.TKroot.winfo_y() + deltay
+                # window.TKroot.geometry("+%s+%s" % (x, y))  # this is what really moves the window
+                # window.config_last_location = (x,y)
+    """
 
     def _KeyboardCallback(self, event):
         """
@@ -7513,10 +8257,9 @@ class Window:
             self.LastKeyboardEvent = event.char
         else:
             self.LastKeyboardEvent = str(event.keysym) + ':' + str(event.keycode)
-        if not self.NonBlocking:
-            _BuildResults(self, False, self)
-        if self.CurrentlyRunningMainloop:  # quit if this is the current mainloop, otherwise don't quit!
-            self.TKroot.quit()
+        # if not self.NonBlocking:
+        #     _BuildResults(self, False, self)
+        _exit_mainloop(self)
 
     def _MouseWheelCallback(self, event):
         """
@@ -7528,11 +8271,11 @@ class Window:
         """
         self.LastButtonClicked = None
         self.FormRemainedOpen = True
-        self.LastKeyboardEvent = 'MouseWheel:Down' if event.delta < 0 else 'MouseWheel:Up'
-        if not self.NonBlocking:
-            _BuildResults(self, False, self)
-        if self.CurrentlyRunningMainloop:  # quit if this is the current mainloop, otherwise don't quit!
-            self.TKroot.quit()
+        self.LastKeyboardEvent = 'MouseWheel:Down' if event.delta < 0 or event.num == 5 else 'MouseWheel:Up'
+        # if not self.NonBlocking:
+        #     _BuildResults(self, False, self)
+        _exit_mainloop(self)
+
 
     def _Close(self):
         """
@@ -7557,6 +8300,11 @@ class Window:
         a window so that resources are properly freed up within your thread.
         """
         try:
+            del Window._active_windows[self]        # will only be in the list if window was explicitly finalized
+        except:
+            pass
+
+        try:
             self.TKroot.update()    # On Linux must call update if the user closed with X or else won't actually close the window
         except:
             pass
@@ -7568,15 +8316,18 @@ class Window:
         except:
             pass
         # if down to 1 window, try and destroy the hidden window, if there is one
-        if Window.NumOpenWindows == 1:
-            try:
-                Window.hidden_master_root.destroy()
-                Window.NumOpenWindows = 0  # if no hidden window, then this won't execute
-            except:
-                pass
+        # if Window.NumOpenWindows == 1:
+        #     try:
+        #         Window.hidden_master_root.destroy()
+        #         Window.NumOpenWindows = 0  # if no hidden window, then this won't execute
+        #     except:
+        #         pass
         self.TKrootDestroyed = True
-        del self.TKroot
-        del self.Rows
+
+        # Free up anything that was held in the layout and the root variables
+        self.Rows = None
+        self.TKroot = None
+
 
     # IT FINALLY WORKED! 29-Oct-2018 was the first time this damned thing got called
     def _OnClosingCallback(self):
@@ -7589,12 +8340,15 @@ class Window:
             return
         self.XFound = True
         if self.CurrentlyRunningMainloop:  # quit if this is the current mainloop, otherwise don't quit!
-            self.TKroot.quit()  # kick the users out of the mainloop
-            self.TKroot.destroy()  # kick the users out of the mainloop
+            _exit_mainloop(self)
+            # self.TKroot.quit()  # kick the users out of the mainloop
+            self.TKroot.destroy()  # destroy this window
             self.RootNeedsDestroying = True
             self.TKrootDestroyed = True
+        elif Window._root_running_mainloop == Window.hidden_master_root:
+            _exit_mainloop(self)
         else:
-            self.TKroot.destroy()  # kick the users out of the mainloop
+            self.TKroot.destroy()   # destroy this window
             self.RootNeedsDestroying = True
         self.RootNeedsDestroying = True
 
@@ -7602,6 +8356,8 @@ class Window:
         """
         Disables window from taking any input from the user
         """
+        if not self._is_window_created():
+            return
         self.TKroot.attributes('-disabled', 1)
         # self.TKroot.grab_set_global()
 
@@ -7609,6 +8365,8 @@ class Window:
         """
         Re-enables window to take user input after having it be Disabled previously
         """
+        if not self._is_window_created():
+            return
         self.TKroot.attributes('-disabled', 0)
         # self.TKroot.grab_release()
 
@@ -7616,6 +8374,8 @@ class Window:
         """
         Hides the window from the screen and the task bar
         """
+        if not self._is_window_created():
+            return
         self._Hidden = True
         self.TKroot.withdraw()
 
@@ -7623,6 +8383,8 @@ class Window:
         """
         Used to bring back a window that was previously hidden using the Hide method
         """
+        if not self._is_window_created():
+            return
         if self._Hidden:
             self.TKroot.deiconify()
             self._Hidden = False
@@ -7633,12 +8395,16 @@ class Window:
         channel to 0.  NOTE that on some platforms alpha is not supported. The window will remain showing on these
         platforms.  The Raspberry Pi for example does not have an alpha setting
         """
+        if not self._is_window_created():
+            return
         self.TKroot.attributes('-alpha', 0)
 
     def Reappear(self):
         """
         Causes a window previously made to "Disappear" (using that method). Does this by restoring the alpha channel
         """
+        if not self._is_window_created():
+            return
         self.TKroot.attributes('-alpha', 255)
 
     def SetAlpha(self, alpha):
@@ -7648,8 +8414,8 @@ class Window:
         :param alpha: 0 to 1. 0 is completely transparent.  1 is completely visible and solid (can't see through)
         :type alpha: (float)
         """
-        # Change the window's transparency
-        # :param alpha: From 0 to 1 with 0 being completely transparent
+        if not self._is_window_created():
+            return
         self._AlphaChannel = alpha
         self.TKroot.attributes('-alpha', alpha)
 
@@ -7669,6 +8435,8 @@ class Window:
         :param alpha: 0 to 1. 0 is completely transparent.  1 is completely visible and solid (can't see through)
         :type alpha: (float)
         """
+        if not self._is_window_created():
+            return
         self._AlphaChannel = alpha
         self.TKroot.attributes('-alpha', alpha)
 
@@ -7677,6 +8445,8 @@ class Window:
         Brings this window to the top of all other windows (perhaps may not be brought before a window made to "stay
         on top")
         """
+        if not self._is_window_created():
+            return
         if sys.platform.startswith('win'):
             try:
                 self.TKroot.wm_attributes("-topmost", 0)
@@ -7691,14 +8461,18 @@ class Window:
             except:
                 pass
 
+
     def SendToBack(self):
         """
         Pushes this window to the bottom of the stack of windows. It is the opposite of BringToFront
         """
+        if not self._is_window_created():
+            return
         try:
             self.TKroot.lower()
         except:
             pass
+
 
     def CurrentLocation(self):
         """
@@ -7707,7 +8481,10 @@ class Window:
         :return: The x and y location in tuple form (x,y)
         :rtype: Tuple[(int), (int)]
         """
+        if not self._is_window_created():
+            return
         return int(self.TKroot.winfo_x()), int(self.TKroot.winfo_y())
+
 
     @property
     def Size(self):
@@ -7717,9 +8494,12 @@ class Window:
         :return: (width, height) of the window
         :rtype: Tuple[(int), (int)]
         """
+        if not self._is_window_created():
+            return
         win_width = self.TKroot.winfo_width()
         win_height = self.TKroot.winfo_height()
         return win_width, win_height
+
 
     @Size.setter
     def Size(self, size):
@@ -7727,7 +8507,7 @@ class Window:
         Changes the size of the window, if possible
 
         :param size: (width, height) of the desired window size
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         """
         try:
             self.TKroot.geometry("%sx%s" % (size[0], size[1]))
@@ -7735,14 +8515,14 @@ class Window:
         except:
             pass
 
-    def VisibilityChanged(self):
+
+    def visibility_changed(self):
         """
-        Not used in tkinter, but supplied becuase it is used in Qt. Want to remain source code compatible so that if
-        you are making this call in your PySimpleGUIQt code, you can switch to PySimpleGUI and it will not complain
-        about a missing method.  Just know that in this version of PySimpleGUI, it does nothing
+        When making an element in a column or someplace that has a scrollbar, then you'll want to call this function
+        prior to the column's contents_changed() method.
         """
-        # A dummy function.  Needed in Qt but not tkinter
-        return
+        self.refresh()
+
 
     def SetTransparentColor(self, color):
         """
@@ -7751,34 +8531,45 @@ class Window:
         :param color: Color string that defines the transparent color
         :type color: (str)
         """
+        if not self._is_window_created():
+            return
         try:
             self.TKroot.attributes('-transparentcolor', color)
+            self.TransparentColor = color
         except:
             print('Transparent color not supported on this platform (windows only)')
+
 
     def GrabAnyWhereOn(self):
         """
         Turns on Grab Anywhere functionality AFTER a window has been created.  Don't try on a window that's not yet
         been Finalized or Read.
         """
+        if not self._is_window_created():
+            return
         self.TKroot.bind("<ButtonPress-1>", self._StartMove)
         self.TKroot.bind("<ButtonRelease-1>", self._StopMove)
         self.TKroot.bind("<B1-Motion>", self._OnMotion)
+
 
     def GrabAnyWhereOff(self):
         """
         Turns off Grab Anywhere functionality AFTER a window has been created.  Don't try on a window that's not yet
         been Finalized or Read.
         """
+        if not self._is_window_created():
+            return
         self.TKroot.unbind("<ButtonPress-1>")
         self.TKroot.unbind("<ButtonRelease-1>")
         self.TKroot.unbind("<B1-Motion>")
+
 
     def _user_bind_callback(self, bind_string, event):
         """
         Used when user binds a tkinter event directly to an element
 
         :param bind_string: The event that was bound so can lookup the key modifier
+        :type bind_string: Mike_please_insert_type_here
         :param event: Event data passed in by tkinter (not used)
         """
 
@@ -7789,8 +8580,10 @@ class Window:
         else:
             self.LastButtonClicked = bind_string
         self.FormRemainedOpen = True
-        if self.CurrentlyRunningMainloop:
-            self.TKroot.quit()
+        # if self.CurrentlyRunningMainloop:
+        #     self.TKroot.quit()
+        _exit_mainloop(self)
+
 
     def bind(self, bind_string, key):
         """
@@ -7799,10 +8592,13 @@ class Window:
         :param bind_string: The string tkinter expected in its bind function
         :type bind_string: (str)
         :param key: The event that will be generated when the tkinter event occurs
-        :type key: Any
+        :type key: Union[str, int, tuple, object]
         """
+        if not self._is_window_created():
+            return
         self.TKroot.bind(bind_string, lambda evt: self._user_bind_callback(bind_string, evt))
         self.user_bind_dict[bind_string] = key
+
 
     def _callback_main_debugger_window_create_keystroke(self, event):
         """
@@ -7812,6 +8608,7 @@ class Window:
         """
         _Debugger.debugger._build_main_debugger_window()
 
+
     def _callback_popout_window_create_keystroke(self, event):
         """
         Called when user presses the key that creates the floating debugger window
@@ -7820,29 +8617,27 @@ class Window:
         """
         _Debugger.debugger._build_floating_window()
 
+
     def EnableDebugger(self):
         """
         Enables the internal debugger. By default, the debugger IS enabled
         """
+        if not self._is_window_created():
+            return
         self.TKroot.bind('<Cancel>', self._callback_main_debugger_window_create_keystroke)
         self.TKroot.bind('<Pause>', self._callback_popout_window_create_keystroke)
         self.DebuggerEnabled = True
+
 
     def DisableDebugger(self):
         """
         Disable the internal debugger. By default the debugger is ENABLED
         """
+        if not self._is_window_created():
+            return
         self.TKroot.unbind("<Cancel>")
         self.TKroot.unbind("<Pause>")
         self.DebuggerEnabled = False
-
-    def VisibilityChanged(self):
-        """
-        This is a completely dummy method that does nothing. It is here so that PySimpleGUIQt programs can make this
-        call and then have that same source run on plain PySimpleGUI.
-        :return:
-        """
-        return
 
 
     def set_title(self, title):
@@ -7850,10 +8645,139 @@ class Window:
         Change the title of the window
 
         :param title: The string to set the title to
-        :type title: str
+        :type title: (str)
+        """
+        if not self._is_window_created():
+            return
+        self.TKroot.wm_title(str(title))
+
+
+    def make_modal(self):
+        """
+        Makes a window into a "Modal Window"
+        This means user will not be able to interact with other windows until this one is closed
+        """
+        if not self._is_window_created():
+            return
+
+        try:
+            self.TKroot.transient()
+            self.TKroot.grab_set()
+            self.TKroot.focus_force()
+        except Exception as e:
+            print('Exception trying to make modal', e)
+
+
+    def force_focus(self):
+        """
+        Forces this window to take focus
+        """
+        if not self._is_window_created():
+            return
+        self.TKroot.focus_force()
+
+
+
+
+    def was_closed(self):
+        """
+        Returns True if the window was closed
+
+        :return: True if the window is closed
+        :rtype: bool
+        """
+        return self.TKrootDestroyed
+
+
+
+    def _window_tkvar_changed_callback(self, event, *args):
+        """
+        Internal callback function for when the thread
+
+        :param event: Information from tkinter about the callback
+
+        """
+        if self._queued_thread_event_available():
+            self.FormRemainedOpen = True
+            # if self.CurrentlyRunningMainloop:
+            #     self.TKroot.quit()  # kick the users out of the mainloop
+            _exit_mainloop(self)
+
+
+
+    def _create_thread_queue(self):
+        """
+        Creates the queue used by threads to communicate with this window
         """
 
-        self.TKroot.wm_title(str(title))
+        if self.thread_queue is None:
+            self.thread_queue = queue.Queue()
+
+        if self.thread_strvar is None:
+            self.thread_strvar = tk.StringVar()
+            self.thread_strvar.trace('w', self._window_tkvar_changed_callback)
+
+
+    def write_event_value(self, key, value):
+        """
+        Adds a key & value tuple to the queue that is used by threads to communicate with the window
+
+        :param key: The key that will be returned as the event when reading the window
+        :type key: Any
+        :param value: The value that will be in the values dictionary
+        :type value: Any
+        """
+
+        if self.thread_queue is None:
+            print('*** Warning Window.write_event_value - no thread queue found ***')
+            return
+
+        self.thread_queue.put(item=(key, value))
+        self.thread_strvar.set('new item')
+
+
+    def _queued_thread_event_read(self):
+        if self.thread_queue is None:
+            return None
+
+        try:                    # see if something has been posted to Queue
+            message = self.thread_queue.get_nowait()
+        except queue.Empty:     # get_nowait() will get exception when Queue is empty
+            return None
+
+        return message
+
+
+    def _queued_thread_event_available(self):
+
+        if self.thread_queue is None:
+            return False
+
+        qsize = self.thread_queue.qsize()
+        return qsize != 0
+
+
+    def _queued_multi_read_event_avilable(self):
+
+        qsize = self.multi_window_return_values_queue.qsize()
+
+        return qsize != 0
+
+    def write_multi_window_event_value(self, window, event, value):
+        """
+
+        :param window:
+        :param event:
+        :param value:
+        :return:
+        """
+
+        if self.multi_window_return_values_queue is None:
+            print('*** Warning Window.write_multi_window_event_value - no queue found ***')
+            return
+
+        self.multi_window_return_values_queue.put(item=(window, event, value))
+
 
     # def __enter__(self):
     #     """
@@ -7870,15 +8794,12 @@ class Window:
         window['element key'].Update
 
         :param key: The key to find
-        :type key: (Any)
+        :type key: Union[str, int, tuple, object]
         :return: The element found or None if no element was found
         :rtype: Union[Element, None]
         """
-        try:
-            return self.FindElement(key)
-        except Exception as e:
-            warnings.warn('The key you passed in is no good. Key = {}*'.format(key))
-            return None
+        return self.FindElement(key)
+
 
     def __call__(self, *args, **kwargs):
         """
@@ -7890,6 +8811,20 @@ class Window:
         :rtype: Tuple[Any, Dict[Any:Any]]
         """
         return self.Read(*args, **kwargs)
+
+    def _is_window_created(self):
+        if self.TKroot is None:
+            warnings.warn('You cannot perform operations on a Window until it is read or finalized. Adding a "finalize=True" parameter to your Window creation will fix this', UserWarning)
+            if not SUPPRESS_ERROR_POPUPS:
+                popup_error('You cannot perform operations on a Window until it is read or finalized.',
+                        'Yea, I know, it\'s a weird thing, but just fix it and keep going.... ',
+                         'Adding a "finalize=True" parameter to your Window creation will likely fix this', image=_random_error_icon())
+            return False
+        return True
+
+
+
+
 
     add_row = AddRow
     add_rows = AddRows
@@ -7929,7 +8864,7 @@ class Window:
     set_transparent_color = SetTransparentColor
     size = Size
     un_hide = UnHide
-    visibility_changed = VisibilityChanged
+    VisibilityChanged = visibility_changed
 
     #
     # def __exit__(self, *a):
@@ -7956,6 +8891,123 @@ FlexForm = Window
 Window.CloseNonBlockingForm = Window.Close
 Window.CloseNonBlocking = Window.Close
 
+def _exit_mainloop(exiting_window):
+    # print(f'Checking exit window = {exiting_window.Title}',
+    #       f'running mainloop = {Window._window_running_mainloop}')
+    if exiting_window == Window._window_running_mainloop or Window._root_running_mainloop == Window.hidden_master_root:
+        Window._window_that_exited = exiting_window
+        Window._root_running_mainloop.quit()
+        # print('** Exited window mainloop **')
+
+
+def _timeout_alarm_callback_hidden():
+    """
+    Read Timeout Alarm callback. Will kick a mainloop call out of the tkinter event loop and cause it to return
+    """
+
+    del Window._TKAfterID
+
+    # first, get the results table built
+    # modify the Results table in the parent FlexForm object
+    # print('TIMEOUT CALLBACK')
+    Window._root_running_mainloop.quit()  # kick the users out of the mainloop
+
+    # Get window that caused return
+    Window._window_that_exited = None
+
+
+def read_all_windows(timeout=None, timeout_key=TIMEOUT_KEY):
+    """
+    Reads a list of windows.  If any of the list returns a value then the window and its event and values
+    are returned.
+
+    :param timeout: Time in milliseconds to delay before a returning a timeout event
+    :type timeout: (int)
+    :param timeout_key: Key to return when a timeout happens. Defaults to the standard TIMEOUT_KEY
+    :type timeout_key: (Any)
+    :return: A tuple with the  (Window, event, values dictionary/list)
+    :rtype: Tuple[Window, Any, (Dict or List)]
+    """
+
+    if len(Window._active_windows) == 0:
+        return None, WIN_CLOSED, None
+
+
+    Window._root_running_mainloop = Window.hidden_master_root
+    Window._timeout_key = timeout_key
+
+    if timeout == 0:
+        window = list(Window._active_windows.keys())[Window._timeout_0_counter]
+        event, values = window._ReadNonBlocking()
+        if event is None:
+            event = timeout_key
+        if values is None:
+            event = None
+        Window._timeout_0_counter = (Window._timeout_0_counter +1 ) % len(Window._active_windows)
+        return window, event, values
+
+    Window._timeout_0_counter = 0           # reset value if not reading with timeout 0 so ready next time needed
+
+
+    # setup timeout timer
+    if timeout != None:
+        try:
+            Window.hidden_master_root.after_cancel(Window._TKAfterID)
+            del Window._TKAfterID
+        except:
+            pass
+
+        Window._TKAfterID = Window.hidden_master_root.after(timeout, _timeout_alarm_callback_hidden)
+
+    # ------------ Call Mainloop ------------
+    Window._root_running_mainloop.mainloop()
+
+    try:
+        Window.hidden_master_root.after_cancel(Window._TKAfterID)
+        del Window._TKAfterID
+    except:
+        pass
+        # print('** tkafter cancel failed **')
+
+    # Get window that caused return
+
+    window = Window._window_that_exited
+
+    if window is None:
+        return None, timeout_key, None
+
+    if window.XFound:
+        event, values = None, None
+        window.close()
+        try:
+            del Window._active_windows[window]
+        except:
+            pass
+            # print('Error deleting window, but OK')
+    else:
+        _BuildResults(window, False, window)
+        event, values = window.ReturnValues
+
+    return window, event, values
+
+
+
+
+ ######  ##    ##  ######  ######## ######## ##     ##
+##    ##  ##  ##  ##    ##    ##    ##       ###   ###
+##         ####   ##          ##    ##       #### ####
+ ######     ##     ######     ##    ######   ## ### ##
+      ##    ##          ##    ##    ##       ##     ##
+##    ##    ##    ##    ##    ##    ##       ##     ##
+ ######     ##     ######     ##    ######## ##     ##
+
+######## ########     ###    ##    ##
+   ##    ##     ##   ## ##    ##  ##
+   ##    ##     ##  ##   ##    ####
+   ##    ########  ##     ##    ##
+   ##    ##   ##   #########    ##
+   ##    ##    ##  ##     ##    ##
+   ##    ##     ## ##     ##    ##
 
 # ------------------------------------------------------------------------- #
 #                       SystemTray - class for implementing a psyeudo tray  #
@@ -8014,15 +9066,15 @@ class SystemTray:
         :param menu: Menu definition. Example - ['UNUSED', ['My', 'Simple', '---', 'Menu', 'Exit']]
         :type menu: List[List[List[str] or str]]
         :param filename: filename for icon
-        :type filename: str
+        :type filename: (str)
         :param data: in-ram image for icon (same as data_base64 parm)
-        :type data: bytes
+        :type data: (bytes)
         :param data_base64: base-64 data for icon
-        :type data_base64: bytes
+        :type data_base64: (bytes)
         :param tooltip: tooltip string
-        :type tooltip: str
+        :type tooltip: (str)
         :param metadata: User metadata that can be set to ANYTHING
-        :type metadata: Any
+        :type metadata: (Any)
         """
         self.Menu = menu
         self.TrayIcon = None
@@ -8262,9 +9314,9 @@ def Sizer(h_pixels=0, v_pixels=0):
     """
     "Pushes" out the size of whatever it is placed inside of.  This includes Columns, Frames, Tabs and Windows
 
-    :param h_pixels: (int) number of horizontal pixels
+    :param h_pixels: number of horizontal pixels
     :type h_pixels: (int)
-    :param v_pixels: (int) number of vertical pixels
+    :param v_pixels: number of vertical pixels
     :type v_pixels: (int)
     :return: (Column) A column element that has a pad setting set according to parameters
     :rtype: (Column)
@@ -8273,10 +9325,71 @@ def Sizer(h_pixels=0, v_pixels=0):
     return Column([[]], pad=((h_pixels, 0), (v_pixels, 0)))
 
 
+def pin(elem, vertical_alignment=None):
+    '''
+    Pin's an element provided into a layout so that when it's made invisible and visible again, it will
+     be in the correct place.  Otherwise it will be placed at the end of its containing window/column.
+
+    :param elem: the element to put into the layout
+    :return: A column element containing the provided element
+    '''
+    return Column([[elem, Canvas(size=(0,0), pad=(0,0))]], pad=(0,0), vertical_alignment=vertical_alignment)
+
+
+def vtop(elem_or_row):
+    '''
+    Align an element or a row of elements to the top of the row that contains it
+
+    :param elem_or_row: the element or row of elements
+    :type elem_or_row: Union[Element, List[Element], Tuple[Element]]
+    :return: A column element containing the provided element aligned to the top or list of elements (a row)
+    :rtype: Union[Column, List[Column]]
+    '''
+
+    if isinstance(elem_or_row, list) or isinstance(elem_or_row, tuple):
+        return [Column([[e]], pad=(0,0), vertical_alignment='top') for e in elem_or_row]
+
+    return Column([[elem_or_row]], pad=(0,0), vertical_alignment='top')
+
+
+def vcenter(elem_or_row):
+    '''
+    Align an element or a row of elements to the center of the row that contains it
+
+    :param elem_or_row: the element or row of elements
+    :type elem_or_row: Union[Element, List[Element], Tuple[Element]]
+    :return: A column element containing the provided element aligned to the center or list of elements (a row)
+    :rtype: Union[Column, List[Column]]
+    '''
+
+    if isinstance(elem_or_row, list) or isinstance(elem_or_row, tuple):
+        return [Column([[e]], pad=(0,0), vertical_alignment='center') for e in elem_or_row]
+
+
+    return Column([[elem_or_row]], pad=(0,0), vertical_alignment='center')
+
+
+def vbottom(elem_or_row):
+    '''
+    Align an element or a row of elements to the bottom of the row that contains it
+
+    :param elem_or_row: the element or row of elements
+    :type elem_or_row: Union[Element, List[Element], Tuple[Element]]
+    :return: A column element containing the provided element aligned to the bottom or list of elements (a row)
+    :rtype: Union[Column, List[Column]]
+    '''
+
+    if isinstance(elem_or_row, list) or isinstance(elem_or_row, tuple):
+        return [Column([[e]], pad=(0,0), vertical_alignment='bottom') for e in elem_or_row]
+
+
+    return Column([[elem_or_row]], pad=(0,0), vertical_alignment='bottom')
+
+
 # -------------------------  FOLDER BROWSE Element lazy function  ------------------------- #
 def FolderBrowse(button_text='Browse', target=(ThisRow, -1), initial_folder=None, tooltip=None, size=(None, None),
                  auto_size_button=None, button_color=None, disabled=False, change_submits=False, enable_events=False,
-                 font=None, pad=None, key=None, metadata=None):
+                 font=None, pad=None, key=None, k=None, metadata=None):
     """
     :param button_text: text in the button (Default value = 'Browse')
     :type button_text: (str)
@@ -8287,45 +9400,59 @@ def FolderBrowse(button_text='Browse', target=(ThisRow, -1), initial_folder=None
     :param tooltip:  text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
+    :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
     :param disabled: set disable state for element (Default = False)
+    :type disabled: (bool)
     :param change_submits: If True, pressing Enter key submits window (Default = False)
+    :type enable_events: (bool)
     :param enable_events: Turns on the element specific events.(Default = False)
-    :param font: Union[str, Tuple[str, int]] specifies the font family, size, etc
+    :type enable_events: (bool)
+    :param font: specifies the font family, size, etc
+    :type font: Union[str, Tuple[str, int]]
     :param pad:  Amount of padding to put around element
+    :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key:  Used with window.FindElement and with return values to uniquely identify this element
-    :return: (Button)
+    :type key: Union[str, int, tuple, object]  
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :return: The Button created
+    :rtype: (Button)
     """
 
     return Button(button_text=button_text, button_type=BUTTON_TYPE_BROWSE_FOLDER, target=target,
                   initial_folder=initial_folder, tooltip=tooltip, size=size, auto_size_button=auto_size_button,
                   disabled=disabled, button_color=button_color, change_submits=change_submits,
-                  enable_events=enable_events, font=font, pad=pad, key=key, metadata=metadata)
+                  enable_events=enable_events, font=font, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  FILE BROWSE Element lazy function  ------------------------- #
 def FileBrowse(button_text='Browse', target=(ThisRow, -1), file_types=(("ALL Files", "*.*"),), initial_folder=None,
                tooltip=None, size=(None, None), auto_size_button=None, button_color=None, change_submits=False,
                enable_events=False, font=None, disabled=False,
-               pad=None, key=None, metadata=None):
+               pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Browse')
+    :type button_text: (str)
     :param target: key or (row,col) target for the button (Default value = (ThisRow, -1))
-    :param file_types:  (Default value = (("ALL Files", "*.*")))
+    :param file_types: filter file types (Default value = (("ALL Files", "*.*")))
+    :type file_types: Tuple[Tuple[str, str], ...]
     :param initial_folder:  starting path for folders and files
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param change_submits: If True, pressing Enter key submits window (Default = False)
+    :type change_submits: (bool)
     :param enable_events: Turns on the element specific events.(Default = False)
+    :type enable_events: (bool)
     :param font: specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param disabled: set disable state for element (Default = False)
@@ -8333,145 +9460,168 @@ def FileBrowse(button_text='Browse', target=(ThisRow, -1), file_types=(("ALL Fil
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_BROWSE_FILE, target=target, file_types=file_types,
                   initial_folder=initial_folder, tooltip=tooltip, size=size, auto_size_button=auto_size_button,
                   change_submits=change_submits, enable_events=enable_events, disabled=disabled,
-                  button_color=button_color, font=font, pad=pad, key=key, metadata=metadata)
+                  button_color=button_color, font=font, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  FILES BROWSE Element (Multiple file selection) lazy function  ------------------------- #
 def FilesBrowse(button_text='Browse', target=(ThisRow, -1), file_types=(("ALL Files", "*.*"),), disabled=False,
                 initial_folder=None, tooltip=None, size=(None, None), auto_size_button=None, button_color=None,
                 change_submits=False, enable_events=False,
-                font=None, pad=None, key=None, metadata=None):
+                font=None, pad=None, key=None, k=None, metadata=None):
     """
     Allows browsing of multiple files. File list is returned as a single list with the delimeter defined using the variable
     BROWSE_FILES_DELIMETER.  This defaults to ';' but is changable by the user
 
     :param button_text: text in the button (Default value = 'Browse')
+    :type button_text: (str)
     :param target: key or (row,col) target for the button (Default value = (ThisRow, -1))
     :param file_types:  (Default value = (("ALL Files", "*.*")))
+    :type file_types: Tuple[Tuple[str, str], ...]
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param initial_folder:  starting path for folders and files
+    :type initial_folder: (str)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param change_submits: If True, pressing Enter key submits window (Default = False)
+    :type change_submits: (bool)
     :param enable_events: Turns on the element specific events.(Default = False)
+    :type enable_events: (bool)
     :param font: specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_BROWSE_FILES, target=target, file_types=file_types,
                   initial_folder=initial_folder, change_submits=change_submits, enable_events=enable_events,
                   tooltip=tooltip, size=size, auto_size_button=auto_size_button,
-                  disabled=disabled, button_color=button_color, font=font, pad=pad, key=key, metadata=metadata)
+                  disabled=disabled, button_color=button_color, font=font, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  FILE BROWSE Element lazy function  ------------------------- #
 def FileSaveAs(button_text='Save As...', target=(ThisRow, -1), file_types=(("ALL Files", "*.*"),), initial_folder=None,
                disabled=False, tooltip=None, size=(None, None), auto_size_button=None, button_color=None,
                change_submits=False, enable_events=False, font=None,
-               pad=None, key=None, metadata=None):
+               pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Save As...')
+    :type button_text: (str)
     :param target: key or (row,col) target for the button (Default value = (ThisRow, -1))
     :param file_types:  (Default value = (("ALL Files", "*.*")))
+    :type file_types: Tuple[Tuple[str, str], ...]
     :param initial_folder:  starting path for folders and files
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param change_submits: If True, pressing Enter key submits window (Default = False)
+    :type change_submits: (bool)
     :param enable_events: Turns on the element specific events.(Default = False)
+    :type enable_events: (bool)
     :param font: specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_SAVEAS_FILE, target=target, file_types=file_types,
                   initial_folder=initial_folder, tooltip=tooltip, size=size, disabled=disabled,
                   auto_size_button=auto_size_button, button_color=button_color, change_submits=change_submits,
-                  enable_events=enable_events, font=font, pad=pad, key=key, metadata=metadata)
+                  enable_events=enable_events, font=font, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  SAVE AS Element lazy function  ------------------------- #
 def SaveAs(button_text='Save As...', target=(ThisRow, -1), file_types=(("ALL Files", "*.*"),), initial_folder=None,
            disabled=False, tooltip=None, size=(None, None), auto_size_button=None, button_color=None,
            change_submits=False, enable_events=False, font=None,
-           pad=None, key=None, metadata=None):
+           pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Save As...')
+    :type button_text: (str)
     :param target: key or (row,col) target for the button (Default value = (ThisRow, -1))
     :param file_types:  (Default value = (("ALL Files", "*.*")))
+    :type file_types: Tuple[Tuple[str, str], ...]
     :param initial_folder:  starting path for folders and files
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param change_submits: If True, pressing Enter key submits window (Default = False)
+    :type change_submits: (bool)
     :param enable_events: Turns on the element specific events.(Default = False)
+    :type enable_events: (bool)
     :param font: specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_SAVEAS_FILE, target=target, file_types=file_types,
                   initial_folder=initial_folder, tooltip=tooltip, size=size, disabled=disabled,
                   auto_size_button=auto_size_button, button_color=button_color, change_submits=change_submits,
-                  enable_events=enable_events, font=font, pad=pad, key=key, metadata=metadata)
+                  enable_events=enable_events, font=font, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  SAVE BUTTON Element lazy function  ------------------------- #
 def Save(button_text='Save', size=(None, None), auto_size_button=None, button_color=None, bind_return_key=True,
-         disabled=False, tooltip=None, font=None, focus=False, pad=None, key=None, metadata=None):
+         disabled=False, tooltip=None, font=None, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Save')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
-    :param bind_return_key:  (Default = True)
+    :type button_color: Tuple[str, str] or str
+    :param bind_return_key: (Default = True) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
@@ -8479,399 +9629,463 @@ def Save(button_text='Save', size=(None, None), auto_size_button=None, button_co
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  SUBMIT BUTTON Element lazy function  ------------------------- #
 def Submit(button_text='Submit', size=(None, None), auto_size_button=None, button_color=None, disabled=False,
-           bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, metadata=None):
+           bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Submit')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
-    :param bind_return_key:  (Default = True)
+    :param bind_return_key: (Default = True) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  OPEN BUTTON Element lazy function  ------------------------- #
 # -------------------------  OPEN BUTTON Element lazy function  ------------------------- #
 def Open(button_text='Open', size=(None, None), auto_size_button=None, button_color=None, disabled=False,
-         bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, metadata=None):
+         bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Open')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
-    :param bind_return_key:  (Default = True)
+    :param bind_return_key: (Default = True) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
-
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :return: returns a button
+    :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  OK BUTTON Element lazy function  ------------------------- #
 def OK(button_text='OK', size=(None, None), auto_size_button=None, button_color=None, disabled=False,
-       bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, metadata=None):
+       bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'OK')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
-    :param bind_return_key:  (Default = True)
+    :param bind_return_key: (Default = True) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  YES BUTTON Element lazy function  ------------------------- #
 def Ok(button_text='Ok', size=(None, None), auto_size_button=None, button_color=None, disabled=False,
-       bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, metadata=None):
+       bind_return_key=True, tooltip=None, font=None, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Ok')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
-    :param bind_return_key:  (Default = True)
+    :param bind_return_key: (Default = True) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  CANCEL BUTTON Element lazy function  ------------------------- #
 def Cancel(button_text='Cancel', size=(None, None), auto_size_button=None, button_color=None, disabled=False,
-           tooltip=None, font=None, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+           tooltip=None, font=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Cancel')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
-
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :return: returns a button
+    :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  QUIT BUTTON Element lazy function  ------------------------- #
 def Quit(button_text='Quit', size=(None, None), auto_size_button=None, button_color=None, disabled=False, tooltip=None,
-         font=None, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+         font=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Quit')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  Exit BUTTON Element lazy function  ------------------------- #
 def Exit(button_text='Exit', size=(None, None), auto_size_button=None, button_color=None, disabled=False, tooltip=None,
-         font=None, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+         font=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Exit')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
-
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :return: returns a button
+    :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  YES BUTTON Element lazy function  ------------------------- #
 def Yes(button_text='Yes', size=(None, None), auto_size_button=None, button_color=None, disabled=False, tooltip=None,
-        font=None, bind_return_key=True, focus=False, pad=None, key=None, metadata=None):
+        font=None, bind_return_key=True, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'Yes')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = True)
+    :param bind_return_key: (Default = True) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  NO BUTTON Element lazy function  ------------------------- #
 def No(button_text='No', size=(None, None), auto_size_button=None, button_color=None, disabled=False, tooltip=None,
-       font=None, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+       font=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button (Default value = 'No')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
-
-    """
-    return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
-                  auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
-
-
-# -------------------------  NO BUTTON Element lazy function  ------------------------- #
-def Help(button_text='Help', size=(None, None), auto_size_button=None, button_color=None, disabled=False, font=None,
-         tooltip=None, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
-    """
-
-    :param button_text: text in the button (Default value = 'Help')
-    :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
-    :param auto_size_button:  True if button size is determined by button text
-    :type auto_size_button: (bool)
-    :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
-    :param disabled: set disable state for element (Default = False)
-    :type disabled: (bool)
-    :param font:  specifies the font family, size, etc
-    :type font: Union[str, Tuple[str, int]]
-    :param tooltip: text, that will appear when mouse hovers over the element
-    :type tooltip: (str)
-    :param bind_return_key:  (Default = False)
-    :param focus: if focus should be set to this
-    :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
-    :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
-    :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  NO BUTTON Element lazy function  ------------------------- #
-def Debug(button_text='', size=(None, None), auto_size_button=None, button_color=None, disabled=False, font=None,
-          tooltip=None, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+def Help(button_text='Help', size=(None, None), auto_size_button=None, button_color=None, disabled=False, font=None,
+         tooltip=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
-    :param button_text: text in the button (Default value = '')
+    :param button_text: text in the button (Default value = 'Help')
+    :type button_text: (str)
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :return: returns a button
+    :rtype: (Button)
+    """
+    return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, tooltip=tooltip, size=size,
+                  auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
+
+
+# -------------------------  NO BUTTON Element lazy function  ------------------------- #
+def Debug(button_text='', size=(None, None), auto_size_button=None, button_color=None, disabled=False, font=None,
+          tooltip=None, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
+    """
+
+    :param button_text: text in the button (Default value = '')
+    :type button_text: (str)
+    :param size:  (w,h) w=characters-wide, h=rows-high
+    :type size: (int, int)
+    :param auto_size_button:  True if button size is determined by button text
+    :type auto_size_button: (bool)
+    :param button_color: button color (foreground, background)
+    :type button_color: Tuple[str, str] or str
+    :param disabled: set disable state for element (Default = False)
+    :type disabled: (bool)
+    :param font:  specifies the font family, size, etc
+    :type font: Union[str, Tuple[str, int]]
+    :param tooltip: text, that will appear when mouse hovers over the element
+    :type tooltip: (str)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
+    :param focus: if focus should be set to this
+    :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
+    :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
+    :param key: key for uniquely identify this element (for window.FindElement)
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :param metadata: Anything you want to store along with this button
+    :type metadata: (Any)
     :return: returns a button
     :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_SHOW_DEBUGGER, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=COLOR_SYSTEM_DEFAULT, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, image_data=PSG_DEBUGGER_LOGO,
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, image_data=PSG_DEBUGGER_LOGO,
                   image_subsample=4, border_width=0, metadata=metadata)
 
 
 # -------------------------  GENERIC BUTTON Element lazy function  ------------------------- #
 def SimpleButton(button_text, image_filename=None, image_data=None, image_size=(None, None), image_subsample=None,
                  border_width=None, tooltip=None, size=(None, None), auto_size_button=None, button_color=None,
-                 font=None, bind_return_key=False, disabled=False, focus=False, pad=None, key=None, metadata=None):
+                 font=None, bind_return_key=False, disabled=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button
     :type button_text: (str)
     :param image_filename: image filename if there is a button image
+    :type image_filename: image filename if there is a button image
     :param image_data: in-RAM image to be displayed on button
-    :param image_size:  size of button image in pixels
+    :type image_data: in-RAM image to be displayed on button
+    :param image_size: image size (O.K.)
+    :type image_size: (Default = (None))
     :param image_subsample:amount to reduce the size of the image
-    :param border_width:  width of border around element
+    :type image_subsample: amount to reduce the size of the image
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
@@ -8879,40 +10093,47 @@ def SimpleButton(button_text, image_filename=None, image_data=None, image_size=(
                   image_data=image_data, image_size=image_size, image_subsample=image_subsample,
                   border_width=border_width, tooltip=tooltip, disabled=disabled, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  CLOSE BUTTON Element lazy function  ------------------------- #
 def CloseButton(button_text, image_filename=None, image_data=None, image_size=(None, None), image_subsample=None,
                 border_width=None, tooltip=None, size=(None, None), auto_size_button=None, button_color=None, font=None,
-                bind_return_key=False, disabled=False, focus=False, pad=None, key=None, metadata=None):
+                bind_return_key=False, disabled=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button
     :type button_text: (str)
     :param image_filename: image filename if there is a button image
+    :type image_filename: image filename if there is a button image
     :param image_data: in-RAM image to be displayed on button
-    :param image_size:  size of button image in pixels
+    :type image_data: in-RAM image to be displayed on button
+    :param image_size: image size (O.K.)
+    :type image_size: (Default = (None))
     :param image_subsample:amount to reduce the size of the image
-    :param border_width:  width of border around element
+    :type image_subsample: amount to reduce the size of the image
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :return: returns a button
     :rtype: (Button)
     """
@@ -8920,7 +10141,7 @@ def CloseButton(button_text, image_filename=None, image_data=None, image_size=(N
                   image_data=image_data, image_size=image_size, image_subsample=image_subsample,
                   border_width=border_width, tooltip=tooltip, disabled=disabled, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 CButton = CloseButton
@@ -8929,41 +10150,53 @@ CButton = CloseButton
 # -------------------------  GENERIC BUTTON Element lazy function  ------------------------- #
 def ReadButton(button_text, image_filename=None, image_data=None, image_size=(None, None), image_subsample=None,
                border_width=None, tooltip=None, size=(None, None), auto_size_button=None, button_color=None, font=None,
-               bind_return_key=False, disabled=False, focus=False, pad=None, key=None, metadata=None):
-    """
-
+               bind_return_key=False, disabled=False, focus=False, pad=None, key=None, k=None, metadata=None):
+    '''
     :param button_text: text in the button
     :type button_text: (str)
     :param image_filename: image filename if there is a button image
+    :type image_filename: image filename if there is a button image
     :param image_data: in-RAM image to be displayed on button
-    :param image_size:  size of button image in pixels
+    :type image_data: in-RAM image to be displayed on button
+    :param image_size: image size (O.K.)
+    :type image_size: (Default = (None))
     :param image_subsample:amount to reduce the size of the image
-    :param border_width:  width of border around element
+    :type image_subsample: amount to reduce the size of the image
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param focus: if focus should be set to this
+    :type focus: idk_yetReally
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :param border_width: width of border around element
+    :type border_width: (int)
+    :param metadata: Anything you want to store along with this button
+    :type metadata: (Any)
+    :return: Button created
+    :rtype: (Button)
+    '''
 
-    """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_READ_FORM, image_filename=image_filename,
                   image_data=image_data, image_size=image_size, image_subsample=image_subsample,
                   border_width=border_width, tooltip=tooltip, size=size, disabled=disabled,
                   auto_size_button=auto_size_button, button_color=button_color, font=font,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 ReadFormButton = ReadButton
@@ -8973,74 +10206,97 @@ RButton = ReadFormButton
 # -------------------------  Realtime BUTTON Element lazy function  ------------------------- #
 def RealtimeButton(button_text, image_filename=None, image_data=None, image_size=(None, None), image_subsample=None,
                    border_width=None, tooltip=None, size=(None, None), auto_size_button=None, button_color=None,
-                   font=None, disabled=False, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+                   font=None, disabled=False, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button
     :type button_text: (str)
     :param image_filename: image filename if there is a button image
+    :type image_filename: image filename if there is a button image
     :param image_data: in-RAM image to be displayed on button
-    :param image_size:  size of button image in pixels
+    :type image_data: in-RAM image to be displayed on button
+    :param image_size: image size (O.K.)
+    :type image_size: (Default = (None))
     :param image_subsample:amount to reduce the size of the image
-    :param border_width:  width of border around element
+    :type image_subsample: amount to reduce the size of the image
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
+    :type focus: (bool)
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
-
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :param border_width: width of border around element
+    :type border_width: (int)
+    :param metadata: Anything you want to store along with this button
+    :type metadata: (Any)
+    :return: Button created
+    :rtype: (Button)
     """
     return Button(button_text=button_text, button_type=BUTTON_TYPE_REALTIME, image_filename=image_filename,
                   image_data=image_data, image_size=image_size, image_subsample=image_subsample,
                   border_width=border_width, tooltip=tooltip, disabled=disabled, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  Dummy BUTTON Element lazy function  ------------------------- #
 def DummyButton(button_text, image_filename=None, image_data=None, image_size=(None, None), image_subsample=None,
                 border_width=None, tooltip=None, size=(None, None), auto_size_button=None, button_color=None, font=None,
-                disabled=False, bind_return_key=False, focus=False, pad=None, key=None, metadata=None):
+                disabled=False, bind_return_key=False, focus=False, pad=None, key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button
     :type button_text: (str)
     :param image_filename: image filename if there is a button image
+    :type image_filename: image filename if there is a button image
     :param image_data: in-RAM image to be displayed on button
-    :param image_size:  size of button image in pixels
+    :type image_data: in-RAM image to be displayed on button
+    :param image_size: image size (O.K.)
+    :type image_size: (Default = (None))
     :param image_subsample:amount to reduce the size of the image
-    :param border_width:  width of border around element
+    :type image_subsample: amount to reduce the size of the image
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
     :param focus: if focus should be set to this
+    :type focus: (bool)
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :param metadata: Anything you want to store along with this button
+    :type metadata: (Any)
+    :param border_width: width of border around element
+    :type border_width: (int)
     :return: returns a button
     :rtype: (Button)
     """
@@ -9048,15 +10304,15 @@ def DummyButton(button_text, image_filename=None, image_data=None, image_size=(N
                   image_data=image_data, image_size=image_size, image_subsample=image_subsample,
                   border_width=border_width, tooltip=tooltip, size=size, auto_size_button=auto_size_button,
                   button_color=button_color, font=font, disabled=disabled, bind_return_key=bind_return_key, focus=focus,
-                  pad=pad, key=key, metadata=metadata)
+                  pad=pad, key=key, k=k, metadata=metadata)
 
 
 # -------------------------  Calendar Chooser Button lazy function  ------------------------- #
 def CalendarButton(button_text, target=(ThisRow, -1), close_when_date_chosen=True, default_date_m_d_y=(None, None, None),
                    image_filename=None, image_data=None, image_size=(None, None),
                    image_subsample=None, tooltip=None, border_width=None, size=(None, None), auto_size_button=None,
-                   button_color=None, disabled=False, font=None, bind_return_key=False, focus=False, pad=None,
-                   key=None, locale=None, format='%Y-%m-%d %H:%M:%S', begin_at_sunday_plus=0, month_names=None, day_abbreviations=None, title='Choose Date',
+                   button_color=None, disabled=False, font=None, bind_return_key=False, focus=False, pad=None, enable_events=None,
+                   key=None, k=None, locale=None, format='%Y-%m-%d %H:%M:%S', begin_at_sunday_plus=0, month_names=None, day_abbreviations=None, title='Choose Date',
                    no_titlebar=True, location=(None, None), metadata=None):
     """
     Button that will show a calendar chooser window.  Fills in the target element with result
@@ -9073,7 +10329,7 @@ def CalendarButton(button_text, target=(ThisRow, -1), close_when_date_chosen=Tru
     :type image_filename: image filename if there is a button image
     :param image_data: in-RAM image to be displayed on button
     :type image_data: in-RAM image to be displayed on button
-    :param image_size:  (Default = (None))
+    :param image_size: image size (O.K.)
     :type image_size:  (Default = (None))
     :param image_subsample: amount to reduce the size of the image
     :type image_subsample: amount to reduce the size of the image
@@ -9082,23 +10338,25 @@ def CalendarButton(button_text, target=(ThisRow, -1), close_when_date_chosen=Tru
     :param border_width:  width of border around element
     :type border_width:  width of border around element
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
+    :param bind_return_key: (Default = False) If True, then the return key will cause a the Listbox to generate an event
     :type bind_return_key: bool
     :param focus: if focus should be set to this
     :type focus: bool
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
     :param locale: defines the locale used to get day names
     :type locale: str
     :param format: formats result using this strftime format
@@ -9108,21 +10366,21 @@ def CalendarButton(button_text, target=(ThisRow, -1), close_when_date_chosen=Tru
     :param day_abbreviations: optional list of abbreviations to display as the day of week
     :type day_abbreviations: List[str]
     :param title: Title shown on the date chooser window
-    :type title: str
+    :type title: (str)
     :param no_titlebar: if True no titlebar will be shown on the date chooser window
     :type no_titlebar: bool
     :param location: Location on the screen (x,y) to show the calendar popup window
     :type location: (int, int)
     :param metadata: Anything you want to store along with this button
-    :type metadata: Any
+    :type metadata: (Any)
     :return: returns a button
     :rtype: (Button)
     """
     button = Button(button_text=button_text, button_type=BUTTON_TYPE_CALENDAR_CHOOSER, target=target,
                     image_filename=image_filename, image_data=image_data, image_size=image_size,
                     image_subsample=image_subsample, border_width=border_width, tooltip=tooltip, size=size,
-                    auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                    bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                    auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled, enable_events=enable_events,
+                    bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
     button.calendar_close_when_chosen = close_when_date_chosen
     button.calendar_default_date_M_D_Y = default_date_m_d_y
     button.calendar_locale = locale
@@ -9141,35 +10399,48 @@ def CalendarButton(button_text, target=(ThisRow, -1), close_when_date_chosen=Tru
 def ColorChooserButton(button_text, target=(None, None), image_filename=None, image_data=None, image_size=(None, None),
                        image_subsample=None, tooltip=None, border_width=None, size=(None, None), auto_size_button=None,
                        button_color=None, disabled=False, font=None, bind_return_key=False, focus=False, pad=None,
-                       key=None, metadata=None):
+                       key=None, k=None, metadata=None):
     """
 
     :param button_text: text in the button
     :type button_text: (str)
-    :param target:
-    :param image_filename: image filename if there is a button image
-    :param image_data: in-RAM image to be displayed on button
-    :param image_size:  (Default = (None))
-    :param image_subsample:amount to reduce the size of the image
+    :param target: key or (row,col) target for the button. Note that -1 for column means 1 element to the left of this one. The constant ThisRow is used to indicate the current row. The Button itself is a valid target for some types of button
+    :type target: Union[str, Tuple[int, int]]
+    :type image_filename: (str)
+    :param image_filename: image filename if there is a button image. GIFs and PNGs only.
+    :type image_filename: (str)
+    :param image_data: Raw or Base64 representation of the image to put on button. Choose either filename or data
+    :type image_data: Union[bytes, str]
+    :param image_size: Size of the image in pixels (width, height)
+    :type image_size: (int, int)
+    :param image_subsample: amount to reduce the size of the image. Divides the size by this number. 2=1/2, 3=1/3, 4=1/4, etc
+    :type image_subsample: (int)
     :param tooltip: text, that will appear when mouse hovers over the element
     :type tooltip: (str)
     :param border_width:  width of border around element
+    :type border_width: (int)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param auto_size_button:  True if button size is determined by button text
     :type auto_size_button: (bool)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param disabled: set disable state for element (Default = False)
     :type disabled: (bool)
     :param font:  specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param bind_return_key:  (Default = False)
-    :param focus: if focus should be set to this
+    :param bind_return_key: If True, then the return key will cause a the Listbox to generate an event
+    :type bind_return_key: (bool)
+    :param focus: Determines if initial focus should go to this element.
+    :type focus: (bool)
     :param pad: Amount of padding to put around element in pixels (left/right, top/bottom)
     :type pad: (int, int) or ((int, int),(int,int)) or (int,(int,int)) or  ((int, int),int)
     :param key: key for uniquely identify this element (for window.FindElement)
-    :type key: Union[str, int, tuple]
+    :type key: Union[str, int, tuple, object]
+    :param k: Same as the Key. You can use either k or key. Which ever is set will be used.
+    :type k: Union[str, int, tuple, object]
+    :param metadata: User metadata that can be set to ANYTHING
+    :type metadata: (Any)
     :return: returns a button
     :rtype: (Button)
     """
@@ -9177,7 +10448,7 @@ def ColorChooserButton(button_text, target=(None, None), image_filename=None, im
                   image_filename=image_filename, image_data=image_data, image_size=image_size,
                   image_subsample=image_subsample, border_width=border_width, tooltip=tooltip, size=size,
                   auto_size_button=auto_size_button, button_color=button_color, font=font, disabled=disabled,
-                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, metadata=metadata)
+                  bind_return_key=bind_return_key, focus=focus, pad=pad, key=key, k=k, metadata=metadata)
 
 
 #####################################  -----  RESULTS   ------ ##################################################
@@ -9237,7 +10508,7 @@ def _BuildResults(form, initialize_only, top_level_form):
 
 
 def _BuildResultsForSubform(form, initialize_only, top_level_form):
-    button_pressed_text = top_level_form.LastButtonClicked
+    event = top_level_form.LastButtonClicked
     for row_num, row in enumerate(form.Rows):
         for col_num, element in enumerate(row):
             if element.Key is not None and WRITE_ONLY_KEY in str(element.Key):
@@ -9253,7 +10524,7 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                 if element.UseDictionary:
                     top_level_form.UseDictionary = True
                 if element.ReturnValues[0] is not None:  # if a button was clicked
-                    button_pressed_text = element.ReturnValues[0]
+                    event = element.ReturnValues[0]
 
             if element.Type == ELEM_TYPE_FRAME:
                 element.DictionaryKeyCounter = top_level_form.DictionaryKeyCounter
@@ -9265,7 +10536,7 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                 if element.UseDictionary:
                     top_level_form.UseDictionary = True
                 if element.ReturnValues[0] is not None:  # if a button was clicked
-                    button_pressed_text = element.ReturnValues[0]
+                    event = element.ReturnValues[0]
 
             if element.Type == ELEM_TYPE_PANE:
                 element.DictionaryKeyCounter = top_level_form.DictionaryKeyCounter
@@ -9277,7 +10548,7 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                 if element.UseDictionary:
                     top_level_form.UseDictionary = True
                 if element.ReturnValues[0] is not None:  # if a button was clicked
-                    button_pressed_text = element.ReturnValues[0]
+                    event = element.ReturnValues[0]
 
             if element.Type == ELEM_TYPE_TAB_GROUP:
                 element.DictionaryKeyCounter = top_level_form.DictionaryKeyCounter
@@ -9289,7 +10560,7 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                 if element.UseDictionary:
                     top_level_form.UseDictionary = True
                 if element.ReturnValues[0] is not None:  # if a button was clicked
-                    button_pressed_text = element.ReturnValues[0]
+                    event = element.ReturnValues[0]
 
             if element.Type == ELEM_TYPE_TAB:
                 element.DictionaryKeyCounter = top_level_form.DictionaryKeyCounter
@@ -9301,7 +10572,7 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                 if element.UseDictionary:
                     top_level_form.UseDictionary = True
                 if element.ReturnValues[0] is not None:  # if a button was clicked
-                    button_pressed_text = element.ReturnValues[0]
+                    event = element.ReturnValues[0]
 
             if not initialize_only:
                 if element.Type == ELEM_TYPE_INPUT_TEXT:
@@ -9321,10 +10592,11 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                     value = RadVar == this_rowcol
                 elif element.Type == ELEM_TYPE_BUTTON:
                     if top_level_form.LastButtonClicked == element.ButtonText:
-                        button_pressed_text = top_level_form.LastButtonClicked
+                        event = top_level_form.LastButtonClicked
                         if element.BType != BUTTON_TYPE_REALTIME:  # Do not clear realtime buttons
                             top_level_form.LastButtonClicked = None
                     if element.BType == BUTTON_TYPE_CALENDAR_CHOOSER:
+                        # value = None
                         value = element.calendar_selection
                     else:
                         try:
@@ -9364,6 +10636,8 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                     except:
                         value = 0
                 elif element.Type == ELEM_TYPE_INPUT_MULTILINE:
+                    if element.WriteOnly:               # if marked as "write only" when created, then don't include with the values being returned
+                        continue
                     try:
                         value = element.TKText.get(1.0, tk.END)
                         if not top_level_form.NonBlocking and not element.do_not_clear and not top_level_form.ReturnKeyboardEvents:
@@ -9386,7 +10660,7 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                     value = element.ClickPosition
                 elif element.Type == ELEM_TYPE_MENUBAR:
                     if element.MenuItemChosen is not None:
-                        button_pressed_text = top_level_form.LastButtonClicked = element.MenuItemChosen
+                        event = top_level_form.LastButtonClicked = element.MenuItemChosen
                     value = element.MenuItemChosen
                     element.MenuItemChosen = None
                 elif element.Type == ELEM_TYPE_BUTTONMENU:
@@ -9407,27 +10681,25 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
                     element.Type != ELEM_TYPE_OUTPUT and \
                     element.Type != ELEM_TYPE_PROGRESS_BAR and \
                     element.Type != ELEM_TYPE_COLUMN and \
-                    element.Type != ELEM_TYPE_FRAME \
-                    and element.Type != ELEM_TYPE_TAB:
+                    element.Type != ELEM_TYPE_FRAME and \
+                    element.Type != ELEM_TYPE_SEPARATOR and \
+                    element.Type != ELEM_TYPE_TAB:
                 AddToReturnList(form, value)
                 AddToReturnDictionary(top_level_form, element, value)
             elif (element.Type == ELEM_TYPE_BUTTON and
-                  element.BType == BUTTON_TYPE_CALENDAR_CHOOSER and
-                  element.Target == (None, None)) or \
-                    (element.Type == ELEM_TYPE_BUTTON and
                      element.BType == BUTTON_TYPE_COLOR_CHOOSER and
                      element.Target == (None, None)) or \
                     (element.Type == ELEM_TYPE_BUTTON
                      and element.Key is not None and
                      (element.BType in (BUTTON_TYPE_SAVEAS_FILE, BUTTON_TYPE_BROWSE_FILE, BUTTON_TYPE_BROWSE_FILES,
-                                        BUTTON_TYPE_BROWSE_FOLDER))):
+                                        BUTTON_TYPE_BROWSE_FOLDER, BUTTON_TYPE_CALENDAR_CHOOSER))):
                 AddToReturnList(form, value)
                 AddToReturnDictionary(top_level_form, element, value)
 
-    # if this is a column, then will fail so need to wrap with tr
+    # if this is a column, then will fail so need to wrap with try
     try:
         if form.ReturnKeyboardEvents and form.LastKeyboardEvent is not None:
-            button_pressed_text = form.LastKeyboardEvent
+            event = form.LastKeyboardEvent
             form.LastKeyboardEvent = None
     except:
         pass
@@ -9437,10 +10709,19 @@ def _BuildResultsForSubform(form, initialize_only, top_level_form):
     except:
         pass
 
+    # if no event was found
+    if not initialize_only and event is None and form == top_level_form:
+        queued_event_value = form._queued_thread_event_read()
+        if queued_event_value is not None:
+            event, value = queued_event_value
+            AddToReturnList(form, value)
+            form.ReturnValuesDictionary[event] = value
+
     if not form.UseDictionary:
-        form.ReturnValues = button_pressed_text, form.ReturnValuesList
+        form.ReturnValues = event, form.ReturnValuesList
     else:
-        form.ReturnValues = button_pressed_text, form.ReturnValuesDictionary
+        form.ReturnValues = event, form.ReturnValuesDictionary
+
 
     return form.ReturnValues
 
@@ -9453,6 +10734,8 @@ def FillFormWithValues(window, values_dict):
     :type window: (Window)
     :param values_dict:  A dictionary with element keys as key and value is values parm for Update call
     :type values_dict: (Dict[Any:Any])
+    :return: None
+    :rtype: None
     """
 
     for element_key in values_dict:
@@ -9520,10 +10803,14 @@ def AddMenuItem(top_menu, sub_menu_info, element, is_sub_menu=False, skip=False)
     """
     Only to be used internally. Not user callable
     :param top_menu: ???
+    :type top_menu: ???
     :param sub_menu_info: ???
     :param element: ???
+    :type element: idk_yetReally
     :param is_sub_menu:  (Default = False)
+    :type is_sub_menu: (bool)
     :param skip:  (Default = False)
+    :type skip: (bool)
 
     """
     return_val = None
@@ -9608,6 +10895,32 @@ class VarHolder(object):
 
 
 # ========================   TK CODE STARTS HERE ========================================= #
+def _fixed_map(style, style_name, option, highlight_colors=(None, None)):
+    # Fix for setting text colour for Tkinter 8.6.9
+    # From: https://core.tcl.tk/tk/info/509cafafae
+
+    default_map = [elm for elm in style.map("Treeview", query_opt=option) if '!' not in elm[0]]
+    custom_map = [elm for elm in style.map(style_name, query_opt=option) if '!' not in elm[0]]
+
+    if option == 'background':
+        custom_map.append(('selected', highlight_colors[1] if highlight_colors[1] is not None else ALTERNATE_TABLE_AND_TREE_SELECTED_ROW_COLORS[1]))
+    elif option == 'foreground':
+        custom_map.append(('selected', highlight_colors[0] if highlight_colors[0] is not None else ALTERNATE_TABLE_AND_TREE_SELECTED_ROW_COLORS[0]))
+
+    new_map = custom_map + default_map
+    return new_map
+
+
+    new_map = [elm for elm in style.map(style_name, query_opt=option) if elm[:2] != ('!disabled', '!selected')]
+
+    if option == 'background':
+        new_map.append(('selected', highlight_colors[1] if highlight_colors[1] is not None else ALTERNATE_TABLE_AND_TREE_SELECTED_ROW_COLORS[1]))
+    elif option == 'foreground':
+        new_map.append(('selected', highlight_colors[0] if highlight_colors[0] is not None else ALTERNATE_TABLE_AND_TREE_SELECTED_ROW_COLORS[0]))
+    return new_map
+
+
+
 # @_timeit
 def PackFormIntoFrame(form, containing_frame, toplevel_form):
     """
@@ -9689,7 +11002,9 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
         return False
 
 
-    border_depth = toplevel_form.BorderDepth if toplevel_form.BorderDepth is not None else DEFAULT_BORDER_WIDTH
+
+    tclversion_detailed = tkinter.Tcl().eval('info patchlevel')
+
     # --------------------------------------------------------------------------- #
     # ****************  Use FlexForm to build the tkinter window ********** ----- #
     # Building is done row by row.                                                #
@@ -9702,7 +11017,15 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
         # *********** Make TK Row                             ***********#
         tk_row_frame = tk.Frame(containing_frame)
         row_should_expand = False
-        row_justify = form.ElementJustification
+        row_fill_direction = tk.NONE
+
+        if form.ElementJustification is not None:
+            row_justify = form.ElementJustification
+        # elif toplevel_form.ElementJustification is not None:
+        #     row_justify = toplevel_form.ElementJustification
+        else:
+            row_justify = 'l'
+
         for col_num, element in enumerate(flex_row):
             element.ParentRowFrame = tk_row_frame
             element.ParentForm = toplevel_form  # save the button's parent form object
@@ -9733,11 +11056,18 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 element_size = toplevel_form.DefaultButtonElementSize
             else:
                 auto_size_text = False  # if user has specified a size then it shouldn't autosize
+
+            border_depth = toplevel_form.BorderDepth if toplevel_form.BorderDepth is not None else DEFAULT_BORDER_WIDTH
+            try:
+                if element.BorderWidth is not None:
+                    border_depth = element.BorderWidth
+            except:
+                pass
             # -------------------------  COLUMN placement element  ------------------------- #
             if element_type == ELEM_TYPE_COLUMN:
                 element = element  # type: Column
                 if element.Scrollable:
-                    element.TKColFrame = TkScrollableFrame(tk_row_frame, element.VerticalScrollOnly)  # do not use yet!  not working
+                    element.Widget = element.TKColFrame = TkScrollableFrame(tk_row_frame, element.VerticalScrollOnly)  # do not use yet!  not working
                     PackFormIntoFrame(element, element.TKColFrame.TKFrame, toplevel_form)
                     element.TKColFrame.TKFrame.update()
                     if element.Size == (None, None):  # if no size specified, use column width x column height/2
@@ -9759,7 +11089,7 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                                                   highlightthickness=0)
                 else:
                     if element.Size != (None, None):
-                        element.TKColFrame = TkFixedFrame(tk_row_frame)
+                        element.Widget = element.TKColFrame = TkFixedFrame(tk_row_frame)
                         PackFormIntoFrame(element, element.TKColFrame.TKFrame, toplevel_form)
                         element.TKColFrame.TKFrame.update()
                         if None not in (element.Size[0], element.Size[1]):
@@ -9773,25 +11103,55 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                             element.TKColFrame.TKFrame.config(background=element.BackgroundColor, borderwidth=0,
                                                               highlightthickness=0)
                     else:
-                        element.TKColFrame = tk.Frame(tk_row_frame)
+                        element.Widget = element.TKColFrame = tk.Frame(tk_row_frame)
                         PackFormIntoFrame(element, element.TKColFrame, toplevel_form)
                         if not element.BackgroundColor in (None, COLOR_SYSTEM_DEFAULT):
                             element.TKColFrame.config(background=element.BackgroundColor, borderwidth=0,
                                                       highlightthickness=0)
-                if element.Justification.lower().startswith('c'):
-                    anchor = tk.N
-                    side = tk.TOP
+
+                if element.Justification is None:
+                    pass
+                elif element.Justification.lower().startswith('l'):
+                    row_justify = 'l'
+                elif element.Justification.lower().startswith('c'):
+                    row_justify = 'c'
                 elif element.Justification.lower().startswith('r'):
-                    anchor = tk.NE
-                    side = tk.RIGHT
-                else:
-                    anchor = tk.NW
-                    side = tk.LEFT
+                    row_justify = 'r'
+
                 # anchor=tk.NW
                 # side = tk.LEFT
-                row_justify = element.Justification
+                # row_justify = element.Justification
+
+
                 element.Widget = element.TKColFrame
-                element.TKColFrame.pack(side=side, anchor=anchor, padx=elementpad[0], pady=elementpad[1], expand=False, fill=tk.NONE)
+
+                expand = True
+                if element.ExpandX and element.ExpandY:
+                    fill = tk.BOTH
+                    row_fill_direction = tk.BOTH
+                elif element.ExpandX:
+                    fill = tk.X
+                    row_fill_direction = tk.X
+                elif element.ExpandY:
+                    fill = tk.Y
+                    row_fill_direction = tk.Y
+                else:
+                    fill = tk.NONE
+                    expand=False
+
+                if element.VerticalAlignment is not None:
+                    anchor = tk.CENTER   # Default to center if a bad choice is made
+
+                    if element.VerticalAlignment.lower().startswith('t'):
+                        anchor = tk.N
+                    if element.VerticalAlignment.lower().startswith('c'):
+                        anchor = tk.CENTER
+                    if element.VerticalAlignment.lower().startswith('b'):
+                        anchor = tk.S
+                    element.TKColFrame.pack(side=tk.LEFT, anchor=anchor, padx=elementpad[0], pady=elementpad[1], expand=expand, fill=fill)
+                else:
+                    element.TKColFrame.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], expand=expand, fill=fill)
+
                 # element.TKColFrame.pack(side=side, padx=elementpad[0], pady=elementpad[1], expand=True, fill='both')
                 if element.Visible is False:
                     element.TKColFrame.pack_forget()
@@ -9806,6 +11166,8 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     AddMenuItem(top_menu, menu[1], element)
                     element.TKRightClickMenu = top_menu
                     element.TKColFrame.bind('<Button-3>', element._RightClickMenuCallback)
+                if element.Grab:
+                    element._grab_anywhere_on()
                 # row_should_expand = True
             # -------------------------  Pane placement element  ------------------------- #
             if element_type == ELEM_TYPE_PANE:
@@ -9900,6 +11262,8 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     AddMenuItem(top_menu, menu[1], element)
                     element.TKRightClickMenu = top_menu
                     tktext_label.bind('<Button-3>', element._RightClickMenuCallback)
+                if element.Grab:
+                    element._grab_anywhere_on()
             # -------------------------  BUTTON placement element non-ttk version  ------------------------- #
             elif (element_type == ELEM_TYPE_BUTTON and element.UseTtkButtons is False) or \
                     (element_type == ELEM_TYPE_BUTTON and element.UseTtkButtons is not True and toplevel_form.UseTtkButtons is not True):
@@ -10162,7 +11526,6 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     element.TooltipObject = ToolTip(element.TKButton, text=element.Tooltip,
                                                     timeout=DEFAULT_TOOLTIP_TIME)
 
-
             # -------------------------  INPUT placement element  ------------------------- #
             elif element_type == ELEM_TYPE_INPUT_TEXT:
                 element = element  # type: InputText
@@ -10170,7 +11533,6 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 element.TKStringVar = tk.StringVar()
                 element.TKStringVar.set(default_text)
                 show = element.PasswordCharacter if element.PasswordCharacter else ""
-                # bd = element.BorderDepth if element.BorderDepth is not None else border_depth
                 bd = border_depth
                 if element.Justification is not None:
                     justification = element.Justification
@@ -10188,8 +11550,15 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     element.TKEntry.configure(background=element.BackgroundColor)
                 if text_color is not None and text_color != COLOR_SYSTEM_DEFAULT:
                     element.TKEntry.configure(fg=text_color)
-                element.Widget.config(highlightthickness=0)
 
+                if element.disabled_readonly_background_color is not None:
+                    element.TKEntry.config(readonlybackground=element.disabled_readonly_background_color)
+                if element.disabled_readonly_text_color is not None:
+                    element.TKEntry.config(fg=element.disabled_readonly_text_color)
+
+                element.Widget.config(highlightthickness=0)
+                # element.pack_keywords = {'side':tk.LEFT, 'padx':elementpad[0], 'pady':elementpad[1], 'expand':False, 'fill':tk.NONE }
+                # element.TKEntry.pack(**element.pack_keywords)
                 element.TKEntry.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], expand=False, fill=tk.NONE)
                 if element.Visible is False:
                     element.TKEntry.pack_forget()
@@ -10198,6 +11567,9 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     element.TKEntry.focus_set()
                 if element.Disabled:
                     element.TKEntry['state'] = 'readonly' if element.UseReadonlyForDisable else 'disabled'
+                if element.ReadOnly:
+                    element.TKEntry['state'] = 'readonly'
+
                 if element.Tooltip is not None:
                     element.TooltipObject = ToolTip(element.TKEntry, text=element.Tooltip, timeout=DEFAULT_TOOLTIP_TIME)
                 if element.RightClickMenu or toplevel_form.RightClickMenu:
@@ -10261,8 +11633,15 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     # Set individual widget options
                     combostyle.configure(style_name, foreground=element.TextColor)
                     combostyle.configure(style_name, selectbackground=element.BackgroundColor)
+                    combostyle.map(style_name, fieldbackground=[('readonly', element.BackgroundColor)])
                     combostyle.configure(style_name, fieldbackground=element.BackgroundColor)
                     combostyle.configure(style_name, selectforeground=element.TextColor)
+
+                    try:
+                        combostyle.configure(style_name, arrowcolor=theme_button_color()[0])
+                        combostyle.configure(style_name, background=theme_button_color()[1])
+                    except Exception as e:
+                        print('* Problem setting combobox button color *', e)
 
                 # Strange code that is needed to set the font for the drop-down list
                 element._newfont = tkinter.font.Font(font=font)
@@ -10389,6 +11768,20 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 element.TKText.config(highlightthickness=0)
                 if element.BackgroundColor is not None and element.BackgroundColor != COLOR_SYSTEM_DEFAULT:
                     element.TKText.configure(background=element.BackgroundColor)
+
+                element.TKText.tag_configure("center", justify='center')
+                element.TKText.tag_configure("left", justify='left')
+                element.TKText.tag_configure("right", justify='right')
+
+                if element.Justification.startswith('l'):
+                    element.TKText.tag_add("left", 1.0, "end")
+                    element.justification_tag = 'left'
+                elif element.Justification.startswith('r'):
+                    element.TKText.tag_add("right", 1.0, "end")
+                    element.justification_tag = 'right'
+                elif element.Justification.startswith('c'):
+                    element.TKText.tag_add("center", 1.0, "end")
+                    element.justification_tag = 'center'
                 # if DEFAULT_SCROLLBAR_COLOR not in (None, COLOR_SYSTEM_DEFAULT):               # only works on Linux so not including it
                 #     element.TKText.vbar.config(troughcolor=DEFAULT_SCROLLBAR_COLOR)
                 element.TKText.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1])
@@ -10411,6 +11804,10 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     element.TKText['state'] = 'disabled'
                 if element.Tooltip is not None:
                     element.TooltipObject = ToolTip(element.TKText, text=element.Tooltip, timeout=DEFAULT_TOOLTIP_TIME)
+
+                if element.reroute_cprint:
+                    cprint_set_output_destination(toplevel_form, element.Key)
+
                 if element.RightClickMenu or toplevel_form.RightClickMenu:
                     menu = element.RightClickMenu or toplevel_form.RightClickMenu
                     top_menu = tk.Menu(toplevel_form.TKroot, tearoff=False)
@@ -10530,6 +11927,7 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 element.TKSpinBox.configure(font=font)  # set wrap to width of widget
                 if element.BackgroundColor is not None and element.BackgroundColor != COLOR_SYSTEM_DEFAULT:
                     element.TKSpinBox.configure(background=element.BackgroundColor)
+                    element.TKSpinBox.configure(buttonbackground=element.BackgroundColor)
                 element.Widget.config(highlightthickness=0)
                 element.TKSpinBox.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1])
                 if element.Visible is False:
@@ -10538,6 +11936,8 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     element.TKSpinBox.configure(fg=text_color)
                 if element.ChangeSubmits:
                     element.TKSpinBox.bind('<ButtonRelease-1>', element._SpinChangedHandler)
+                    element.TKSpinBox.bind('<Up>', element._SpinChangedHandler)
+                    element.TKSpinBox.bind('<Down>', element._SpinChangedHandler)
                 if element.Disabled == True:
                     element.TKSpinBox['state'] = 'disabled'
                 if element.Tooltip is not None:
@@ -10610,6 +12010,7 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     element.tktext_label.bind('<Button-3>', element._RightClickMenuCallback)
                 # -------------------------  Canvas placement element  ------------------------- #
             elif element_type == ELEM_TYPE_CANVAS:
+                element = element  # type: Canvas
                 width, height = element_size
                 if element._TKCanvas is None:
                     element._TKCanvas = element.Widget = tk.Canvas(tk_row_frame, width=width, height=height,
@@ -10697,7 +12098,19 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 labeled_frame = element.Widget = tk.LabelFrame(tk_row_frame, text=element.Title, relief=element.Relief)
                 element.TKFrame = labeled_frame
                 PackFormIntoFrame(element, labeled_frame, toplevel_form)
-                labeled_frame.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill=tk.NONE, expand=False)
+
+                if element.VerticalAlignment is not None:
+                    anchor = tk.CENTER   # Default to center if a bad choice is made
+                    if element.VerticalAlignment.lower().startswith('t'):
+                        anchor = tk.N
+                    if element.VerticalAlignment.lower().startswith('c'):
+                        anchor = tk.CENTER
+                    if element.VerticalAlignment.lower().startswith('b'):
+                        anchor = tk.S
+                    labeled_frame.pack(side=tk.LEFT, anchor=anchor, padx=elementpad[0], pady=elementpad[1], fill=tk.NONE, expand=False)
+                else:
+                    labeled_frame.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill=tk.NONE, expand=False)
+
                 if element.Size != (None, None):
                     labeled_frame.config(width=element.Size[0], height=element.Size[1])
                 if not element.Visible:
@@ -10929,11 +12342,16 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 # ------ Do Styling of Colors -----
                 style_name = str(element.Key) + 'customtable.Treeview'
                 table_style = ttk.Style()
+
                 table_style.theme_use(toplevel_form.TtkTheme)
                 if element.BackgroundColor is not None and element.BackgroundColor != COLOR_SYSTEM_DEFAULT:
-                    table_style.configure(style_name, background=element.BackgroundColor, fieldbackground=element.BackgroundColor)
+                    table_style.configure(style_name, background=element.BackgroundColor, fieldbackground=element.BackgroundColor, )
+                    if element.SelectedRowColors[1] is not None:
+                        table_style.map(style_name, background=_fixed_map(table_style, style_name, 'background', element.SelectedRowColors))
                 if element.TextColor is not None and element.TextColor != COLOR_SYSTEM_DEFAULT:
                     table_style.configure(style_name, foreground=element.TextColor)
+                    if element.SelectedRowColors[0] is not None:
+                        table_style.map(style_name, foreground=_fixed_map(table_style, style_name, 'foreground', element.SelectedRowColors))
                 if element.RowHeight is not None:
                     table_style.configure(style_name, rowheight=element.RowHeight)
                 else:
@@ -10948,7 +12366,6 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     table_style.configure(style_name+'.Heading', font=font)
                 table_style.configure(style_name, font=font)
                 treeview.configure(style=style_name)
-
                 # scrollable_frame.pack(side=tk.LEFT,  padx=elementpad[0], pady=elementpad[1], expand=True, fill='both')
                 treeview.bind("<<TreeviewSelect>>", element._treeview_selected)
                 if element.BindReturnKey:
@@ -10980,6 +12397,12 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     AddMenuItem(top_menu, menu[1], element)
                     element.TKRightClickMenu = top_menu
                     element.TKTreeview.bind('<Button-3>', element._RightClickMenuCallback)
+
+                if tclversion_detailed == '8.6.9' and ENABLE_TREEVIEW_869_PATCH:
+                    print('*** tk version 8.6.9 detected.... patching ttk treeview code ***')
+                    table_style.map(style_name,
+                                    foreground=_fixed_map(table_style, style_name, 'foreground', element.SelectedRowColors),
+                                    background=_fixed_map(table_style, style_name, 'background', element.SelectedRowColors))
             # -------------------------  Tree placement element  ------------------------- #
             elif element_type == ELEM_TYPE_TREE:
                 element = element  # type: Tree
@@ -11026,15 +12449,23 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     # print(f'Inserting {node.key} under parent {node.parent}')
                     if node.key != '':
                         if node.icon:
-                            if type(node.icon) is bytes:
-                                photo = tk.PhotoImage(data=node.icon)
+                            if node.icon not in element.image_dict:
+                                if type(node.icon) is bytes:
+                                    photo = tk.PhotoImage(data=node.icon)
+                                else:
+                                    photo = tk.PhotoImage(file=node.icon)
+                                element.image_dict[node.icon] = photo
                             else:
-                                photo = tk.PhotoImage(file=node.icon)
+                                photo = element.image_dict.get(node.icon)
+
                             node.photo = photo
-                            id = treeview.insert(element.KeyToID[node.parent], 'end', iid=None, text=node.text, values=node.values,
-                                                 open=element.ShowExpanded, image=node.photo)
-                            element.IdToKey[id] = node.key
-                            element.KeyToID[node.key] = id
+                            try:
+                                id = treeview.insert(element.KeyToID[node.parent], 'end', iid=None, text=node.text, values=node.values,
+                                                     open=element.ShowExpanded, image=node.photo)
+                                element.IdToKey[id] = node.key
+                                element.KeyToID[node.key] = id
+                            except Exception as e:
+                                print('Error inserting image into tree', e)
                         else:
                             id = treeview.insert(element.KeyToID[node.parent], 'end', iid=None, text=node.text, values=node.values,
                                                  open=element.ShowExpanded)
@@ -11051,10 +12482,13 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                 tree_style = ttk.Style()
                 tree_style.theme_use(toplevel_form.TtkTheme)
                 if element.BackgroundColor is not None and element.BackgroundColor != COLOR_SYSTEM_DEFAULT:
-                    tree_style.configure(style_name, background=element.BackgroundColor,
-                                         fieldbackground=element.BackgroundColor)
+                    tree_style.configure(style_name, background=element.BackgroundColor, fieldbackground=element.BackgroundColor)
+                    if element.SelectedRowColors[1] is not None:
+                        tree_style.map(style_name, background=_fixed_map(tree_style, style_name, 'background', element.SelectedRowColors))
                 if element.TextColor is not None and element.TextColor != COLOR_SYSTEM_DEFAULT:
                     tree_style.configure(style_name, foreground=element.TextColor)
+                    if element.SelectedRowColors[0] is not None:
+                        tree_style.map(style_name, foreground=_fixed_map(tree_style, style_name, 'foreground', element.SelectedRowColors))
                 if element.HeaderTextColor is not None and element.HeaderTextColor != COLOR_SYSTEM_DEFAULT:
                     tree_style.configure(style_name+'.Heading', foreground=element.HeaderTextColor)
                 if element.HeaderBackgroundColor is not None and element.HeaderBackgroundColor != COLOR_SYSTEM_DEFAULT:
@@ -11085,11 +12519,28 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     AddMenuItem(top_menu, menu[1], element)
                     element.TKRightClickMenu = top_menu
                     element.TKTreeview.bind('<Button-3>', element._RightClickMenuCallback)
+                if tclversion_detailed == '8.6.9' and ENABLE_TREEVIEW_869_PATCH:
+                    print('*** tk version 8.6.9 detected.... patching ttk treeview code ***')
+                    tree_style.map(style_name,
+                                    foreground=_fixed_map(tree_style, style_name, 'foreground', element.SelectedRowColors),
+                                    background=_fixed_map(tree_style, style_name, 'background', element.SelectedRowColors))
+
             # -------------------------  Separator placement element  ------------------------- #
             elif element_type == ELEM_TYPE_SEPARATOR:
                 element = element  # type: VerticalSeparator
+                style_name = str(element.Key) + "Line.TSeparator"
+                style = ttk.Style()
+                style.theme_use(toplevel_form.TtkTheme)
+                if element.color is not None:
+                    style.configure(style_name, background=element.color)
                 separator = element.Widget = ttk.Separator(tk_row_frame, orient=element.Orientation, )
-                separator.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill='both', expand=True)
+                if element.Orientation.startswith('h'):
+                    # row_should_expand = True
+                    row_fill_direction = tk.X
+                    separator.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill=tk.X, expand=True)
+                else:
+                    separator.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill=tk.Y, expand=True)
+                element.Widget.configure(style=style_name)  # IMPORTANT!  Apply the style
             # -------------------------  StatusBar placement element  ------------------------- #
             elif element_type == ELEM_TYPE_STATUSBAR:
                 # auto_size_text = element.AutoSizeText
@@ -11136,7 +12587,8 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     tktext_label.configure(background=element.BackgroundColor)
                 if element.TextColor != COLOR_SYSTEM_DEFAULT and element.TextColor is not None:
                     tktext_label.configure(fg=element.TextColor)
-                tktext_label.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill=tk.BOTH, expand=True)
+                tktext_label.pack(side=tk.LEFT, padx=elementpad[0], pady=elementpad[1], fill=tk.X, expand=True)
+                row_fill_direction = tk.X
                 if element.Visible is False:
                     tktext_label.pack_forget()
                 element.TKText = tktext_label
@@ -11144,43 +12596,50 @@ def PackFormIntoFrame(form, containing_frame, toplevel_form):
                     tktext_label.bind('<Button-1>', element._TextClickedHandler)
                 if element.Tooltip is not None:
                     element.TooltipObject = ToolTip(element.TKText, text=element.Tooltip, timeout=DEFAULT_TOOLTIP_TIME)
-
+                if element.RightClickMenu or toplevel_form.RightClickMenu:
+                    menu = element.RightClickMenu or toplevel_form.RightClickMenu
+                    top_menu = tk.Menu(toplevel_form.TKroot, tearoff=False)
+                    AddMenuItem(top_menu, menu[1], element)
+                    element.TKRightClickMenu = top_menu
+                    element.Widget.bind('<Button-3>', element._RightClickMenuCallback)
         # ............................DONE WITH ROW pack the row of widgets ..........................#
         # done with row, pack the row of widgets
         # tk_row_frame.grid(row=row_num+2, sticky=tk.NW, padx=DEFAULT_MARGINS[0])
 
+        anchor = 'nw'
+
         if row_justify.lower().startswith('c'):
             anchor = 'n'
-            side = tk.CENTER
+            side = tk.LEFT
         elif row_justify.lower().startswith('r'):
             anchor = 'ne'
             side = tk.RIGHT
         elif row_justify.lower().startswith('l'):
             anchor = 'nw'
             side = tk.LEFT
-        elif toplevel_form.ElementJustification.lower().startswith('c'):
-            anchor = 'n'
-            side = tk.TOP
-        elif toplevel_form.ElementJustification.lower().startswith('r'):
-            anchor = 'ne'
-            side = tk.TOP
-        else:
-            anchor = 'nw'
-            side = tk.TOP
+        # elif toplevel_form.ElementJustification.lower().startswith('c'):
+        #     anchor = 'n'
+        #     side = tk.TOP
+        # elif toplevel_form.ElementJustification.lower().startswith('r'):
+        #     anchor = 'ne'
+        #     side = tk.TOP
+        # else:
+        #     anchor = 'nw'
+        #     side = tk.TOP
 
         # row_should_expand = False
-
         tk_row_frame.pack(side=tk.TOP, anchor=anchor, padx=0, pady=0,
-                          expand=row_should_expand, fill=tk.BOTH if row_should_expand else tk.NONE)
+                          expand=row_should_expand, fill=row_fill_direction)
         if form.BackgroundColor is not None and form.BackgroundColor != COLOR_SYSTEM_DEFAULT:
             tk_row_frame.configure(background=form.BackgroundColor)
     return
 
 
+
 def ConvertFlexToTK(MyFlexForm):
     """
 
-    :param MyFlexForm: (Window)
+    :type MyFlexForm: (Window)
 
     """
     master = MyFlexForm.TKroot
@@ -11221,45 +12680,56 @@ def ConvertFlexToTK(MyFlexForm):
 
     move_string = '+%i+%i' % (int(x), int(y))
     master.geometry(move_string)
-
+    MyFlexForm.config_last_location = (int(x), (int(y)))
+    MyFlexForm.TKroot.x = int(x)
+    MyFlexForm.TKroot.y = int(y)
+    # print(f'setting initial locaiton = {MyFlexForm.config_last_location}')
+    MyFlexForm.starting_window_position =  (int(x), (int(y)))
     master.update_idletasks()  # don't forget
 
     return
 
 
 # ----====----====----====----====----==== STARTUP TK ====----====----====----====----====----#
-def StartupTK(my_flex_form):
+def StartupTK(window):
     """
     NOT user callable
     Creates the window (for real) lays out all the elements, etc.  It's a HUGE set of things it does.  It's the basic
     "porting layer" that will change depending on the GUI framework PySimpleGUI is running on top of.
 
-    :param my_flex_form: (Window):
+    :param window: you window object
+    :type window: (Window)
 
     """
-    my_flex_form = my_flex_form  # type: Window
+    window = window  # type: Window
     # global _my_windows
     # ow = _my_windows.NumOpenWindows
     ow = Window.NumOpenWindows
     # print('Starting TK open Windows = {}'.format(ow))
     if ENABLE_TK_WINDOWS:
         root = tk.Tk()
-    elif not ow and not my_flex_form.ForceTopLevel:
+    elif not ow and not window.ForceTopLevel:
         # if first window being created, make a throwaway, hidden master root.  This stops one user
         # window from becoming the child of another user window. All windows are children of this
         # hidden window
         Window._IncrementOpenCount()
         Window.hidden_master_root = tk.Tk()
         Window.hidden_master_root.attributes('-alpha', 0)  # HIDE this window really really really
-        Window.hidden_master_root.wm_overrideredirect(True)
+        # if not sys.platform.startswith('darwin'):
+        try:
+            Window.hidden_master_root.wm_overrideredirect(True)
+        except:
+            print('* Error performing wm_overrideredirect *')
         Window.hidden_master_root.withdraw()
+        # root = tk.Toplevel(Window.hidden_master_root)     # This code caused problems when running with timeout=0 and closed with X
         root = tk.Toplevel()
     else:
+        # root = tk.Toplevel(Window.hidden_master_root)     # This code caused problems when running with timeout=0 and closed with X
         root = tk.Toplevel()
 
-    if my_flex_form.DebuggerEnabled:
-        root.bind('<Cancel>', my_flex_form._callback_main_debugger_window_create_keystroke)
-        root.bind('<Pause>', my_flex_form._callback_popout_window_create_keystroke)
+    if window.DebuggerEnabled:
+        root.bind('<Cancel>', window._callback_main_debugger_window_create_keystroke)
+        root.bind('<Pause>', window._callback_popout_window_create_keystroke)
 
         # root.bind('<Cancel>', Debugger._build_main_debugger_window)
         # root.bind('<Pause>', Debugger._build_floating_window)
@@ -11267,76 +12737,96 @@ def StartupTK(my_flex_form):
         root.attributes('-alpha', 0)  # hide window while building it. makes for smoother 'paint'
     except:
         pass
-    if my_flex_form.BackgroundColor is not None and my_flex_form.BackgroundColor != COLOR_SYSTEM_DEFAULT:
-        root.configure(background=my_flex_form.BackgroundColor)
+    if window.BackgroundColor is not None and window.BackgroundColor != COLOR_SYSTEM_DEFAULT:
+        root.configure(background=window.BackgroundColor)
     Window._IncrementOpenCount()
 
-    my_flex_form.TKroot = root
-    # Make moveable window
-    if (my_flex_form.GrabAnywhere is not False and not (
-            my_flex_form.NonBlocking and my_flex_form.GrabAnywhere is not True)):
-        root.bind("<ButtonPress-1>", my_flex_form._StartMove)
-        root.bind("<ButtonRelease-1>", my_flex_form._StopMove)
-        root.bind("<B1-Motion>", my_flex_form._OnMotion)
+    window.TKroot = root
 
-    if not my_flex_form.Resizable:
+    window._create_thread_queue()
+
+    # Make moveable window
+    if (window.GrabAnywhere is not False and not (
+            window.NonBlocking and window.GrabAnywhere is not True)):
+        root.bind("<ButtonPress-1>", window._StartMove)
+        root.bind("<ButtonRelease-1>", window._StopMove)
+        root.bind("<B1-Motion>", window._OnMotion)
+
+    if not window.Resizable:
         root.resizable(False, False)
 
-    if my_flex_form.DisableMinimize:
+    if window.DisableMinimize:
         root.attributes("-toolwindow", 1)
 
-    if my_flex_form.KeepOnTop:
+    if window.KeepOnTop:
         root.wm_attributes("-topmost", 1)
 
-    if my_flex_form.TransparentColor is not None:
-        my_flex_form.SetTransparentColor(my_flex_form.TransparentColor)
+    if window.TransparentColor is not None:
+        window.SetTransparentColor(window.TransparentColor)
 
     # root.protocol("WM_DELETE_WINDOW", MyFlexForm.DestroyedCallback())
     # root.bind('<Destroy>', MyFlexForm.DestroyedCallback())
-    ConvertFlexToTK(my_flex_form)
+    ConvertFlexToTK(window)
 
-    my_flex_form.SetIcon(my_flex_form.WindowIcon)
+    window.SetIcon(window.WindowIcon)
 
     try:
         root.attributes('-alpha',
-                        1 if my_flex_form.AlphaChannel is None else my_flex_form.AlphaChannel)  # Make window visible again
+                        1 if window.AlphaChannel is None else window.AlphaChannel)  # Make window visible again
     except:
         pass
 
-    if my_flex_form.ReturnKeyboardEvents and not my_flex_form.NonBlocking:
-        root.bind("<KeyRelease>", my_flex_form._KeyboardCallback)
-        root.bind("<MouseWheel>", my_flex_form._MouseWheelCallback)
-    elif my_flex_form.ReturnKeyboardEvents:
-        root.bind("<Key>", my_flex_form._KeyboardCallback)
-        root.bind("<MouseWheel>", my_flex_form._MouseWheelCallback)
+    if window.ReturnKeyboardEvents and not window.NonBlocking:
+        root.bind("<KeyRelease>", window._KeyboardCallback)
+        root.bind("<MouseWheel>", window._MouseWheelCallback)
+        root.bind("<Button-4>", window._MouseWheelCallback)
+        root.bind("<Button-5>", window._MouseWheelCallback)
+    elif window.ReturnKeyboardEvents:
+        root.bind("<Key>", window._KeyboardCallback)
+        root.bind("<MouseWheel>", window._MouseWheelCallback)
+        root.bind("<Button-4>", window._MouseWheelCallback)
+        root.bind("<Button-5>", window._MouseWheelCallback)
 
-    if my_flex_form.AutoClose:
-        duration = DEFAULT_AUTOCLOSE_TIME if my_flex_form.AutoCloseDuration is None else my_flex_form.AutoCloseDuration
-        my_flex_form.TKAfterID = root.after(int(duration * 1000), my_flex_form._AutoCloseAlarmCallback)
+    if window.NoTitleBar:
+        window.TKroot.focus_force()
 
-    if my_flex_form.Timeout != None:
-        my_flex_form.TKAfterID = root.after(int(my_flex_form.Timeout), my_flex_form._TimeoutAlarmCallback)
-    if my_flex_form.NonBlocking:
-        my_flex_form.TKroot.protocol("WM_DESTROY_WINDOW", my_flex_form._OnClosingCallback)
-        my_flex_form.TKroot.protocol("WM_DELETE_WINDOW", my_flex_form._OnClosingCallback)
+    if window.AutoClose:
+        duration = DEFAULT_AUTOCLOSE_TIME if window.AutoCloseDuration is None else window.AutoCloseDuration
+        window.TKAfterID = root.after(int(duration * 1000), window._AutoCloseAlarmCallback)
+
+    if window.Timeout != None:
+        window.TKAfterID = root.after(int(window.Timeout), window._TimeoutAlarmCallback)
+    if window.NonBlocking:
+        window.TKroot.protocol("WM_DESTROY_WINDOW", window._OnClosingCallback)
+        window.TKroot.protocol("WM_DELETE_WINDOW", window._OnClosingCallback)
+
     else:  # it's a blocking form
         # print('..... CALLING MainLoop')
-        my_flex_form.CurrentlyRunningMainloop = True
-        my_flex_form.TKroot.protocol("WM_DESTROY_WINDOW", my_flex_form._OnClosingCallback)
-        my_flex_form.TKroot.protocol("WM_DELETE_WINDOW", my_flex_form._OnClosingCallback)
-        my_flex_form.TKroot.mainloop()
-        my_flex_form.CurrentlyRunningMainloop = False
-        my_flex_form.TimerCancelled = True
+        window.CurrentlyRunningMainloop = True
+        window.TKroot.protocol("WM_DESTROY_WINDOW", window._OnClosingCallback)
+        window.TKroot.protocol("WM_DELETE_WINDOW", window._OnClosingCallback)
+
+        if window.modal:
+            window.make_modal()
+
+        # window.TKroot.bind("<Configure>", window._config_callback)
+
+        # ----------------------------------- tkinter mainloop call -----------------------------------
+        Window._window_running_mainloop = window
+        Window._root_running_mainloop = window.TKroot
+        window.TKroot.mainloop()
+        window.CurrentlyRunningMainloop = False
+        window.TimerCancelled = True
         # print('..... BACK from MainLoop')
-        if not my_flex_form.FormRemainedOpen:
+        if not window.FormRemainedOpen:
             Window._DecrementOpenCount()
             # _my_windows.Decrement()
-        if my_flex_form.RootNeedsDestroying:
+        if window.RootNeedsDestroying:
             try:
-                my_flex_form.TKroot.destroy()
+                window.TKroot.destroy()
             except:
                 pass
-            my_flex_form.RootNeedsDestroying = False
+            window.RootNeedsDestroying = False
     return
 
 
@@ -11394,24 +12884,24 @@ class QuickMeter(object):
     def __init__(self, title, current_value, max_value, key, *args, orientation='v', bar_color=(None, None), button_color=(None, None), size=DEFAULT_PROGRESS_BAR_SIZE, border_width=None, grab_anywhere=False, no_titlebar=False):
         """
 
-        :param title: text to display in eleemnt
+        :param title: text to display in element
         :type title: (str)
         :param current_value: current value
         :type current_value: (int)
         :param max_value: max value of QuickMeter
         :type max_value: (int)
         :param key:  Used with window.FindElement and with return values to uniquely identify this element
-        :type key: Union[str, int, tuple]
+        :type key: Union[str, int, tuple, object]
         :param *args: stuff to output
         :type *args: (Any)
         :param orientation:  'horizontal' or 'vertical' ('h' or 'v' work) (Default value = 'vertical' / 'v')
         :type orientation: (str)
         :param bar_color:  color of a bar line
-        :type bar_color: str
+        :type bar_color: Tuple[str, str]
         :param button_color: button color (foreground, background)
-        :type button_color: Tuple[str, str]
+        :type button_color: Tuple[str, str] or str
         :param size:  (w,h) w=characters-wide, h=rows-high (Default value = DEFAULT_PROGRESS_BAR_SIZE)
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param border_width:  width of border around element
         :type border_width: (int)
         :param grab_anywhere: If True: can grab anywhere to move the window (Default = False)
@@ -11454,7 +12944,7 @@ class QuickMeter(object):
             col2 += [[T('', size=(30, 10), key='_STATS_')],
                      [Cancel(button_color=self.button_color), Stretch()]]
             layout = [Column(col), Column(col2)]
-        self.window = Window(self.title, grab_anywhere=self.grab_anywhere, border_depth=self.border_width, no_titlebar=self.no_titlebar)
+        self.window = Window(self.title, grab_anywhere=self.grab_anywhere, border_depth=self.border_width, no_titlebar=self.no_titlebar, disable_close=True)
         self.window.Layout([layout]).Finalize()
 
         return self.window
@@ -11505,7 +12995,7 @@ class QuickMeter(object):
         return self.stat_messages
 
 
-def OneLineProgressMeter(title, current_value, max_value, key, *args, orientation='v', bar_color=(None, None), button_color=None, size=DEFAULT_PROGRESS_BAR_SIZE, border_width=None, grab_anywhere=False, no_titlebar=False):
+def OneLineProgressMeter(title, current_value, max_value, key='OK for 1 meter', *args, orientation='v', bar_color=(None, None), button_color=None, size=DEFAULT_PROGRESS_BAR_SIZE, border_width=None, grab_anywhere=False, no_titlebar=False):
     """
     :param title: text to display in eleemnt
     :type title: (str)
@@ -11513,8 +13003,8 @@ def OneLineProgressMeter(title, current_value, max_value, key, *args, orientatio
     :type current_value: (int)
     :param max_value: max value of QuickMeter
     :type max_value: (int)
-    :param key:  Used with window.FindElement and with return values to uniquely identify this element
-    :type key: Union[str, int, tuple]
+    :param key:  Used to differentiate between mutliple meters. Used to cancel meter early. Now optional as there is a default value for single meters
+    :type key: Union[str, int, tuple, object]
     :param *args: stuff to output
     :type *args: (Any)
     :param orientation:  'horizontal' or 'vertical' ('h' or 'v' work) (Default value = 'vertical' / 'v')
@@ -11522,9 +13012,9 @@ def OneLineProgressMeter(title, current_value, max_value, key, *args, orientatio
     :param bar_color:  color of a bar line
     :type bar_color: Tuple(str, str)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param size:  (w,h) w=characters-wide, h=rows-high (Default value = DEFAULT_PROGRESS_BAR_SIZE)
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param border_width:  width of border around element
     :type border_width: (int)
     :param grab_anywhere: If True: can grab anywhere to move the window (Default = False)
@@ -11545,12 +13035,14 @@ def OneLineProgressMeter(title, current_value, max_value, key, *args, orientatio
     return rc == METER_OK
 
 
-def OneLineProgressMeterCancel(key):
+def OneLineProgressMeterCancel(key='OK for 1 meter'):
     """
     Cancels and closes a previously created One Line Progress Meter window
 
     :param key:  Key used when meter was created
     :type key: (Any)
+    :return: None
+    :rtype: None
     """
     try:
         meter = QuickMeter.active_meters[key]
@@ -11561,9 +13053,14 @@ def OneLineProgressMeterCancel(key):
         return
 
 
-# input is #RRGGBB
-# output is #RRGGBB
 def GetComplimentaryHex(color):
+    '''
+    :param color: color string, like "#RRGGBB"
+    :type color: (str)
+    :return: color string, like "#RRGGBB"
+    :rtype: (str)
+    '''
+
     # strip the # from the beginning
     color = color[1:]
     # convert the string into hex
@@ -11586,7 +13083,7 @@ class _DebugWin():
         """
 
         :param size:  (w,h) w=characters-wide, h=rows-high
-        :type size: Tuple[int, int]
+        :type size: (int, int)
         :param location:  Location of upper left corner of the window
         :type location: Tuple[int, int]
         :param font:  specifies the font family, size, etc
@@ -11602,9 +13099,9 @@ class _DebugWin():
 
         :param location:  Location of upper left corner of the window
         :type location: Tuple[int, int]
-        :param do_not_reroute_stdout: ??? (Default = True)
+        :param do_not_reroute_stdout: bool value
         :type do_not_reroute_stdout: (bool)
-
+        :rtype: (None)
         """
         # Show a form that's a running counter
         self.size = size
@@ -11684,8 +13181,8 @@ def EasyPrint(*args, size=(None, None), end=None, sep=None, location=(None, None
     :param *args: stuff to output
     :type *args: (Any)
     :param size: (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
-    :param sep: end character
+    :type size: (int, int)
+    :param end: end character
     :type end: (str)
     :param sep: separator character
     :type sep: (str)
@@ -11709,6 +13206,8 @@ def EasyPrint(*args, size=(None, None), end=None, sep=None, location=(None, None
     :type location: Tuple[int, int]
     :param do_not_reroute_stdout: do not reroute stdout
     :type do_not_reroute_stdout: (bool)
+    :return:
+    :rtype:
     """
     if _DebugWin.debug_window is None:
         _DebugWin.debug_window = _DebugWin(size=size, location=location, font=font, no_titlebar=no_titlebar,
@@ -11724,16 +13223,149 @@ eprint = EasyPrint
 def EasyPrintClose():
     """
     Close a previously opened EasyPrint window
+
+    :return:
+    :rtype:
     """
     if _DebugWin.debug_window is not None:
         _DebugWin.debug_window.Close()
         _DebugWin.debug_window = None
 
+
+
+
+#                            d8b          888
+#                            Y8P          888
+#                                         888
+#   .d8888b 88888b.  888d888 888 88888b.  888888
+#  d88P"    888 "88b 888P"   888 888 "88b 888
+#  888      888  888 888     888 888  888 888
+#  Y88b.    888 d88P 888     888 888  888 Y88b.
+#   "Y8888P 88888P"  888     888 888  888  "Y888
+#           888
+#           888
+#           888
+
+
+CPRINT_DESTINATION_WINDOW = None
+CPRINT_DESTINATION_MULTILINE_ELMENT_KEY = None
+
+def cprint_set_output_destination(window, multiline_key):
+    """
+    Sets up the color print (cprint) output destination
+    :param window: The window that the cprint call will route the output to
+    :type window: (Window)
+    :param multiline_key: Key for the Multiline Element where output will be sent
+    :type multiline_key: (Any)
+    :return: None
+    :rtype: None
+    """
+
+    global CPRINT_DESTINATION_WINDOW, CPRINT_DESTINATION_MULTILINE_ELMENT_KEY
+
+    CPRINT_DESTINATION_WINDOW = window
+    CPRINT_DESTINATION_MULTILINE_ELMENT_KEY = multiline_key
+
+
+
+def cprint(*args, end=None, sep=' ', text_color=None, t=None, background_color=None, b=None, colors=None, c=None, window=None, key=None, justification=None):
+    """
+    Color print to a multiline element in a window of your choice.
+    Must have EITHER called cprint_set_output_destination prior to making this call so that the
+    window and element key can be saved and used here to route the output, OR used the window
+    and key parameters to the cprint function to specicy these items.
+
+    args is a variable number of things you want to print.
+
+    end - The end char to use just like print uses
+    sep - The separation character like print uses
+    text_color - The color of the text
+            key - overrides the previously defined Multiline key
+    window - overrides the previously defined window to output to
+    background_color - The color of the background
+    colors -(str, str) or str.  A combined text/background color definition in a single parameter
+
+    There are also "aliases" for text_color, background_color and colors (t, b, c)
+    t - An alias for color of the text (makes for shorter calls)
+    b - An alias for the background_color parameter
+    c - Tuple[str, str] - "shorthand" way of specifying color. (foreground, backgrouned)
+    c - str - can also be a string of the format "foreground on background"  ("white on red")
+
+    With the aliases it's possible to write the same print but in more compact ways:
+    cprint('This will print white text on red background', c=('white', 'red'))
+    cprint('This will print white text on red background', c='white on red')
+    cprint('This will print white text on red background', text_color='white', background_color='red')
+    cprint('This will print white text on red background', t='white', b='red')
+
+    :param *args: stuff to output
+    :type *args: (Any)
+    :param text_color: Color of the text
+    :type text_color: (str)
+    :param background_color: The background color of the line
+    :type background_color: (str)
+    :param colors: Either a tuple or a string that has both the text and background colors
+    :type colors: (str) or Tuple[str, str]
+    :param t: Color of the text
+    :type t: (str)
+    :param b: The background color of the line
+    :type b: (str)
+    :param c: Either a tuple or a string that has both the text and background colors
+    :type c: (str) or Tuple[str, str]
+    :param end: end character
+    :type end: (str)
+    :param sep: separator character
+    :type sep: (str)
+    :param key: key of multiline to output to (if you want to override the one previously set)
+    :type key: (Any)
+    :param window: Window containing the multiline to output to (if you want to override the one previously set)
+    :param justification: text justification. left, right, center. Can use single characters l, r, c. Sets only for this value, not entire element
+    :type justification: (str)
+    :type window: (Window)
+    :return: None
+    :rtype: None
+    """
+
+    destination_key = CPRINT_DESTINATION_MULTILINE_ELMENT_KEY if key is None else key
+    destination_window = window or CPRINT_DESTINATION_WINDOW
+
+    if (destination_window is None and window is None) or (destination_key is None and key is None):
+        print('** Warning ** Attempting to perform a cprint without a valid window & key',
+              'Will instead print on Console',
+              'You can specify window and key in this cprint call, or set ahead of time using cprint_set_output_destination')
+        print(*args)
+        return
+
+    kw_text_color = text_color or t
+    kw_background_color = background_color or b
+    dual_color = colors or c
+    try:
+        if isinstance(dual_color, tuple):
+            kw_text_color = dual_color[0]
+            kw_background_color = dual_color[1]
+        elif isinstance(dual_color, str):
+            kw_text_color = dual_color.split(' on ')[0]
+            kw_background_color = dual_color.split(' on ')[1]
+    except Exception as e:
+        print('* cprint warning * you messed up with color formatting', e)
+
+    mline = destination_window.find_element(destination_key, silent_on_error=True)      # type: Multiline
+    try:
+        # mline = destination_window[destination_key]     # type: Multiline
+        if end is None:
+            mline.print(*args, text_color=kw_text_color, background_color=kw_background_color, end='', sep=sep, justification=justification)
+            mline.print('', justification=justification)
+        else:
+            mline.print(*args,text_color=kw_text_color, background_color=kw_background_color, end=end, sep=sep, justification=justification)
+    except Exception as e:
+        print('** cprint error trying to print to the multiline. Printing to console instead **', e)
+        print(*args, end=end, sep=sep)
+
+
 # ------------------------------------------------------------------------------------------------ #
 # A print-like call that can be used to output to a multiline element as if it's an Output element #
 # ------------------------------------------------------------------------------------------------ #
 
-def _print_to_element(multiline_element, *args, end=None, sep=None, text_color=None, background_color=None, autoscroll=True):
+def _print_to_element(multiline_element, *args, end=None, sep=None, text_color=None, background_color=None, autoscroll=None, justification=None):
     """
     Print like Python normally prints except route the output to a multline element and also add colors if desired
 
@@ -11750,7 +13382,7 @@ def _print_to_element(multiline_element, *args, end=None, sep=None, text_color=N
     :param background_color: The background color of the line
     :type background_color: (str)
     :param autoscroll: If True (the default), the element will scroll to bottom after updating
-    :type autoscroll: Bool
+    :type autoscroll: (bool)
     """
     end_str = str(end) if end is not None else '\n'
     sep_str = str(sep) if sep is not None else ' '
@@ -11763,8 +13395,13 @@ def _print_to_element(multiline_element, *args, end=None, sep=None, text_color=N
             outstring += sep_str
     outstring += end_str
 
-    multiline_element.update(outstring, append=True, text_color_for_value=text_color, background_color_for_value=background_color, autoscroll=autoscroll)
+    multiline_element.update(outstring, append=True, text_color_for_value=text_color, background_color_for_value=background_color, autoscroll=autoscroll, justification=justification)
 
+    try:        # if the element is set to autorefresh, then refresh the parent window
+        if multiline_element.AutoRefresh:
+            multiline_element.ParentForm.refresh()
+    except:
+        pass
 
 # ============================== SetGlobalIcon ======#
 # Sets the icon to be used by default                #
@@ -11774,7 +13411,10 @@ def SetGlobalIcon(icon):
     Sets the icon which will be used any time a window is created if an icon is not provided when the
     window is created.
 
-    :param icon: Union[bytes, str] Either a Base64 byte string or a filename
+    :param icon: Either a Base64 byte string or a filename
+    :type icon: Union[bytes, str]
+    :return: None
+    :rtype: None
     """
 
     Window._user_defined_icon = icon
@@ -11793,16 +13433,16 @@ def SetOptions(icon=None, button_color=None, element_size=(None, None), button_e
                text_justification=None, background_color=None, element_background_color=None,
                text_element_background_color=None, input_elements_background_color=None, input_text_color=None,
                scrollbar_color=None, text_color=None, element_text_color=None, debug_win_size=(None, None),
-               window_location=(None, None), error_button_color=(None, None), tooltip_time=None, tooltip_font=None, use_ttk_buttons=None, ttk_theme=None):
+               window_location=(None, None), error_button_color=(None, None), tooltip_time=None, tooltip_font=None, use_ttk_buttons=None, ttk_theme=None, suppress_error_popups=None, suppress_raise_key_errors=None, suppress_key_guessing=None, enable_treeview_869_patch=None):
     """
     :param icon: filename or base64 string to be used for the window's icon
     :type icon: Union[bytes, str]
     :param button_color: Color of the button (text, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param element_size: element size (width, height) in characters
-    :type element_size: Tuple[int, int]
+    :type element_size: (int, int)
     :param button_element_size: Size of button
-    :type button_element_size: Tuple[int, int]
+    :type button_element_size: (int, int)
     :param margins: (left/right, top/bottom) tkinter margins around outsize. Amount of pixels to leave inside the window's frame around the edges before your elements are shown.
     :type margins: Tuple[int, int]
     :param element_padding: Default amount of padding to put around elements in window (left/right, top/bottom) or ((left, right), (top, bottom))
@@ -11829,27 +13469,32 @@ def SetOptions(icon=None, button_color=None, element_size=(None, None), button_e
     :type progress_meter_border_depth: ???
 
     :param progress_meter_style:  You can no longer set a progress bar style. All ttk styles must be the same for the window
-    :type progress_meter_style: ---
-
+    :type progress_meter_style: ???
     :param progress_meter_relief:
-    :param progress_meter_color:
-    :param progress_meter_size:
-    :param text_justification: Union ['left', 'right', 'center'] Default text justification for all Text Elements in window
-    :type text_justification: (str)
+    :type progress_meter_relief: ???
+    :param progress_meter_color: ???
+    :type progress_meter_color: ???
+    :param progress_meter_size: ???
+    :type progress_meter_size: ???
+    :param text_justification: Default text justification for all Text Elements in window
+    :type text_justification: Union['left', 'right', 'center']
     :param background_color: color of background
     :type background_color: (str)
     :param element_background_color: element background color
     :type element_background_color: (str)
     :param text_element_background_color: text element background color
     :type text_element_background_color: (str)
-    :param input_elements_background_color:
-    :param input_text_color:
-    :param scrollbar_color:
+    :param input_elements_background_color: ???
+    :type input_elements_background_color: idk_yetReally
+    :param input_text_color: ???
+    :type input_text_color: ???
+    :param scrollbar_color: ???
+    :type scrollbar_color: ???
     :param text_color: color of the text
     :type text_color: (str)
     :param element_text_color: ???
     :type element_text_color: ???
-    :param debug_win_size:  (Default = (None))
+    :param debug_win_size: window size
     :type debug_win_size:  Tuple[int, int]
     :param window_location:  (Default = (None))
     :type window_location: ???
@@ -11861,9 +13506,18 @@ def SetOptions(icon=None, button_color=None, element_size=(None, None), button_e
     :type tooltip_font: str or Tuple[str, int] or Tuple[str, int, str]
     :param use_ttk_buttons: if True will cause all buttons to be ttk buttons
     :type use_ttk_buttons: (bool)
-    :param ttk_theme:  (str) Theme to use with ttk widgets.  Choices (on Windows) include - 'default', 'winnative', 'clam', 'alt', 'classic', 'vista', 'xpnative'
+    :param ttk_theme: Theme to use with ttk widgets.  Choices (on Windows) include - 'default', 'winnative', 'clam', 'alt', 'classic', 'vista', 'xpnative'
     :type ttk_theme:  (str)
-    ==============
+    :param suppress_error_popups: If True then error popups will not be shown if generated internally to PySimpleGUI
+    :type suppress_error_popups:  (bool)
+    :param suppress_raise_key_errors: If True then key errors won't be raised (you'll still get popup error)
+    :type suppress_raise_key_errors:  (bool)
+    :param suppress_key_guessing: If True then key errors won't try and find closest matches for you
+    :type suppress_key_guessing:  (bool)
+    :param enable_treeview_869_patch: If True, then will use the treeview color patch for tk 8.6.9
+    :type enable_treeview_869_patch:  (bool)
+    :return: None
+    :rtype: None
     """
 
     global DEFAULT_ELEMENT_SIZE
@@ -11901,6 +13555,10 @@ def SetOptions(icon=None, button_color=None, element_size=(None, None), button_e
     global DEFAULT_TTK_THEME
     global USE_TTK_BUTTONS
     global TOOLTIP_FONT
+    global SUPPRESS_ERROR_POPUPS
+    global SUPPRESS_RAISE_KEY_ERRORS
+    global SUPPRESS_KEY_GUESSING
+    global ENABLE_TREEVIEW_869_PATCH
     # global _my_windows
 
     if icon:
@@ -12013,7 +13671,33 @@ def SetOptions(icon=None, button_color=None, element_size=(None, None), button_e
     if tooltip_font is not None:
         TOOLTIP_FONT = tooltip_font
 
+    if suppress_error_popups is not None:
+        SUPPRESS_ERROR_POPUPS = suppress_error_popups
+
+    if suppress_raise_key_errors is not None:
+        SUPPRESS_RAISE_KEY_ERRORS = suppress_raise_key_errors
+
+    if suppress_key_guessing is not None:
+        SUPPRESS_KEY_GUESSING = suppress_key_guessing
+
+    if enable_treeview_869_patch is not None:
+        ENABLE_TREEVIEW_869_PATCH = enable_treeview_869_patch
+
     return True
+
+
+
+def get_globals():
+    """
+    Returns the dictionary of the global variables
+
+    :return: the gobals dictionary
+    :rtype: Dict[str, Any]
+    """
+
+    return globals()
+
+
 
 # ----------------------------------------------------------------- #
 
@@ -12072,7 +13756,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#000000',
                                      'SCROLL': '#86A8FF',
                                      'BUTTON': ('#FFFFFF', '#5079D3'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 0, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'ACCENT1': '#FF0266',
@@ -12085,7 +13769,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#FFFFFF',
                                      'SCROLL': '#5EA7FF',
                                      'BUTTON': ('#FFFFFF', '#0079D3'),  # based on Reddit color
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 0, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'ACCENT1': '#FF0266',
@@ -12098,7 +13782,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                   'TEXT_INPUT': '#222222',
                                   'SCROLL': '#a5a4a4',
                                   'BUTTON': ('#FFFFFF', '#0079d3'),
-                                  'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                  'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                   'BORDER': 1,
                                   'SLIDER_DEPTH': 0,
                                   'PROGRESS_DEPTH': 0,
@@ -12112,7 +13796,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                    'TEXT_INPUT': '#E7C855',
                                    'SCROLL': '#E7C855',
                                    'BUTTON': ('#E7C855', '#284B5A'),
-                                   'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                   'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                    'BORDER': 1,
                                    'SLIDER_DEPTH': 0,
                                    'PROGRESS_DEPTH': 0,
@@ -12125,7 +13809,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                     'INPUT': '#F7F3EC', 'TEXT_INPUT': '#000000',
                                     'SCROLL': '#F7F3EC',
                                     'BUTTON': ('#FFFFFF', '#475841'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                     'BORDER': 1, 'SLIDER_DEPTH': 0,
                                     'PROGRESS_DEPTH': 0},
 
@@ -12135,7 +13819,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                 'TEXT_INPUT': '#FFFFFF',
                                 'SCROLL': '#707070',
                                 'BUTTON': ('#FFFFFF', '#004F00'),
-                                'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                 'BORDER': 1,
                                 'SLIDER_DEPTH': 0,
                                 'PROGRESS_DEPTH': 0},
@@ -12146,7 +13830,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#000000',
                                       'SCROLL': '#FDFFF7',
                                       'BUTTON': ('#FFFFFF', '#658268'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'ACCENT1': '#76506d',
@@ -12160,7 +13844,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                  'TEXT_INPUT': '#000000',
                                  'SCROLL': '#707070',
                                  'BUTTON': ('#FFFFFF', '#004F00'),
-                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                  'BORDER': 1,
                                  'SLIDER_DEPTH': 0,
                                  'PROGRESS_DEPTH': 0},
@@ -12171,7 +13855,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                  'TEXT_INPUT': '#FFFFFF',
                                  'SCROLL': '#707070',
                                  'BUTTON': ('#000000', '#FFFFFF'),
-                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                  'BORDER': 1,
                                  'SLIDER_DEPTH': 0,
                                  'PROGRESS_DEPTH': 0},
@@ -12182,7 +13866,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                'TEXT_INPUT': '#6c71c3',
                                'SCROLL': '#eee8d5',
                                'BUTTON': ('#FFFFFF', '#063542'),
-                               'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                               'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                'BORDER': 1,
                                'SLIDER_DEPTH': 0,
                                'PROGRESS_DEPTH': 0},
@@ -12193,7 +13877,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                    'TEXT_INPUT': '#242834',
                                    'SCROLL': '#eee8d5',
                                    'BUTTON': ('#FFFFFF', '#063289'),
-                                   'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                   'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                    'BORDER': 1,
                                    'SLIDER_DEPTH': 0,
                                    'PROGRESS_DEPTH': 0},
@@ -12204,7 +13888,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'TEXT_INPUT': '#FFFFFF',
                                        'SCROLL': '#a9afbb',
                                        'BUTTON': ('#FFFFFF', '#063289'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12215,7 +13899,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#fdcb52',
                                      'SCROLL': '#705e52',
                                      'BUTTON': ('#000000', '#fdcb52'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12226,7 +13910,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                     'TEXT_INPUT': '#acc2d0',
                                     'SCROLL': '#1b6497',
                                     'BUTTON': ('#000000', '#fafaf8'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                     'BORDER': 1, 'SLIDER_DEPTH': 0,
                                     'PROGRESS_DEPTH': 0},
 
@@ -12236,7 +13920,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                 'TEXT_INPUT': '#000000',
                                 'SCROLL': '#763e00',
                                 'BUTTON': ('#000000', '#daad28'),
-                                'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                 'BORDER': 1,
                                 'SLIDER_DEPTH': 0,
                                 'PROGRESS_DEPTH': 0},
@@ -12247,7 +13931,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                  'TEXT_INPUT': '#000000',
                                  'SCROLL': '#e3ecf3',
                                  'BUTTON': ('#FFFFFF', '#517239'),
-                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                  'BORDER': 1,
                                  'SLIDER_DEPTH': 0,
                                  'PROGRESS_DEPTH': 0},
@@ -12258,7 +13942,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#000000',
                                       'SCROLL': '#E0F5FF',
                                       'BUTTON': ('#FFFFFF', '#303952'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12269,7 +13953,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                   'SCROLL': '#F2EFE8',
                                   'TEXT_INPUT': '#000000',
                                   'BUTTON': ('#000000', '#C2D4D8'),
-                                  'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                  'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                   'BORDER': 1,
                                   'SLIDER_DEPTH': 0,
                                   'PROGRESS_DEPTH': 0},
@@ -12280,7 +13964,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                     'SCROLL': '#F1F4FC',
                                     'TEXT_INPUT': '#000000',
                                     'BUTTON': ('#FFFFFF', '#7186C7'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                     'BORDER': 1,
                                     'SLIDER_DEPTH': 0,
                                     'PROGRESS_DEPTH': 0},
@@ -12291,7 +13975,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'SCROLL': '#E3E3E3',
                                      'TEXT_INPUT': '#000000',
                                      'BUTTON': ('#FFFFFF', '#6D9F85'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12302,7 +13986,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'SCROLL': '#A6B2BE',
                                      'TEXT_INPUT': '#000000',
                                      'BUTTON': ('#FFFFFF', '#283b5b'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12313,7 +13997,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                         'SCROLL': '#ffb482',
                                         'TEXT_INPUT': '#000000',
                                         'BUTTON': ('#000000', '#ffa0dc'),
-                                        'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                        'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                         'BORDER': 1,
                                         'SLIDER_DEPTH': 0,
                                         'PROGRESS_DEPTH': 0},
@@ -12324,7 +14008,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#fcfff6',
                                        'TEXT_INPUT': '#000000',
                                        'BUTTON': ('#000000', '#d0dbbd'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12335,7 +14019,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                  'SCROLL': '#e6d3a8',
                                  'TEXT_INPUT': '#000000',
                                  'BUTTON': ('#FFFFFF', '#5d907d'),
-                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                  'BORDER': 1,
                                  'SLIDER_DEPTH': 0,
                                  'PROGRESS_DEPTH': 0},
@@ -12346,7 +14030,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'SCROLL': '#e6d3a8',
                                       'TEXT_INPUT': '#012f2f',
                                       'BUTTON': ('#FFFFFF', '#046380'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
 
@@ -12356,7 +14040,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                     'SCROLL': '#dfedf2',
                                     'TEXT_INPUT': '#000000',
                                     'BUTTON': ('#FFFFFF', '#183440'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                     'BORDER': 1,
                                     'SLIDER_DEPTH': 0,
                                     'PROGRESS_DEPTH': 0},
@@ -12400,7 +14084,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#000000',
                                      'SCROLL': '#86A8FF',
                                      'BUTTON': ('#FFFFFF', '#5079D3'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 0, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'ACCENT1': '#FF0266',
@@ -12413,7 +14097,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#FFFFFF',
                                      'SCROLL': '#5EA7FF',
                                      'BUTTON': ('#FFFFFF', '#0079D3'),  # based on Reddit color
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 0, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'ACCENT1': '#FF0266',
@@ -12426,7 +14110,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#222222',
                                       'SCROLL': '#a5a4a4',
                                       'BUTTON': ('#FFFFFF', '#0079d3'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0,
@@ -12440,7 +14124,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#E7C855',
                                      'SCROLL': '#E7C855',
                                      'BUTTON': ('#E7C855', '#284B5A'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
@@ -12453,7 +14137,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'INPUT': '#F7F3EC', 'TEXT_INPUT': '#000000',
                                        'SCROLL': '#F7F3EC',
                                        'BUTTON': ('#FFFFFF', '#475841'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1, 'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
 
@@ -12463,7 +14147,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                     'TEXT_INPUT': '#FFFFFF',
                                     'SCROLL': '#707070',
                                     'BUTTON': ('#FFFFFF', '#004F00'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                     'BORDER': 1,
                                     'SLIDER_DEPTH': 0,
                                     'PROGRESS_DEPTH': 0},
@@ -12474,7 +14158,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'TEXT_INPUT': '#000000',
                                        'SCROLL': '#FDFFF7',
                                        'BUTTON': ('#FFFFFF', '#658268'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'ACCENT1': '#76506d',
@@ -12488,7 +14172,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#000000',
                                      'SCROLL': '#707070',
                                      'BUTTON': ('#FFFFFF', '#004F00'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12499,7 +14183,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#FFFFFF',
                                      'SCROLL': '#707070',
                                      'BUTTON': ('#000000', '#FFFFFF'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12510,7 +14194,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#6c71c3',
                                       'SCROLL': '#eee8d5',
                                       'BUTTON': ('#FFFFFF', '#063542'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12521,7 +14205,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'TEXT_INPUT': '#242834',
                                        'SCROLL': '#eee8d5',
                                        'BUTTON': ('#FFFFFF', '#063289'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12532,7 +14216,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#FFFFFF',
                                      'SCROLL': '#a9afbb',
                                      'BUTTON': ('#FFFFFF', '#063289'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12543,7 +14227,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#fdcb52',
                                       'SCROLL': '#705e52',
                                       'BUTTON': ('#000000', '#fdcb52'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12554,7 +14238,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#acc2d0',
                                      'SCROLL': '#1b6497',
                                      'BUTTON': ('#000000', '#fafaf8'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
 
@@ -12564,7 +14248,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#000000',
                                       'SCROLL': '#763e00',
                                       'BUTTON': ('#000000', '#daad28'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12575,7 +14259,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'TEXT_INPUT': '#000000',
                                      'SCROLL': '#e3ecf3',
                                      'BUTTON': ('#FFFFFF', '#517239'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12586,7 +14270,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'TEXT_INPUT': '#000000',
                                       'SCROLL': '#E0F5FF',
                                       'BUTTON': ('#FFFFFF', '#303952'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12597,7 +14281,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#F2EFE8',
                                        'TEXT_INPUT': '#000000',
                                        'BUTTON': ('#000000', '#C2D4D8'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12608,7 +14292,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'SCROLL': '#F1F4FC',
                                       'TEXT_INPUT': '#000000',
                                       'BUTTON': ('#FFFFFF', '#7186C7'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12619,7 +14303,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#E3E3E3',
                                        'TEXT_INPUT': '#000000',
                                        'BUTTON': ('#FFFFFF', '#6D9F85'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12630,7 +14314,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                      'SCROLL': '#A6B2BE',
                                      'TEXT_INPUT': '#000000',
                                      'BUTTON': ('#FFFFFF', '#283b5b'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                      'BORDER': 1,
                                      'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0},
@@ -12641,7 +14325,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#ffb482',
                                        'TEXT_INPUT': '#000000',
                                        'BUTTON': ('#000000', '#ffa0dc'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12652,7 +14336,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#fcfff6',
                                        'TEXT_INPUT': '#000000',
                                        'BUTTON': ('#000000', '#d0dbbd'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12663,7 +14347,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#e6d3a8',
                                        'TEXT_INPUT': '#000000',
                                        'BUTTON': ('#FFFFFF', '#5d907d'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1,
                                        'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
@@ -12674,7 +14358,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                        'SCROLL': '#e6d3a8',
                                        'TEXT_INPUT': '#012f2f',
                                        'BUTTON': ('#FFFFFF', '#046380'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                        'BORDER': 1, 'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0},
 
@@ -12684,7 +14368,7 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                                       'SCROLL': '#dfedf2',
                                       'TEXT_INPUT': '#000000',
                                       'BUTTON': ('#FFFFFF', '#183440'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
                                       'BORDER': 1,
                                       'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0},
@@ -12694,340 +14378,378 @@ LOOK_AND_FEEL_TABLE = {'SystemDefault':
                        #
                        'LightBrown4': {'BACKGROUND': '#d7c79e', 'TEXT': '#a35638', 'INPUT': '#9dab86', 'TEXT_INPUT': '#000000', 'SCROLL': '#a35638',
                                        'BUTTON': ('#FFFFFF', '#a35638'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#a35638', '#9dab86', '#e08f62', '#d7c79e'], },
                        'DarkTeal': {'BACKGROUND': '#003f5c', 'TEXT': '#fb5b5a', 'INPUT': '#bc4873', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#bc4873',
                                     'BUTTON': ('#FFFFFF', '#fb5b5a'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                     'COLOR_LIST': ['#003f5c', '#472b62', '#bc4873', '#fb5b5a'], },
                        'DarkPurple': {'BACKGROUND': '#472b62', 'TEXT': '#fb5b5a', 'INPUT': '#bc4873', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#bc4873',
                                       'BUTTON': ('#FFFFFF', '#472b62'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#003f5c', '#472b62', '#bc4873', '#fb5b5a'], },
                        'LightGreen6': {'BACKGROUND': '#eafbea', 'TEXT': '#1f6650', 'INPUT': '#6f9a8d', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#1f6650',
                                        'BUTTON': ('#FFFFFF', '#1f6650'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#1f6650', '#6f9a8d', '#ea5e5e', '#eafbea'], },
                        'DarkGrey2': {'BACKGROUND': '#2b2b28', 'TEXT': '#f8f8f8', 'INPUT': '#f1d6ab', 'TEXT_INPUT': '#000000', 'SCROLL': '#f1d6ab',
                                      'BUTTON': ('#2b2b28', '#e3b04b'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#2b2b28', '#e3b04b', '#f1d6ab', '#f8f8f8'], },
                        'LightBrown6': {'BACKGROUND': '#f9b282', 'TEXT': '#8f4426', 'INPUT': '#de6b35', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#8f4426',
                                        'BUTTON': ('#FFFFFF', '#8f4426'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#8f4426', '#de6b35', '#64ccda', '#f9b282'], },
                        'DarkTeal1': {'BACKGROUND': '#396362', 'TEXT': '#ffe7d1', 'INPUT': '#f6c89f', 'TEXT_INPUT': '#000000', 'SCROLL': '#f6c89f',
-                                     'BUTTON': ('#ffe7d1', '#4b8e8d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#ffe7d1', '#4b8e8d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#396362', '#4b8e8d', '#f6c89f', '#ffe7d1'], },
                        'LightBrown7': {'BACKGROUND': '#f6c89f', 'TEXT': '#396362', 'INPUT': '#4b8e8d', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#396362',
-                                       'BUTTON': ('#FFFFFF', '#396362'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                       'BUTTON': ('#FFFFFF', '#396362'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#396362', '#4b8e8d', '#f6c89f', '#ffe7d1'], },
                        'DarkPurple1': {'BACKGROUND': '#0c093c', 'TEXT': '#fad6d6', 'INPUT': '#eea5f6', 'TEXT_INPUT': '#000000', 'SCROLL': '#eea5f6',
                                        'BUTTON': ('#FFFFFF', '#df42d1'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#0c093c', '#df42d1', '#eea5f6', '#fad6d6'], },
                        'DarkGrey3': {'BACKGROUND': '#211717', 'TEXT': '#dfddc7', 'INPUT': '#f58b54', 'TEXT_INPUT': '#000000', 'SCROLL': '#f58b54',
                                      'BUTTON': ('#dfddc7', '#a34a28'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#211717', '#a34a28', '#f58b54', '#dfddc7'], },
                        'LightBrown8': {'BACKGROUND': '#dfddc7', 'TEXT': '#211717', 'INPUT': '#a34a28', 'TEXT_INPUT': '#dfddc7', 'SCROLL': '#211717',
                                        'BUTTON': ('#dfddc7', '#a34a28'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#211717', '#a34a28', '#f58b54', '#dfddc7'], },
                        'DarkBlue4': {'BACKGROUND': '#494ca2', 'TEXT': '#e3e7f1', 'INPUT': '#c6cbef', 'TEXT_INPUT': '#000000', 'SCROLL': '#c6cbef',
                                      'BUTTON': ('#FFFFFF', '#8186d5'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#494ca2', '#8186d5', '#c6cbef', '#e3e7f1'], },
                        'LightBlue4': {'BACKGROUND': '#5c94bd', 'TEXT': '#470938', 'INPUT': '#1a3e59', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#470938',
                                       'BUTTON': ('#FFFFFF', '#470938'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#470938', '#1a3e59', '#5c94bd', '#f2d6eb'], },
                        'DarkTeal2': {'BACKGROUND': '#394a6d', 'TEXT': '#c0ffb3', 'INPUT': '#52de97', 'TEXT_INPUT': '#000000', 'SCROLL': '#52de97',
-                                     'BUTTON': ('#c0ffb3', '#394a6d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#c0ffb3', '#394a6d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#394a6d', '#3c9d9b', '#52de97', '#c0ffb3'], },
                        'DarkTeal3': {'BACKGROUND': '#3c9d9b', 'TEXT': '#c0ffb3', 'INPUT': '#52de97', 'TEXT_INPUT': '#000000', 'SCROLL': '#52de97',
-                                     'BUTTON': ('#c0ffb3', '#394a6d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#c0ffb3', '#394a6d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#394a6d', '#3c9d9b', '#52de97', '#c0ffb3'], },
                        'DarkPurple5': {'BACKGROUND': '#730068', 'TEXT': '#f6f078', 'INPUT': '#01d28e', 'TEXT_INPUT': '#000000', 'SCROLL': '#01d28e',
                                        'BUTTON': ('#f6f078', '#730068'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#730068', '#434982', '#01d28e', '#f6f078'], },
                        'DarkPurple2': {'BACKGROUND': '#202060', 'TEXT': '#b030b0', 'INPUT': '#602080', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#602080',
                                        'BUTTON': ('#FFFFFF', '#202040'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#202040', '#202060', '#602080', '#b030b0'], },
                        'DarkBlue5': {'BACKGROUND': '#000272', 'TEXT': '#ff6363', 'INPUT': '#a32f80', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#a32f80',
                                      'BUTTON': ('#FFFFFF', '#341677'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#000272', '#341677', '#a32f80', '#ff6363'], },
                        'LightGrey2': {'BACKGROUND': '#f6f6f6', 'TEXT': '#420000', 'INPUT': '#d4d7dd', 'TEXT_INPUT': '#420000', 'SCROLL': '#420000',
                                       'BUTTON': ('#420000', '#d4d7dd'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#420000', '#d4d7dd', '#eae9e9', '#f6f6f6'], },
                        'LightGrey3': {'BACKGROUND': '#eae9e9', 'TEXT': '#420000', 'INPUT': '#d4d7dd', 'TEXT_INPUT': '#420000', 'SCROLL': '#420000',
                                       'BUTTON': ('#420000', '#d4d7dd'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#420000', '#d4d7dd', '#eae9e9', '#f6f6f6'], },
                        'DarkBlue6': {'BACKGROUND': '#01024e', 'TEXT': '#ff6464', 'INPUT': '#8b4367', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#8b4367',
                                      'BUTTON': ('#FFFFFF', '#543864'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#01024e', '#543864', '#8b4367', '#ff6464'], },
                        'DarkBlue7': {'BACKGROUND': '#241663', 'TEXT': '#eae7af', 'INPUT': '#a72693', 'TEXT_INPUT': '#eae7af', 'SCROLL': '#a72693',
                                      'BUTTON': ('#eae7af', '#160f30'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#160f30', '#241663', '#a72693', '#eae7af'], },
                        'LightBrown9': {'BACKGROUND': '#f6d365', 'TEXT': '#3a1f5d', 'INPUT': '#c83660', 'TEXT_INPUT': '#f6d365', 'SCROLL': '#3a1f5d',
                                        'BUTTON': ('#f6d365', '#c83660'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#3a1f5d', '#c83660', '#e15249', '#f6d365'], },
                        'DarkPurple3': {'BACKGROUND': '#6e2142', 'TEXT': '#ffd692', 'INPUT': '#e16363', 'TEXT_INPUT': '#ffd692', 'SCROLL': '#e16363',
                                        'BUTTON': ('#ffd692', '#943855'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#6e2142', '#943855', '#e16363', '#ffd692'], },
                        'LightBrown10': {'BACKGROUND': '#ffd692', 'TEXT': '#6e2142', 'INPUT': '#943855', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#6e2142',
                                         'BUTTON': ('#FFFFFF', '#6e2142'),
-                                        'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                        'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                         'COLOR_LIST': ['#6e2142', '#943855', '#e16363', '#ffd692'], },
                        'DarkPurple4': {'BACKGROUND': '#200f21', 'TEXT': '#f638dc', 'INPUT': '#5a3d5c', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#5a3d5c',
                                        'BUTTON': ('#FFFFFF', '#382039'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#200f21', '#382039', '#5a3d5c', '#f638dc'], },
                        'LightBlue5': {'BACKGROUND': '#b2fcff', 'TEXT': '#3e64ff', 'INPUT': '#5edfff', 'TEXT_INPUT': '#000000', 'SCROLL': '#3e64ff',
                                       'BUTTON': ('#FFFFFF', '#3e64ff'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#3e64ff', '#5edfff', '#b2fcff', '#ecfcff'], },
                        'DarkTeal4': {'BACKGROUND': '#464159', 'TEXT': '#c7f0db', 'INPUT': '#8bbabb', 'TEXT_INPUT': '#000000', 'SCROLL': '#8bbabb',
-                                     'BUTTON': ('#FFFFFF', '#6c7b95'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#FFFFFF', '#6c7b95'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#464159', '#6c7b95', '#8bbabb', '#c7f0db'], },
                        'LightTeal': {'BACKGROUND': '#c7f0db', 'TEXT': '#464159', 'INPUT': '#6c7b95', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#464159',
-                                     'BUTTON': ('#FFFFFF', '#464159'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#FFFFFF', '#464159'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#464159', '#6c7b95', '#8bbabb', '#c7f0db'], },
                        'DarkTeal5': {'BACKGROUND': '#8bbabb', 'TEXT': '#464159', 'INPUT': '#6c7b95', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#464159',
-                                     'BUTTON': ('#c7f0db', '#6c7b95'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#c7f0db', '#6c7b95'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#464159', '#6c7b95', '#8bbabb', '#c7f0db'], },
                        'LightGrey4': {'BACKGROUND': '#faf5ef', 'TEXT': '#672f2f', 'INPUT': '#99b19c', 'TEXT_INPUT': '#672f2f', 'SCROLL': '#672f2f',
                                       'BUTTON': ('#672f2f', '#99b19c'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#672f2f', '#99b19c', '#d7d1c9', '#faf5ef'], },
                        'LightGreen7': {'BACKGROUND': '#99b19c', 'TEXT': '#faf5ef', 'INPUT': '#d7d1c9', 'TEXT_INPUT': '#000000', 'SCROLL': '#d7d1c9',
                                        'BUTTON': ('#FFFFFF', '#99b19c'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#672f2f', '#99b19c', '#d7d1c9', '#faf5ef'], },
                        'LightGrey5': {'BACKGROUND': '#d7d1c9', 'TEXT': '#672f2f', 'INPUT': '#99b19c', 'TEXT_INPUT': '#672f2f', 'SCROLL': '#672f2f',
                                       'BUTTON': ('#FFFFFF', '#672f2f'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#672f2f', '#99b19c', '#d7d1c9', '#faf5ef'], },
                        'DarkBrown3': {'BACKGROUND': '#a0855b', 'TEXT': '#f9f6f2', 'INPUT': '#f1d6ab', 'TEXT_INPUT': '#000000', 'SCROLL': '#f1d6ab',
                                       'BUTTON': ('#FFFFFF', '#38470b'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#38470b', '#a0855b', '#f1d6ab', '#f9f6f2'], },
                        'LightBrown11': {'BACKGROUND': '#f1d6ab', 'TEXT': '#38470b', 'INPUT': '#a0855b', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#38470b',
                                         'BUTTON': ('#f9f6f2', '#a0855b'),
-                                        'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                        'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                         'COLOR_LIST': ['#38470b', '#a0855b', '#f1d6ab', '#f9f6f2'], },
                        'DarkRed': {'BACKGROUND': '#83142c', 'TEXT': '#f9d276', 'INPUT': '#ad1d45', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#ad1d45',
                                    'BUTTON': ('#f9d276', '#ad1d45'),
-                                   'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                   'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                    'COLOR_LIST': ['#44000d', '#83142c', '#ad1d45', '#f9d276'], },
                        'DarkTeal6': {'BACKGROUND': '#204969', 'TEXT': '#fff7f7', 'INPUT': '#dadada', 'TEXT_INPUT': '#000000', 'SCROLL': '#dadada',
-                                     'BUTTON': ('#000000', '#fff7f7'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#000000', '#fff7f7'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#204969', '#08ffc8', '#dadada', '#fff7f7'], },
                        'DarkBrown4': {'BACKGROUND': '#252525', 'TEXT': '#ff0000', 'INPUT': '#af0404', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#af0404',
                                       'BUTTON': ('#FFFFFF', '#252525'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#252525', '#414141', '#af0404', '#ff0000'], },
                        'LightYellow': {'BACKGROUND': '#f4ff61', 'TEXT': '#27aa80', 'INPUT': '#32ff6a', 'TEXT_INPUT': '#000000', 'SCROLL': '#27aa80',
                                        'BUTTON': ('#f4ff61', '#27aa80'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#27aa80', '#32ff6a', '#a8ff3e', '#f4ff61'], },
                        'DarkGreen1': {'BACKGROUND': '#2b580c', 'TEXT': '#fdef96', 'INPUT': '#f7b71d', 'TEXT_INPUT': '#000000', 'SCROLL': '#f7b71d',
                                       'BUTTON': ('#fdef96', '#2b580c'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#2b580c', '#afa939', '#f7b71d', '#fdef96'], },
 
                        'LightGreen8': {'BACKGROUND': '#c8dad3', 'TEXT': '#63707e', 'INPUT': '#93b5b3', 'TEXT_INPUT': '#000000', 'SCROLL': '#63707e',
                                        'BUTTON': ('#FFFFFF', '#63707e'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#63707e', '#93b5b3', '#c8dad3', '#f2f6f5'], },
 
                        'DarkTeal7': {'BACKGROUND': '#248ea9', 'TEXT': '#fafdcb', 'INPUT': '#aee7e8', 'TEXT_INPUT': '#000000', 'SCROLL': '#aee7e8',
                                      'BUTTON': ('#000000', '#fafdcb'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#248ea9', '#28c3d4', '#aee7e8', '#fafdcb'], },
                        'DarkBlue8': {'BACKGROUND': '#454d66', 'TEXT': '#d9d872', 'INPUT': '#58b368', 'TEXT_INPUT': '#000000', 'SCROLL': '#58b368',
                                      'BUTTON': ('#000000', '#009975'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#009975', '#454d66', '#58b368', '#d9d872'], },
                        'DarkBlue9': {'BACKGROUND': '#263859', 'TEXT': '#ff6768', 'INPUT': '#6b778d', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#6b778d',
                                      'BUTTON': ('#ff6768', '#263859'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#17223b', '#263859', '#6b778d', '#ff6768'], },
                        'DarkBlue10': {'BACKGROUND': '#0028ff', 'TEXT': '#f1f4df', 'INPUT': '#10eaf0', 'TEXT_INPUT': '#000000', 'SCROLL': '#10eaf0',
                                       'BUTTON': ('#f1f4df', '#24009c'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#24009c', '#0028ff', '#10eaf0', '#f1f4df'], },
                        'DarkBlue11': {'BACKGROUND': '#6384b3', 'TEXT': '#e6f0b6', 'INPUT': '#b8e9c0', 'TEXT_INPUT': '#000000', 'SCROLL': '#b8e9c0',
                                       'BUTTON': ('#e6f0b6', '#684949'),
-                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#684949', '#6384b3', '#b8e9c0', '#e6f0b6'], },
 
                        'DarkTeal8': {'BACKGROUND': '#71a0a5', 'TEXT': '#212121', 'INPUT': '#665c84', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#212121',
                                      'BUTTON': ('#fab95b', '#665c84'),
-                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                     'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                      'COLOR_LIST': ['#212121', '#665c84', '#71a0a5', '#fab95b']},
                        'DarkRed1': {'BACKGROUND': '#c10000', 'TEXT': '#eeeeee', 'INPUT': '#dedede', 'TEXT_INPUT': '#000000', 'SCROLL': '#dedede',
                                     'BUTTON': ('#c10000', '#eeeeee'),
-                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                    'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                     'COLOR_LIST': ['#c10000', '#ff4949', '#dedede', '#eeeeee'], },
                        'LightBrown5': {'BACKGROUND': '#fff591', 'TEXT': '#e41749', 'INPUT': '#f5587b', 'TEXT_INPUT': '#000000', 'SCROLL': '#e41749',
                                        'BUTTON': ('#fff591', '#e41749'),
-                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                       'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#e41749', '#f5587b', '#ff8a5c', '#fff591']},
                        'LightGreen9': {'BACKGROUND': '#f1edb3', 'TEXT': '#3b503d', 'INPUT': '#4a746e', 'TEXT_INPUT': '#f1edb3', 'SCROLL': '#3b503d',
-                                       'BUTTON': ('#f1edb3', '#3b503d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                       'BUTTON': ('#f1edb3', '#3b503d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0,
                                        'COLOR_LIST': ['#3b503d', '#4a746e', '#c8cf94', '#f1edb3'], 'DESCRIPTION': ['Green', 'Turquoise', 'Yellow']},
                        'DarkGreen2': {'BACKGROUND': '#3b503d', 'TEXT': '#f1edb3', 'INPUT': '#c8cf94', 'TEXT_INPUT': '#000000', 'SCROLL': '#c8cf94',
-                                      'BUTTON': ('#f1edb3', '#3b503d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f1edb3', '#3b503d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0,
                                       'COLOR_LIST': ['#3b503d', '#4a746e', '#c8cf94', '#f1edb3'], 'DESCRIPTION': ['Green', 'Turquoise', 'Yellow']},
                        'LightGray1': {'BACKGROUND': '#f2f2f2', 'TEXT': '#222831', 'INPUT': '#393e46', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#222831',
-                                      'BUTTON': ('#f2f2f2', '#222831'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f2f2f2', '#222831'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#222831', '#393e46', '#f96d00', '#f2f2f2'],
                                       'DESCRIPTION': ['#000000', 'Grey', 'Orange', 'Grey', 'Autumn']},
                        'DarkGrey4': {'BACKGROUND': '#52524e', 'TEXT': '#e9e9e5', 'INPUT': '#d4d6c8', 'TEXT_INPUT': '#000000', 'SCROLL': '#d4d6c8',
-                                     'BUTTON': ('#FFFFFF', '#9a9b94'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#FFFFFF', '#9a9b94'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#52524e', '#9a9b94', '#d4d6c8', '#e9e9e5'],
                                      'DESCRIPTION': ['Grey', 'Pastel', 'Winter']},
                        'DarkBlue12': {'BACKGROUND': '#324e7b', 'TEXT': '#f8f8f8', 'INPUT': '#86a6df', 'TEXT_INPUT': '#000000', 'SCROLL': '#86a6df',
-                                      'BUTTON': ('#FFFFFF', '#5068a9'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#5068a9'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#324e7b', '#5068a9', '#86a6df', '#f8f8f8'],
                                       'DESCRIPTION': ['Blue', 'Grey', 'Cold', 'Winter']},
                        'DarkPurple6': {'BACKGROUND': '#070739', 'TEXT': '#e1e099', 'INPUT': '#c327ab', 'TEXT_INPUT': '#e1e099', 'SCROLL': '#c327ab',
-                                       'BUTTON': ('#e1e099', '#521477'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                       'BUTTON': ('#e1e099', '#521477'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                        'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#070739', '#521477', '#c327ab', '#e1e099'],
                                        'DESCRIPTION': ['#000000', 'Purple', 'Yellow', 'Dark']},
+
+                        'DarkPurple7' : {'BACKGROUND': '#191930',
+                                      'TEXT': '#B1B7C5',
+                                      'INPUT': '#232B5C',
+                                      'TEXT_INPUT': '#D0E3E7',
+                                      'SCROLL': '#B1B7C5',
+                                      'BUTTON': ('#272D38', '#B1B7C5'),
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
+                                      'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      },
                        'DarkBlue13': {'BACKGROUND': '#203562', 'TEXT': '#e3e8f8', 'INPUT': '#c0c5cd', 'TEXT_INPUT': '#000000', 'SCROLL': '#c0c5cd',
-                                      'BUTTON': ('#FFFFFF', '#3e588f'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#3e588f'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#203562', '#3e588f', '#c0c5cd', '#e3e8f8'],
                                       'DESCRIPTION': ['Blue', 'Grey', 'Wedding', 'Cold']},
                        'DarkBrown5': {'BACKGROUND': '#3c1b1f', 'TEXT': '#f6e1b5', 'INPUT': '#e2bf81', 'TEXT_INPUT': '#000000', 'SCROLL': '#e2bf81',
-                                      'BUTTON': ('#3c1b1f', '#f6e1b5'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#3c1b1f', '#f6e1b5'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#3c1b1f', '#b21e4b', '#e2bf81', '#f6e1b5'],
                                       'DESCRIPTION': ['Brown', 'Red', 'Yellow', 'Warm']},
                        'DarkGreen3': {'BACKGROUND': '#062121', 'TEXT': '#eeeeee', 'INPUT': '#e4dcad', 'TEXT_INPUT': '#000000', 'SCROLL': '#e4dcad',
-                                      'BUTTON': ('#eeeeee', '#181810'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#eeeeee', '#181810'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#062121', '#181810', '#e4dcad', '#eeeeee'],
                                       'DESCRIPTION': ['#000000', '#000000', 'Brown', 'Grey']},
                        'DarkBlack1': {'BACKGROUND': '#181810', 'TEXT': '#eeeeee', 'INPUT': '#e4dcad', 'TEXT_INPUT': '#000000', 'SCROLL': '#e4dcad',
-                                      'BUTTON': ('#FFFFFF', '#062121'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#062121'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#062121', '#181810', '#e4dcad', '#eeeeee'],
                                       'DESCRIPTION': ['#000000', '#000000', 'Brown', 'Grey']},
                        'DarkGrey5': {'BACKGROUND': '#343434', 'TEXT': '#f3f3f3', 'INPUT': '#e9dcbe', 'TEXT_INPUT': '#000000', 'SCROLL': '#e9dcbe',
-                                     'BUTTON': ('#FFFFFF', '#8e8b82'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#FFFFFF', '#8e8b82'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#343434', '#8e8b82', '#e9dcbe', '#f3f3f3'], 'DESCRIPTION': ['Grey', 'Brown']},
                        'LightBrown12': {'BACKGROUND': '#8e8b82', 'TEXT': '#f3f3f3', 'INPUT': '#e9dcbe', 'TEXT_INPUT': '#000000', 'SCROLL': '#e9dcbe',
-                                        'BUTTON': ('#f3f3f3', '#8e8b82'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                        'BUTTON': ('#f3f3f3', '#8e8b82'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                         'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#343434', '#8e8b82', '#e9dcbe', '#f3f3f3'], 'DESCRIPTION': ['Grey', 'Brown']},
                        'DarkTeal9': {'BACKGROUND': '#13445a', 'TEXT': '#fef4e8', 'INPUT': '#446878', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#446878',
-                                     'BUTTON': ('#fef4e8', '#446878'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#fef4e8', '#446878'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#13445a', '#970747', '#446878', '#fef4e8'],
                                      'DESCRIPTION': ['Red', 'Grey', 'Blue', 'Wedding', 'Retro']},
                        'DarkBlue14': {'BACKGROUND': '#21273d', 'TEXT': '#f1f6f8', 'INPUT': '#b9d4f1', 'TEXT_INPUT': '#000000', 'SCROLL': '#b9d4f1',
-                                      'BUTTON': ('#FFFFFF', '#6a759b'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#6a759b'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#21273d', '#6a759b', '#b9d4f1', '#f1f6f8'],
                                       'DESCRIPTION': ['Blue', '#000000', 'Grey', 'Cold', 'Winter']},
                        'LightBlue6': {'BACKGROUND': '#f1f6f8', 'TEXT': '#21273d', 'INPUT': '#6a759b', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#21273d',
-                                      'BUTTON': ('#f1f6f8', '#6a759b'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f1f6f8', '#6a759b'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#21273d', '#6a759b', '#b9d4f1', '#f1f6f8'],
                                       'DESCRIPTION': ['Blue', '#000000', 'Grey', 'Cold', 'Winter']},
                        'DarkGreen4': {'BACKGROUND': '#044343', 'TEXT': '#e4e4e4', 'INPUT': '#045757', 'TEXT_INPUT': '#e4e4e4', 'SCROLL': '#045757',
-                                      'BUTTON': ('#e4e4e4', '#045757'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#e4e4e4', '#045757'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#222222', '#044343', '#045757', '#e4e4e4'],
                                       'DESCRIPTION': ['#000000', 'Turquoise', 'Grey', 'Dark']},
                        'DarkGreen5': {'BACKGROUND': '#1b4b36', 'TEXT': '#e0e7f1', 'INPUT': '#aebd77', 'TEXT_INPUT': '#000000', 'SCROLL': '#aebd77',
-                                      'BUTTON': ('#FFFFFF', '#538f6a'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#538f6a'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#1b4b36', '#538f6a', '#aebd77', '#e0e7f1'], 'DESCRIPTION': ['Green', 'Grey']},
                        'DarkTeal10': {'BACKGROUND': '#0d3446', 'TEXT': '#d8dfe2', 'INPUT': '#71adb5', 'TEXT_INPUT': '#000000', 'SCROLL': '#71adb5',
-                                      'BUTTON': ('#FFFFFF', '#176d81'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#176d81'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#0d3446', '#176d81', '#71adb5', '#d8dfe2'],
                                       'DESCRIPTION': ['Grey', 'Turquoise', 'Winter', 'Cold']},
                        'DarkGrey6': {'BACKGROUND': '#3e3e3e', 'TEXT': '#ededed', 'INPUT': '#68868c', 'TEXT_INPUT': '#ededed', 'SCROLL': '#68868c',
-                                     'BUTTON': ('#FFFFFF', '#405559'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#FFFFFF', '#405559'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#3e3e3e', '#405559', '#68868c', '#ededed'],
                                      'DESCRIPTION': ['Grey', 'Turquoise', 'Winter']},
                        'DarkTeal11': {'BACKGROUND': '#405559', 'TEXT': '#ededed', 'INPUT': '#68868c', 'TEXT_INPUT': '#ededed', 'SCROLL': '#68868c',
-                                      'BUTTON': ('#ededed', '#68868c'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#ededed', '#68868c'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#3e3e3e', '#405559', '#68868c', '#ededed'],
                                       'DESCRIPTION': ['Grey', 'Turquoise', 'Winter']},
                        'LightBlue7': {'BACKGROUND': '#9ed0e0', 'TEXT': '#19483f', 'INPUT': '#5c868e', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#19483f',
-                                      'BUTTON': ('#FFFFFF', '#19483f'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#19483f'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#19483f', '#5c868e', '#ff6a38', '#9ed0e0'],
                                       'DESCRIPTION': ['Orange', 'Blue', 'Turquoise']},
                        'LightGreen10': {'BACKGROUND': '#d8ebb5', 'TEXT': '#205d67', 'INPUT': '#639a67', 'TEXT_INPUT': '#FFFFFF', 'SCROLL': '#205d67',
-                                        'BUTTON': ('#d8ebb5', '#205d67'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                        'BUTTON': ('#d8ebb5', '#205d67'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                         'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#205d67', '#639a67', '#d9bf77', '#d8ebb5'],
                                         'DESCRIPTION': ['Blue', 'Green', 'Brown', 'Vintage']},
                        'DarkBlue15': {'BACKGROUND': '#151680', 'TEXT': '#f1fea4', 'INPUT': '#375fc0', 'TEXT_INPUT': '#f1fea4', 'SCROLL': '#375fc0',
-                                      'BUTTON': ('#f1fea4', '#1c44ac'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f1fea4', '#1c44ac'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#151680', '#1c44ac', '#375fc0', '#f1fea4'],
                                       'DESCRIPTION': ['Blue', 'Yellow', 'Cold']},
                        'DarkBlue16': {'BACKGROUND': '#1c44ac', 'TEXT': '#f1fea4', 'INPUT': '#375fc0', 'TEXT_INPUT': '#f1fea4', 'SCROLL': '#375fc0',
-                                      'BUTTON': ('#f1fea4', '#151680'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f1fea4', '#151680'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#151680', '#1c44ac', '#375fc0', '#f1fea4'],
                                       'DESCRIPTION': ['Blue', 'Yellow', 'Cold']},
                        'DarkTeal12': {'BACKGROUND': '#004a7c', 'TEXT': '#fafafa', 'INPUT': '#e8f1f5', 'TEXT_INPUT': '#000000', 'SCROLL': '#e8f1f5',
-                                      'BUTTON': ('#fafafa', '#005691'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#fafafa', '#005691'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#004a7c', '#005691', '#e8f1f5', '#fafafa'],
                                       'DESCRIPTION': ['Grey', 'Blue', 'Cold', 'Winter']},
                        'LightBrown13': {'BACKGROUND': '#ebf5ee', 'TEXT': '#921224', 'INPUT': '#bdc6b8', 'TEXT_INPUT': '#921224', 'SCROLL': '#921224',
-                                        'BUTTON': ('#FFFFFF', '#921224'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                        'BUTTON': ('#FFFFFF', '#921224'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                         'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#921224', '#bdc6b8', '#bce0da', '#ebf5ee'],
                                         'DESCRIPTION': ['Red', 'Blue', 'Grey', 'Vintage', 'Wedding']},
                        'DarkBlue17': {'BACKGROUND': '#21294c', 'TEXT': '#f9f2d7', 'INPUT': '#f2dea8', 'TEXT_INPUT': '#000000', 'SCROLL': '#f2dea8',
-                                      'BUTTON': ('#f9f2d7', '#141829'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f9f2d7', '#141829'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#141829', '#21294c', '#f2dea8', '#f9f2d7'],
                                       'DESCRIPTION': ['#000000', 'Blue', 'Yellow']},
                        'DarkBrown6': {'BACKGROUND': '#785e4d', 'TEXT': '#f2eee3', 'INPUT': '#baaf92', 'TEXT_INPUT': '#000000', 'SCROLL': '#baaf92',
-                                      'BUTTON': ('#FFFFFF', '#785e4d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#FFFFFF', '#785e4d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#785e4d', '#ff8426', '#baaf92', '#f2eee3'],
                                       'DESCRIPTION': ['Grey', 'Brown', 'Orange', 'Autumn']},
                        'DarkGreen6': {'BACKGROUND': '#5c715e', 'TEXT': '#f2f9f1', 'INPUT': '#ddeedf', 'TEXT_INPUT': '#000000', 'SCROLL': '#ddeedf',
-                                      'BUTTON': ('#f2f9f1', '#5c715e'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#f2f9f1', '#5c715e'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#5c715e', '#b6cdbd', '#ddeedf', '#f2f9f1'],
                                       'DESCRIPTION': ['Grey', 'Green', 'Vintage']},
+                        'DarkGreen7' : {'BACKGROUND': '#0C231E',
+                                      'TEXT': '#efbe1c',
+                                      'INPUT': '#153C33',
+                                      'TEXT_INPUT': '#efbe1c',
+                                      'SCROLL': '#153C33',
+                                      'BUTTON': ('#efbe1c', '#153C33'),
+                                      # 'PROGRESS': ('#efbe1c', '#153C33'),
+                                      'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE,
+                                      'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,
+                                      },
                        'DarkGrey7': {'BACKGROUND': '#4b586e', 'TEXT': '#dddddd', 'INPUT': '#574e6d', 'TEXT_INPUT': '#dddddd', 'SCROLL': '#574e6d',
-                                     'BUTTON': ('#dddddd', '#43405d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                     'BUTTON': ('#dddddd', '#43405d'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                      'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#43405d', '#4b586e', '#574e6d', '#dddddd'],
                                      'DESCRIPTION': ['Grey', 'Winter', 'Cold']},
                        'DarkRed2': {'BACKGROUND': '#ab1212', 'TEXT': '#f6e4b5', 'INPUT': '#cd3131', 'TEXT_INPUT': '#f6e4b5', 'SCROLL': '#cd3131',
-                                    'BUTTON': ('#f6e4b5', '#ab1212'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                    'BUTTON': ('#f6e4b5', '#ab1212'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                     'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#ab1212', '#1fad9f', '#cd3131', '#f6e4b5'],
                                     'DESCRIPTION': ['Turquoise', 'Red', 'Yellow']},
                        'LightGrey6': {'BACKGROUND': '#e3e3e3', 'TEXT': '#233142', 'INPUT': '#455d7a', 'TEXT_INPUT': '#e3e3e3', 'SCROLL': '#233142',
-                                      'BUTTON': ('#e3e3e3', '#455d7a'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'BUTTON': ('#e3e3e3', '#455d7a'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
                                       'PROGRESS_DEPTH': 0, 'COLOR_LIST': ['#233142', '#455d7a', '#f95959', '#e3e3e3'],
                                       'DESCRIPTION': ['#000000', 'Blue', 'Red', 'Grey']},
                        'HotDogStand': {'BACKGROUND': 'red', 'TEXT': 'yellow', 'INPUT': 'yellow', 'TEXT_INPUT': '#000000', 'SCROLL': 'yellow',
-                                      'BUTTON': ('red', 'yellow'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COLOR, 'BORDER': 1, 'SLIDER_DEPTH': 0,
-                                      'PROGRESS_DEPTH': 0,
-                                     },
-                       }
+                                      'BUTTON': ('red', 'yellow'), 'PROGRESS': DEFAULT_PROGRESS_BAR_COMPUTE, 'BORDER': 1, 'SLIDER_DEPTH': 0,
+                                      'PROGRESS_DEPTH': 0,},
+                       'DarkGrey8': {'BACKGROUND': '#19232D',
+                                        'TEXT': '#ffffff',
+                                        'INPUT': '#32414B',
+                                        'TEXT_INPUT': '#ffffff',
+                                        'SCROLL': '#505F69',
+                                        'BUTTON': ('#ffffff', '#32414B'),
+                                        'PROGRESS': ('#505F69', '#32414B'),
+                                        'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,},
+                       'DarkGrey9' : {'BACKGROUND': '#36393F',
+                                          'TEXT': '#DCDDDE',
+                                          'INPUT': '#40444B',
+                                          'TEXT_INPUT': '#ffffff',
+                                          'SCROLL': '#202225',
+                                          'BUTTON': ('#202225', '#B9BBBE'),
+                                          'PROGRESS': ('#202225', '#40444B'),
+                                          'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0,}
+                    }
 
 
 def ListOfLookAndFeelValues():
     """
     Get a list of the valid values to pass into your call to change_look_and_feel
-    :return: List[str] - list of valid string values
+
+    :return: list of valid string values
+    :rtype: List[str]
     """
+
     return sorted(list(LOOK_AND_FEEL_TABLE.keys()))
 
 
@@ -13036,8 +14758,10 @@ def theme(new_theme=None):
     Sets / Gets the current Theme.  If none is specified then returns the current theme.
     This call replaces the ChangeLookAndFeel / change_look_and_feel call which only sets the theme.
 
-    :param new_theme: (str) the new theme name to use
-    :return: (str) the currently selected theme
+    :param new_theme: the new theme name to use
+    :type new_theme: (str)
+    :return: the currently selected theme
+    :rtype: (str)
     """
     if new_theme is not None:
         change_look_and_feel(new_theme)
@@ -13049,7 +14773,9 @@ def theme_background_color(color=None):
     Sets/Returns the background color currently in use
     Used for Windows and containers (Column, Frame, Tab) and tables
 
-    :return: (str) - color string of the background color currently in use
+    :param color: new background color to use (optional)
+    :type color: (str)
+    :return: color string of the background color currently in use
     :rtype: (str)
     """
     if color is not None:
@@ -13216,13 +14942,88 @@ def theme_list():
     return list_of_look_and_feel_values()
 
 
-def theme_previewer(columns=12):
-    """
-    Show a window with all of the color themes - takes a while so be patient
 
-    :param columns: (int) number of themes in a single row
+
+def theme_add_new(new_theme_name, new_theme_dict):
     """
-    preview_all_look_and_feel_themes(columns)
+    Add a new theme to the dictionary of themes
+
+    :param new_theme_name: text to display in element
+    :type new_theme_name: (str)
+    :param new_theme_dict: text to display in element
+    :type new_theme_dict: (dict)
+    """
+    global LOOK_AND_FEEL_TABLE
+    try:
+        LOOK_AND_FEEL_TABLE[new_theme_name] = new_theme_dict
+    except Exception as e:
+        print('Exception during adding new theme {}'.format(e))
+
+
+
+
+def theme_previewer(columns=12, scrollable=False, scroll_area_size=(None, None), search_string=None, location=(None, None)):
+    """
+    Displays a "Quick Reference Window" showing all of the different Look and Feel settings that are available.
+    They are sorted alphabetically.  The legacy color names are mixed in, but otherwise they are sorted into Dark and Light halves
+
+    :param columns: The number of themes to display per row
+    :type columns: int
+    :param scrollable: If True then scrollbars will be added
+    :type scrollable: bool
+    :param scroll_area_size: Size of the scrollable area (The Column Element used to make scrollable)
+    :type scroll_area_size: (int, int)
+    :param search_string: If specified then only themes containing this string will be shown
+    :type search_string: str
+    :param location: Location on the screen to place the window. Defaults to the center like all windows
+    :type location: (int, int)
+    """
+
+    current_theme = theme()
+
+    # Show a "splash" type message so the user doesn't give up waiting
+    popup_quick_message('Hang on for a moment, this will take a bit to create....', keep_on_top=True, background_color='red', text_color='#FFFFFF', auto_close=True, non_blocking=True)
+
+    web = False
+
+    win_bg = 'black'
+
+    def sample_layout():
+        return [[Text('Text element'), InputText('Input data here', size=(10, 1))],
+                [Button('Ok'), Button('Disabled', disabled=True), Slider((1, 10), orientation='h', size=(5, 15))]]
+
+
+    names = list_of_look_and_feel_values()
+    names.sort()
+    if search_string not in (None, ''):
+        # print(f'Looking for {search_string.lower().replace(" ","")}')
+        names = [name for name in names if search_string.lower().replace(" ","") in name.lower().replace(" ","")]
+
+    if search_string not in (None, ''):
+        layout = [[Text('Themes containing "{}"'.format(search_string), font='Default 18', background_color=win_bg)]]
+    else:
+        layout = [[Text('List of all themes', font='Default 18', background_color=win_bg)]]
+
+
+    col_layout = []
+    row = []
+    for count, theme_name in enumerate(names):
+        theme(theme_name)
+        if not count % columns:
+            col_layout += [row]
+            row = []
+        row += [Frame(theme_name, sample_layout() if not web else [[T(theme_name)]] + sample_layout(), pad=(2,2))]
+    if row:
+        col_layout += [row]
+
+    layout += [[Column(col_layout, scrollable=scrollable, size=scroll_area_size, pad=(0,0), background_color=win_bg, key='-COL-')]]
+    window = Window('Preview of Themes', layout, background_color=win_bg, resizable=True, location=location, keep_on_top=True, finalize=True, modal=True)
+    window['-COL-'].expand(True, True, True)    # needed so that col will expand with the window
+    window.read(close=True)
+    theme(current_theme)
+
+
+preview_all_look_and_feel_themes = theme_previewer
 
 def ChangeLookAndFeel(index, force=False):
     """
@@ -13242,8 +15043,9 @@ def ChangeLookAndFeel(index, force=False):
     :type index: (str)
     :param force:  no longer used
     :type force: (bool)
+    :return: None
+    :rtype: None
     """
-
     global CURRENT_LOOK_AND_FEEL
 
     # if sys.platform.startswith('darwin') and not force:
@@ -13253,7 +15055,6 @@ def ChangeLookAndFeel(index, force=False):
     theme = index
     # normalize available l&f values
     lf_values = [item.lower() for item in list_of_look_and_feel_values()]
-
     # option 1
     opt1 = theme.replace(' ', '').lower()
 
@@ -13268,7 +15069,7 @@ def ChangeLookAndFeel(index, force=False):
     elif opt2 in lf_values:
         ix = lf_values.index(opt2)
     else:
-        ix = randint(0, len(lf_values) - 1)
+        ix = random.randint(0, len(lf_values) - 1)
         print('** Warning - {} Theme is not a valid theme. Change your theme call. **'.format(index))
         print('valid values are', list_of_look_and_feel_values())
         print('Instead, please enjoy a random Theme named {}'.format(list_of_look_and_feel_values()[ix]))
@@ -13280,10 +15081,11 @@ def ChangeLookAndFeel(index, force=False):
 
         # Color the progress bar using button background and input colors...unless they're the same
         if colors['PROGRESS'] != COLOR_SYSTEM_DEFAULT:
-            if colors['BUTTON'][1] != colors['INPUT'] and colors['BUTTON'][1] != colors['BACKGROUND']:
-                colors['PROGRESS'] = colors['BUTTON'][1], colors['INPUT']
-            else:  # if the same, then use text input on top of input color
-                colors['PROGRESS'] = (colors['TEXT_INPUT'], colors['INPUT'])
+            if colors['PROGRESS'] == DEFAULT_PROGRESS_BAR_COMPUTE:
+                if colors['BUTTON'][1] != colors['INPUT'] and colors['BUTTON'][1] != colors['BACKGROUND']:
+                    colors['PROGRESS'] = colors['BUTTON'][1], colors['INPUT']
+                else:  # if the same, then use text input on top of input color
+                    colors['PROGRESS'] = (colors['TEXT_INPUT'], colors['INPUT'])
         else:
             colors['PROGRESS'] = DEFAULT_PROGRESS_BAR_COLOR_OFFICIAL
         # call to change all the colors
@@ -13304,43 +15106,6 @@ def ChangeLookAndFeel(index, force=False):
     except:  # most likely an index out of range
         print('** Warning - Theme value not valid. Change your theme call. **')
         print('valid values are', list_of_look_and_feel_values())
-
-
-def preview_all_look_and_feel_themes(columns=12):
-    """
-    Displays a "Quick Reference Window" showing all of the different Look and Feel settings that are available.
-    They are sorted alphabetically.  The legacy color names are mixed in, but otherwise they are sorted into Dark and Light halves
-    :param columns: (int) The number of themes to display per row
-    """
-
-    # Show a "splash" type message so the user doesn't give up waiting
-    popup_quick_message('Hang on for a moment, this will take a bit to create....', background_color='red', text_color='#FFFFFF', auto_close=True, non_blocking=True)
-
-    web = False
-
-    win_bg = 'black'
-
-    def sample_layout():
-        return [[Text('Text element'), InputText('Input data here', size=(10, 1))],
-                [Button('Ok'), Button('Cancel'), Slider((1, 10), orientation='h', size=(5, 15))]]
-
-    layout = [[Text('Here is a complete list of themes', font='Default 18', background_color=win_bg)]]
-
-    names = list_of_look_and_feel_values()
-    names.sort()
-    row = []
-    for count, theme in enumerate(names):
-        change_look_and_feel(theme)
-        if not count % columns:
-            layout += [row]
-            row = []
-        row += [Frame(theme, sample_layout() if not web else [[T(theme)]] + sample_layout())]
-    if row:
-        layout += [row]
-
-    window = Window('Preview of all Look and Feel choices', layout, background_color=win_bg)
-    window.read()
-    window.close()
 
 
 # ------------------------ Color processing functions ------------------------
@@ -13412,8 +15177,10 @@ def ObjToStringSingleObj(obj):
     """
     Dumps an Object's values as a formatted string.  Very nicely done. Great way to display an object's member variables in human form
     Returns only the top-most object's variables instead of drilling down to dispolay more
-    :param obj: (Any) The object to display
-    returns (str) Formatted output of the object's values
+    :param obj: The object to display
+    :type obj: (Any)
+    :return: Formatted output of the object's values
+    :rtype: (str)
     """
     if obj is None:
         return 'None'
@@ -13426,7 +15193,7 @@ def ObjToString(obj, extra='    '):
     Dumps an Object's values as a formatted string.  Very nicely done. Great way to display an object's member variables in human form
     :param obj: The object to display
     :type obj: (Any)
-    :param extra:  (Default value = '    ')
+    :param extra: extra stuff (Default value = '    ')
     :type extra: (str)
     :return:  Formatted output of the object's values
     :rtype: (str)
@@ -13454,9 +15221,7 @@ def ObjToString(obj, extra='    '):
 # ------------------------------------------------------------------------------------------------------------------ #
 # ----------------------------------- The mighty Popup! ------------------------------------------------------------ #
 
-def Popup(*args, title=None, button_color=None, background_color=None, text_color=None, button_type=POPUP_BUTTONS_OK, auto_close=False,
-          auto_close_duration=None, custom_text=(None, None), non_blocking=False, icon=None, line_width=None, font=None, no_titlebar=False, grab_anywhere=False,
-          keep_on_top=False, location=(None, None)):
+def Popup(*args, title=None, button_color=None, background_color=None, text_color=None, button_type=POPUP_BUTTONS_OK, auto_close=False, auto_close_duration=None, custom_text=(None, None), non_blocking=False, icon=None, line_width=None, font=None, no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), any_key_closes=False, image=None, modal=True):
     """
     Popup - Display a popup Window with as many parms as you wish to include.  This is the GUI equivalent of the
     "print" statement.  It's also great for "pausing" your program's flow until the user can read some error messages.
@@ -13466,7 +15231,7 @@ def Popup(*args, title=None, button_color=None, background_color=None, text_colo
     :param title:   Optional title for the window. If none provided, the first arg will be used instead.
     :type title: (str)
     :param button_color: Color of the buttons shown (text color, button color)
-    :type button_color: Tuple[str, str]
+    :type button_color: Union[Tuple[str, str], None]
     :param background_color:  Window's background color
     :type background_color: (str)
     :param text_color:  text color
@@ -13493,6 +15258,14 @@ def Popup(*args, title=None, button_color=None, background_color=None, text_colo
     :type grab_anywhere: (bool)
     :param location:   Location on screen to display the top left corner of window. Defaults to window centered on screen
     :type location: Tuple[int, int]
+    :param keep_on_top: If True the window will remain above all current windows
+    :type keep_on_top: (bool)
+    :param any_key_closes: If True then will turn on return_keyboard_events for the window which will cause window to close as soon as any key is pressed.  Normally the return key only will close the window.  Default is false.
+    :type any_key_closes: (bool)
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
     :rtype: Union[str, None]
     """
@@ -13508,14 +15281,22 @@ def Popup(*args, title=None, button_color=None, background_color=None, text_colo
     _title = title if title is not None else args_to_print[0]
     window = Window(_title, auto_size_text=True, background_color=background_color, button_color=button_color,
                     auto_close=auto_close, auto_close_duration=auto_close_duration, icon=icon, font=font,
-                    no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+                    no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, return_keyboard_events=any_key_closes, modal=modal)
     max_line_total, total_lines = 0, 0
+    if image is not None:
+        if isinstance(image, str):
+            window.add_row(Image(filename=image))
+        else:
+            window.add_row(Image(data=image))
     for message in args_to_print:
         # fancy code to check if string and convert if not is not need. Just always convert to string :-)
         # if not isinstance(message, str): message = str(message)
         message = str(message)
-        if message.count('\n'):
-            message_wrapped = message
+        if message.count('\n'):         # if there are line breaks, then wrap each segment separately
+            # message_wrapped = message         # used to just do this, but now breaking into smaller pieces
+            message_wrapped = ''
+            msg_list = message.split('\n')      # break into segments that will each be wrapped
+            message_wrapped = '\n'.join([textwrap.fill(msg, local_line_width) for msg in msg_list])
         else:
             message_wrapped = textwrap.fill(message, local_line_width)
         message_wrapped_lines = message_wrapped.count('\n') + 1
@@ -13564,9 +15345,12 @@ def Popup(*args, title=None, button_color=None, background_color=None, text_colo
                                   pad=((20, 0), 3)))
 
     if non_blocking:
-        button, values = window.Read(timeout=0)
+        button, values = window.read(timeout=0)
     else:
-        button, values = window.Read()
+        # if modal:
+        #     window.finalize()
+        #     window.make_modal()
+        button, values = window.read()
         window.close(); del window
 
     return button
@@ -13589,7 +15373,7 @@ def MsgBox(*args):
 # ========================  Scrolled Text Box   =====#
 # ===================================================#
 def PopupScrolled(*args, title=None, button_color=None, background_color=None, text_color=None, yes_no=False, auto_close=False, auto_close_duration=None,
-                  size=(None, None), location=(None, None), non_blocking=False, no_titlebar=False, grab_anywhere=False, keep_on_top=False, font=None):
+                  size=(None, None), location=(None, None), non_blocking=False, no_titlebar=False, grab_anywhere=False, keep_on_top=False, font=None, image=None, modal=True):
     """
     Show a scrolled Popup window containing the user's text that was supplied.  Use with as many items to print as you
     want, just like a print statement.
@@ -13599,7 +15383,7 @@ def PopupScrolled(*args, title=None, button_color=None, background_color=None, t
     :param title: Title to display in the window.
     :type title: (str)
     :param button_color:  button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param yes_no:  If True, displays Yes and No buttons instead of Ok
     :type yes_no: (bool)
     :param auto_close:   if True window will close itself
@@ -13607,11 +15391,27 @@ def PopupScrolled(*args, title=None, button_color=None, background_color=None, t
     :param auto_close_duration: Older versions only accept int. Time in seconds until window will close
     :type auto_close_duration: Union[int, float]
     :param size:  (w,h) w=characters-wide, h=rows-high
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param location:  Location on the screen to place the upper left corner of the window
     :type location: Tuple[int, int]
     :param non_blocking: if True the call will immediately return rather than waiting on user input
     :type non_blocking: (bool)
+    :param background_color: color of background
+    :type background_color: (str)
+    :param text_color: color of the text
+    :type text_color: (str)
+    :param no_titlebar: If True no titlebar will be shown
+    :type no_titlebar: (bool)
+    :param grab_anywhere: If True, than can grab anywhere to move the window (Default = False)
+    :type grab_anywhere: (bool)
+    :param keep_on_top: If True the window will remain above all current windows
+    :type keep_on_top: (bool)
+    :param font: specifies the font family, size, etc
+    :type font: Union[str, Tuple[str, int]]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
     :rtype: Union[str, None, TIMEOUT_KEY]
     """
@@ -13620,7 +15420,7 @@ def PopupScrolled(*args, title=None, button_color=None, background_color=None, t
     width = width if width else MESSAGE_BOX_LINE_WIDTH
     window = Window(title=title or args[0], auto_size_text=True, button_color=button_color, auto_close=auto_close,
                     auto_close_duration=auto_close_duration, location=location, resizable=True, font=font, background_color=background_color,
-                    no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top)
+                    no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, modal=modal)
     max_line_total, max_line_width, total_lines, height_computed = 0, 0, 0, 0
     complete_output = ''
     for message in args:
@@ -13671,7 +15471,7 @@ sprint = ScrolledTextBox
 # --------------------------- PopupNoButtons ---------------------------
 def PopupNoButtons(*args, title=None, background_color=None, text_color=None, auto_close=False,
                    auto_close_duration=None, non_blocking=False, icon=None, line_width=None, font=None,
-                   no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+                   no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """Show a Popup but without any buttons
 
     :param *args: Variable number of items to display
@@ -13700,20 +15500,24 @@ def PopupNoButtons(*args, title=None, background_color=None, text_color=None, au
     :type grab_anywhere: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
-    """
-    Popup(*args, title=title, button_color=None, background_color=background_color, text_color=text_color,
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]    """
+    Popup(*args, title=title, background_color=background_color, text_color=text_color,
           button_type=POPUP_BUTTONS_NO_BUTTONS,
           auto_close=auto_close, auto_close_duration=auto_close_duration, non_blocking=non_blocking, icon=icon,
           line_width=line_width,
-          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupNonBlocking ---------------------------
 def PopupNonBlocking(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=None, background_color=None,
-                     text_color=None,
-                     auto_close=False, auto_close_duration=None, non_blocking=True, icon=None,
+                     text_color=None, auto_close=False, auto_close_duration=None, non_blocking=True, icon=None,
                      line_width=None, font=None, no_titlebar=False, grab_anywhere=False, keep_on_top=False,
-                     location=(None, None)):
+                     location=(None, None), image=None, modal=False):
     """
     Show Popup window and immediately return (does not block)
 
@@ -13724,7 +15528,7 @@ def PopupNonBlocking(*args, title=None, button_type=POPUP_BUTTONS_OK, button_col
     :param button_type: Determines which pre-defined buttons will be shown (Default value = POPUP_BUTTONS_OK).
     :type button_type: (int)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -13747,14 +15551,19 @@ def PopupNonBlocking(*args, title=None, button_type=POPUP_BUTTONS_OK, button_col
     :type grab_anywhere: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
-    :return None
-    :rtype: None
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Reason for popup closing
+    :rtype: Union[str, None]
     """
-    Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
+
+    return Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
           button_type=button_type,
           auto_close=auto_close, auto_close_duration=auto_close_duration, non_blocking=non_blocking, icon=icon,
           line_width=line_width,
-          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 PopupNoWait = PopupNonBlocking
@@ -13762,9 +15571,8 @@ PopupNoWait = PopupNonBlocking
 
 # --------------------------- PopupQuick - a NonBlocking, Self-closing Popup  ---------------------------
 def PopupQuick(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=None, background_color=None,
-               text_color=None,
-               auto_close=True, auto_close_duration=2, non_blocking=True, icon=None, line_width=None,
-               font=None, no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+               text_color=None, auto_close=True, auto_close_duration=2, non_blocking=True, icon=None, line_width=None,
+               font=None, no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=False):
     """
     Show Popup box that doesn't block and closes itself
 
@@ -13775,7 +15583,7 @@ def PopupQuick(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=Non
     :param button_type: Determines which pre-defined buttons will be shown (Default value = POPUP_BUTTONS_OK).
     :type button_type: (int)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -13796,23 +15604,29 @@ def PopupQuick(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=Non
     :type no_titlebar: (bool)
     :param grab_anywhere: If True: can grab anywhere to move the window (Default = False)
     :type grab_anywhere: (bool)
+    :param keep_on_top: If True the window will remain above all current windows
+    :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
-
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
-    Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
+
+    return Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
           button_type=button_type,
           auto_close=auto_close, auto_close_duration=auto_close_duration, non_blocking=non_blocking, icon=icon,
           line_width=line_width,
-          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupQuick - a NonBlocking, Self-closing Popup with no titlebar and no buttons ---------------------------
 def PopupQuickMessage(*args, title=None, button_type=POPUP_BUTTONS_NO_BUTTONS, button_color=None, background_color=None,
-                      text_color=None,
-                      auto_close=True, auto_close_duration=2, non_blocking=True, icon=None,
-                      line_width=None,
-                      font=None, no_titlebar=True, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+                      text_color=None, auto_close=True, auto_close_duration=2, non_blocking=True, icon=None, line_width=None,
+                      font=None, no_titlebar=True, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=False):
     """
     Show Popup window with no titlebar, doesn't block, and auto closes itself.
 
@@ -13823,7 +15637,9 @@ def PopupQuickMessage(*args, title=None, button_type=POPUP_BUTTONS_NO_BUTTONS, b
     :param button_type: Determines which pre-defined buttons will be shown (Default value = POPUP_BUTTONS_OK).
     :type button_type: (int)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
+    :param keep_on_top: If True the window will remain above all current windows
+    :type keep_on_top: (bool)
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -13846,19 +15662,24 @@ def PopupQuickMessage(*args, title=None, button_type=POPUP_BUTTONS_NO_BUTTONS, b
     :type grab_anywhere: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
-    Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
+    return Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
           button_type=button_type,
           auto_close=auto_close, auto_close_duration=auto_close_duration, non_blocking=non_blocking, icon=icon,
           line_width=line_width,
-          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupNoTitlebar ---------------------------
 def PopupNoTitlebar(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=None, background_color=None,
-                    text_color=None,
-                    auto_close=False, auto_close_duration=None, non_blocking=False, icon=None,
-                    line_width=None, font=None, grab_anywhere=True, keep_on_top=False, location=(None, None)):
+                    text_color=None, auto_close=False, auto_close_duration=None, non_blocking=False, icon=None,
+                    line_width=None, font=None, grab_anywhere=True, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Display a Popup without a titlebar.   Enables grab anywhere so you can move it
 
@@ -13869,7 +15690,7 @@ def PopupNoTitlebar(*args, title=None, button_type=POPUP_BUTTONS_OK, button_colo
     :param button_type: Determines which pre-defined buttons will be shown (Default value = POPUP_BUTTONS_OK).
     :type button_type: (int)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -13892,12 +15713,18 @@ def PopupNoTitlebar(*args, title=None, button_type=POPUP_BUTTONS_OK, button_colo
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
-    Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
+    return Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
           button_type=button_type,
           auto_close=auto_close, auto_close_duration=auto_close_duration, non_blocking=non_blocking, icon=icon,
           line_width=line_width,
-          font=font, no_titlebar=True, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+          font=font, no_titlebar=True, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 PopupNoFrame = PopupNoTitlebar
@@ -13906,11 +15733,10 @@ PopupAnnoying = PopupNoTitlebar
 
 
 # --------------------------- PopupAutoClose ---------------------------
-def PopupAutoClose(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=None, background_color=None,
-                   text_color=None,
+def PopupAutoClose(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color=None, background_color=None, text_color=None,
                    auto_close=True, auto_close_duration=None, non_blocking=False, icon=None,
                    line_width=None, font=None, no_titlebar=False, grab_anywhere=False, keep_on_top=False,
-                   location=(None, None)):
+                   location=(None, None), image=None, modal=True):
     """Popup that closes itself after some time period
 
     :param *args: Variable number of items to display
@@ -13920,7 +15746,7 @@ def PopupAutoClose(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color
     :param button_type: Determines which pre-defined buttons will be shown (Default value = POPUP_BUTTONS_OK).
     :type button_type: (int)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -13945,13 +15771,19 @@ def PopupAutoClose(*args, title=None, button_type=POPUP_BUTTONS_OK, button_color
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
-
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
-    Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
+
+    return Popup(*args, title=title, button_color=button_color, background_color=background_color, text_color=text_color,
           button_type=button_type,
           auto_close=auto_close, auto_close_duration=auto_close_duration, non_blocking=non_blocking, icon=icon,
           line_width=line_width,
-          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+          font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 PopupTimed = PopupAutoClose
@@ -13960,7 +15792,7 @@ PopupTimed = PopupAutoClose
 # --------------------------- PopupError ---------------------------
 def PopupError(*args, title=None, button_color=(None, None), background_color=None, text_color=None, auto_close=False,
                auto_close_duration=None, non_blocking=False, icon=None, line_width=None, font=None,
-               no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+               no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Popup with colored button and 'Error' as button text
 
@@ -13969,7 +15801,7 @@ def PopupError(*args, title=None, button_color=(None, None), background_color=No
     :param title: Title to display in the window.
     :type title: (str)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -13994,19 +15826,25 @@ def PopupError(*args, title=None, button_color=(None, None), background_color=No
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
     tbutton_color = DEFAULT_ERROR_BUTTON_COLOR if button_color == (None, None) else button_color
     return Popup(*args, title=title, button_type=POPUP_BUTTONS_ERROR, background_color=background_color, text_color=text_color,
                  non_blocking=non_blocking, icon=icon, line_width=line_width, button_color=tbutton_color,
                  auto_close=auto_close,
                  auto_close_duration=auto_close_duration, font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere,
-                 keep_on_top=keep_on_top, location=location)
+                 keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupCancel ---------------------------
 def PopupCancel(*args, title=None, button_color=None, background_color=None, text_color=None, auto_close=False,
                 auto_close_duration=None, non_blocking=False, icon=None, line_width=None, font=None,
-                no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+                no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Display Popup with "cancelled" button text
 
@@ -14015,7 +15853,7 @@ def PopupCancel(*args, title=None, button_color=None, background_color=None, tex
     :param title: Title to display in the window.
     :type title: (str)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -14040,18 +15878,24 @@ def PopupCancel(*args, title=None, button_color=None, background_color=None, tex
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
     return Popup(*args, title=title, button_type=POPUP_BUTTONS_CANCELLED, background_color=background_color,
                  text_color=text_color,
                  non_blocking=non_blocking, icon=icon, line_width=line_width, button_color=button_color, auto_close=auto_close,
                  auto_close_duration=auto_close_duration, font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere,
-                 keep_on_top=keep_on_top, location=location)
+                 keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupOK ---------------------------
 def PopupOK(*args, title=None, button_color=None, background_color=None, text_color=None, auto_close=False,
             auto_close_duration=None, non_blocking=False, icon=None, line_width=None, font=None,
-            no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+            no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Display Popup with OK button only
 
@@ -14060,7 +15904,7 @@ def PopupOK(*args, title=None, button_color=None, background_color=None, text_co
     :param title: Title to display in the window.
     :type title: (str)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -14085,17 +15929,23 @@ def PopupOK(*args, title=None, button_color=None, background_color=None, text_co
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
+    :return: Returns text of the button that was pressed.  None will be returned if user closed window with X
+    :rtype: Union[str, None, TIMEOUT_KEY]
     """
     return Popup(*args, title=title, button_type=POPUP_BUTTONS_OK, background_color=background_color, text_color=text_color,
                  non_blocking=non_blocking, icon=icon, line_width=line_width, button_color=button_color, auto_close=auto_close,
                  auto_close_duration=auto_close_duration, font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere,
-                 keep_on_top=keep_on_top, location=location)
+                 keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupOKCancel ---------------------------
 def PopupOKCancel(*args, title=None, button_color=None, background_color=None, text_color=None, auto_close=False,
                   auto_close_duration=None, non_blocking=False, icon=DEFAULT_WINDOW_ICON, line_width=None, font=None,
-                  no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+                  no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Display popup with OK and Cancel buttons
 
@@ -14104,7 +15954,7 @@ def PopupOKCancel(*args, title=None, button_color=None, background_color=None, t
     :param title: Title to display in the window.
     :type title: (str)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -14129,6 +15979,10 @@ def PopupOKCancel(*args, title=None, button_color=None, background_color=None, t
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: clicked button
     :rtype: Union["OK", "Cancel", None]
     """
@@ -14136,13 +15990,13 @@ def PopupOKCancel(*args, title=None, button_color=None, background_color=None, t
                  text_color=text_color,
                  non_blocking=non_blocking, icon=icon, line_width=line_width, button_color=button_color,
                  auto_close=auto_close, auto_close_duration=auto_close_duration, font=font, no_titlebar=no_titlebar,
-                 grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+                 grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 # --------------------------- PopupYesNo ---------------------------
 def PopupYesNo(*args, title=None, button_color=None, background_color=None, text_color=None, auto_close=False,
                auto_close_duration=None, non_blocking=False, icon=None, line_width=None, font=None,
-               no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None)):
+               no_titlebar=False, grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Display Popup with Yes and No buttons
 
@@ -14151,7 +16005,7 @@ def PopupYesNo(*args, title=None, button_color=None, background_color=None, text
     :param title: Title to display in the window.
     :type title: (str)
     :param button_color: button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -14176,6 +16030,10 @@ def PopupYesNo(*args, title=None, button_color=None, background_color=None, text
     :type keep_on_top: (bool)
     :param location:  Location of upper left corner of the window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: clicked button
     :rtype: Union["Yes", "No", None]
     """
@@ -14183,7 +16041,7 @@ def PopupYesNo(*args, title=None, button_color=None, background_color=None, text
                  text_color=text_color,
                  non_blocking=non_blocking, icon=icon, line_width=line_width, button_color=button_color,
                  auto_close=auto_close, auto_close_duration=auto_close_duration, font=font, no_titlebar=no_titlebar,
-                 grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+                 grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, image=image, modal=modal)
 
 
 ##############################################################################
@@ -14195,7 +16053,7 @@ def PopupYesNo(*args, title=None, button_color=None, background_color=None, text
 
 def PopupGetFolder(message, title=None, default_path='', no_window=False, size=(None, None), button_color=None,
                    background_color=None, text_color=None, icon=None, font=None, no_titlebar=False,
-                   grab_anywhere=False, keep_on_top=False, location=(None, None), initial_folder=None):
+                   grab_anywhere=False, keep_on_top=False, location=(None, None), initial_folder=None, image=None, modal=True):
     """
     Display popup with text entry field and browse button so that a folder can be chosen.
 
@@ -14208,9 +16066,9 @@ def PopupGetFolder(message, title=None, default_path='', no_window=False, size=(
     :param no_window:  if True, no PySimpleGUI window will be shown. Instead just the tkinter dialog is shown
     :type no_window: (bool)
     :param size: (width, height) of the InputText Element
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param button_color:  button color (foreground, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: color of background
     :type background_color: (str)
     :param text_color: color of the text
@@ -14229,6 +16087,10 @@ def PopupGetFolder(message, title=None, default_path='', no_window=False, size=(
     :type location: Tuple[int, int]
     :param initial_folder:  location in filesystem to begin browsing
     :type initial_folder: (str)
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: string representing the path chosen, None if cancelled or window closed with X
     :rtype: Union[str, None]
     """
@@ -14242,17 +16104,28 @@ def PopupGetFolder(message, title=None, default_path='', no_window=False, size=(
             Window._IncrementOpenCount()
             Window.hidden_master_root = tk.Tk()
             Window.hidden_master_root.attributes('-alpha', 0)  # HIDE this window really really really
-            Window.hidden_master_root.wm_overrideredirect(True)
+
+            # if not sys.platform.startswith('darwin'):
+            try:
+                Window.hidden_master_root.wm_overrideredirect(True)
+            except:
+                print('* Error performing wm_overrideredirect *')
             Window.hidden_master_root.withdraw()
         root = tk.Toplevel()
 
         try:
             root.attributes('-alpha', 0)  # hide window while building it. makes for smoother 'paint'
-            root.wm_overrideredirect(True)
+            # if not sys.platform.startswith('darwin'):
+            try:
+                root.wm_overrideredirect(True)
+            except:
+                print('* Error performing wm_overrideredirect *')
             root.withdraw()
         except:
             pass
-        folder_name = tk.filedialog.askdirectory(title=title)  # show the 'get folder' dialog box
+        folder_name = tk.filedialog.askdirectory(
+                                    initialdir=initial_folder, title=title
+                                )  # show the 'get folder' dialog box
 
         root.destroy()
         if Window.NumOpenWindows == 1:
@@ -14262,7 +16135,14 @@ def PopupGetFolder(message, title=None, default_path='', no_window=False, size=(
 
         return folder_name
 
-    layout = [[Text(message, auto_size_text=True, text_color=text_color, background_color=background_color)],
+    if image is not None:
+        if isinstance(image, str):
+            layout = [[Image(filename=image)]]
+        else:
+            layout = [[Image(data=image)]]
+    else:
+        layout = [[]]
+    layout += [[Text(message, auto_size_text=True, text_color=text_color, background_color=background_color)],
               [InputText(default_text=default_path, size=size, key='_INPUT_'),
                FolderBrowse(initial_folder=initial_folder)],
               [Button('Ok', size=(6, 1), bind_return_key=True), Button('Cancel', size=(6, 1))]]
@@ -14270,7 +16150,7 @@ def PopupGetFolder(message, title=None, default_path='', no_window=False, size=(
     window = Window(title=title or message, layout=layout, icon=icon, auto_size_text=True, button_color=button_color,
                     background_color=background_color,
                     font=font, no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top,
-                    location=location)
+                    location=location, modal=modal)
 
     button, values = window.Read()
     window.close(); del window
@@ -14286,7 +16166,7 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
                  file_types=(("ALL Files", "*.*"),),
                  no_window=False, size=(None, None), button_color=None, background_color=None, text_color=None,
                  icon=None, font=None, no_titlebar=False, grab_anywhere=False, keep_on_top=False,
-                 location=(None, None), initial_folder=None):
+                 location=(None, None), initial_folder=None, image=None, modal=True):
     """
     Display popup window with text entry field and browse button so that a file can be chosen by user.
 
@@ -14307,9 +16187,9 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
     :param no_window:  if True, no PySimpleGUI window will be shown. Instead just the tkinter dialog is shown
     :type no_window:  (bool)
     :param size: (width, height) of the InputText Element
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param button_color: Color of the button (text, background)
-    :type button_color: Tuple[str, str]
+    :type button_color: Tuple[str, str] or str
     :param background_color: background color of the entire window
     :type background_color: (str)
     :param text_color: color of the text
@@ -14328,6 +16208,10 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
     :type location: Tuple[int, int]
     :param initial_folder:  location in filesystem to begin browsing
     :type initial_folder: (str)
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: string representing the file(s) chosen, None if cancelled or window closed with X
     :rtype: Union[str, None]
     """
@@ -14340,13 +16224,21 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
             Window._IncrementOpenCount()
             Window.hidden_master_root = tk.Tk()
             Window.hidden_master_root.attributes('-alpha', 0)  # HIDE this window really really really
-            Window.hidden_master_root.wm_overrideredirect(True)
+            # if not sys.platform.startswith('darwin'):
+            try:
+                Window.hidden_master_root.wm_overrideredirect(True)
+            except:
+                print('* Error performing wm_overrideredirect *')
             Window.hidden_master_root.withdraw()
         root = tk.Toplevel()
 
         try:
             root.attributes('-alpha', 0)  # hide window while building it. makes for smoother 'paint'
-            root.wm_overrideredirect(True)
+            # if not sys.platform.startswith('darwin'):
+            try:
+                root.wm_overrideredirect(True)
+            except:
+                print('* Error performing wm_overrideredirect *')
             root.withdraw()
         except:
             pass
@@ -14369,7 +16261,6 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
                                                      initialdir=initial_folder,
                                                      initialfile=default_path,
                                                      defaultextension=default_extension)  # show the 'get files' dialog box
-
         root.destroy()
         if Window.NumOpenWindows == 1:
             Window.NumOpenWindows = 0
@@ -14387,14 +16278,23 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
     else:
         browse_button = FileBrowse(file_types=file_types, initial_folder=initial_folder)
 
-    layout = [[Text(message, auto_size_text=True, text_color=text_color, background_color=background_color)],
+
+    if image is not None:
+        if isinstance(image, str):
+            layout = [[Image(filename=image)]]
+        else:
+            layout = [[Image(data=image)]]
+    else:
+        layout = [[]]
+
+    layout += [[Text(message, auto_size_text=True, text_color=text_color, background_color=background_color)],
               [InputText(default_text=default_path, size=size, key='_INPUT_'), browse_button],
               [Button('Ok', size=(6, 1), bind_return_key=True), Button('Cancel', size=(6, 1))]]
 
     window = Window(title=title or message, layout=layout, icon=icon, auto_size_text=True, button_color=button_color,
                     font=font,
                     background_color=background_color,
-                    no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location)
+                    no_titlebar=no_titlebar, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, modal=modal)
 
     button, values = window.Read()
     window.close(); del window
@@ -14409,50 +16309,61 @@ def PopupGetFile(message, title=None, default_path='', default_extension='', sav
 
 def PopupGetText(message, title=None, default_text='', password_char='', size=(None, None), button_color=None,
                  background_color=None, text_color=None, icon=None, font=None, no_titlebar=False,
-                 grab_anywhere=False, keep_on_top=False, location=(None, None)):
+                 grab_anywhere=False, keep_on_top=False, location=(None, None), image=None, modal=True):
     """
     Display Popup with text entry field. Returns the text entered or None if closed / cancelled
 
-    :param message: (str) message displayed to user
+    :param message: message displayed to user
     :type message: (str)
-    :param title: (str) Window title
+    :param title: Window title
     :type title: (str)
-    :param default_text:  (str) default value to put into input area
+    :param default_text: default value to put into input area
     :type default_text: (str)
-    :param password_char: (str) character to be shown instead of actually typed characters
+    :param password_char: character to be shown instead of actually typed characters
     :type password_char: (str)
     :param size: (width, height) of the InputText Element
-    :type size: Tuple[int, int]
+    :type size: (int, int)
     :param button_color:  Color of the button (text, background)
-    :type button_color: Tuple[str, str]
-    :param background_color: (str) background color of the entire window
+    :type button_color: Tuple[str, str] or str
+    :param background_color: background color of the entire window
     :type background_color: (str)
-    :param text_color: (str) color of the message text
+    :param text_color: color of the message text
     :type text_color: (str)
     :param icon: filename or base64 string to be used for the window's icon
     :type icon: Union[bytes, str]
     :param font: specifies the font family, size, etc
     :type font: Union[str, Tuple[str, int]]
-    :param no_titlebar: (bool) If True no titlebar will be shown
+    :param no_titlebar: If True no titlebar will be shown
     :type no_titlebar: (bool)
-    :param grab_anywhere: (bool) If True can click and drag anywhere in the window to move the window
+    :param grab_anywhere: If True can click and drag anywhere in the window to move the window
     :type grab_anywhere: (bool)
-    :param keep_on_top: (bool) If True the window will remain above all current windows
+    :param keep_on_top: If True the window will remain above all current windows
     :type keep_on_top: (bool)
     :param location: (x,y) Location on screen to display the upper left corner of window
     :type location: Tuple[int, int]
+    :param image:  Image to include at the top of the popup window
+    :type image: (str) or (bytes)
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = True
+    :type modal: bool
     :return: Text entered or None if window was closed or cancel button clicked
     :rtype: Union[str, None]
     """
 
-    layout = [[Text(message, auto_size_text=True, text_color=text_color, background_color=background_color, font=font)],
+
+    if image is not None:
+        if isinstance(image, str):
+            layout = [[Image(filename=image)]]
+        else:
+            layout = [[Image(data=image)]]
+    else:
+        layout = [[]]
+
+    layout += [[Text(message, auto_size_text=True, text_color=text_color, background_color=background_color, font=font)],
               [InputText(default_text=default_text, size=size, key='_INPUT_', password_char=password_char)],
               [Button('Ok', size=(6, 1), bind_return_key=True), Button('Cancel', size=(6, 1))]]
 
-    window = Window(title=title or message, layout=layout, icon=icon, auto_size_text=True, button_color=button_color,
-                    no_titlebar=no_titlebar,
-                    background_color=background_color, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top,
-                    location=location)
+    window = Window(title=title or message, layout=layout, icon=icon, auto_size_text=True, button_color=button_color, no_titlebar=no_titlebar, background_color=background_color, grab_anywhere=grab_anywhere, keep_on_top=keep_on_top, location=location, finalize=True, modal=modal)
+
 
     button, values = window.Read()
     window.close(); del window
@@ -14464,35 +16375,49 @@ def PopupGetText(message, title=None, default_text='', password_char='', size=(N
 
 
 
-def popup_get_date(start_mon=None, start_day=None, start_year=None, begin_at_sunday_plus=0, no_titlebar=True, title='Choose Date', keep_on_top=True, location=(None, None), close_when_chosen=False, icon=None, locale=None, month_names=None, day_abbreviations=None):
+def popup_get_date(start_mon=None, start_day=None, start_year=None, begin_at_sunday_plus=0, no_titlebar=True, title='Choose Date', keep_on_top=True, location=(None, None), close_when_chosen=False, icon=None, locale=None, month_names=None, day_abbreviations=None, modal=True):
     """
     Display a calendar window, get the user's choice, return as a tuple (mon, day, year)
 
     :param start_mon: The starting month
-    :type start_mon: int
+    :type start_mon: (int)
     :param start_day: The starting day - optional. Set to None or 0 if no date to be chosen at start
-    :type start_day: int or None
+    :type start_day: Union[int, None]
     :param start_year: The starting year
-    :type start_year: int
+    :type start_year: (int)
     :param begin_at_sunday_plus: Determines the left-most day in the display. 0=sunday, 1=monday, etc
-    :type begin_at_sunday_plus: int
+    :type begin_at_sunday_plus: (int)
     :param icon: Same as Window icon parameter. Can be either a filename or Base64 value. For Windows if filename, it MUST be ICO format. For Linux, must NOT be ICO
-    :type icon: str
+    :type icon: (str)
+    :param location: (x,y) location on the screen to place the top left corner of your window. Default is to center on screen
+    :type location: (int, int)
+    :param title: Title that will be shown on the window
+    :type title: (str)
+    :param close_when_chosen: MIKE_please_add_text_here
+    :type close_when_chosen: (bool)
     :param locale: locale used to get the day names
-    :type locale: str
+    :type locale: (str)
+    :param no_titlebar: If True no titlebar will be shown
+    :type no_titlebar: (bool)
+    :param keep_on_top: If True the window will remain above all current windows
+    :type keep_on_top: (bool)
     :param month_names: optional list of month names to use (should be 12 items)
     :type month_names: List[str]
     :param day_abbreviations: optional list of abbreviations to display as the day of week
     :type day_abbreviations: List[str]
+    :param modal: If True then makes the popup will behave like a Modal window... all other windows are non-operational until this one is closed. Default = False
+    :type modal: bool
     :return: Tuple containing (month, day, year) of chosen date or None if was cancelled
     :rtype: None or (int, int, int)
     """
 
     if month_names is not None and len(month_names) != 12:
-        popup_error('Incorrect month names list specified. Must have 12 entries.', 'Your list:', month_names)
+        if not SUPPRESS_ERROR_POPUPS:
+            popup_error('Incorrect month names list specified. Must have 12 entries.', 'Your list:', month_names)
 
     if day_abbreviations is not None and len(day_abbreviations) != 7:
-        popup_error('Incorrect day abbreviation list. Must have 7 entries.', 'Your list:', day_abbreviations)
+        if not SUPPRESS_ERROR_POPUPS:
+            popup_error('Incorrect day abbreviation list. Must have 7 entries.', 'Your list:', day_abbreviations)
 
     day_font = 'TkFixedFont 9'
     mon_year_font = 'TkFixedFont 10'
@@ -14575,6 +16500,9 @@ def popup_get_date(start_mon=None, start_day=None, start_year=None, begin_at_sun
                     window[(week,day)].update(background_color=theme_text_color(), text_color=theme_background_color())
                     prev_choice = (week,day)
                     break
+
+    if modal:
+        window.make_modal()
 
     while True:             # Event Loop
         event, values = window.read()
@@ -14690,17 +16618,17 @@ def popup_notify(*args, title='', icon=SYSTEM_TRAY_MESSAGE_ICON_INFORMATION, dis
 
     The return code specifies why the call is returning (e.g. did the user click the message to dismiss it)
 
-    :param title: (str) Text to be shown at the top of the window in a larger font
+    :param title: Text to be shown at the top of the window in a larger font
     :type title: (str)
-    :param message: (str) Text message that makes up the majority of the window
+    :param message: Text message that makes up the majority of the window
     :type message: (str)
     :param icon: A base64 encoded PNG/GIF image or PNG/GIF filename that will be displayed in the window
     :type icon: Union[bytes, str]
-    :param display_duration_in_ms: (int) Number of milliseconds to show the window
+    :param display_duration_in_ms: Number of milliseconds to show the window
     :type display_duration_in_ms: (int)
-    :param fade_in_duration: (int) Number of milliseconds to fade window in and out
+    :param fade_in_duration: Number of milliseconds to fade window in and out
     :type fade_in_duration: (int)
-    :param alpha: (float) Alpha channel. 0 - invisible 1 - fully visible
+    :param alpha: Alpha channel. 0 - invisible 1 - fully visible
     :type alpha: (float)
     :param location: Location on the screen to display the window
     :type location: Tuple[int, int]
@@ -14760,15 +16688,15 @@ def shell_with_animation(command, args=None, image_source=DEFAULT_BASE64_LOADING
     while the command is running, show an animated popup so that the user knows that a long-running
     command is being executed.  Without this mechanism, the GUI appears locked up.
 
-    :param command: (str) The command to run
+    :param command: The command to run
     :type command: (str)
-    :param args: List[str] List of arguments
+    :param args: List of arguments
     :type args: List[str]
     :param image_source: Either a filename or a base64 string.
     :type image_source: Union[str, bytes]
     :param message:  An optional message to be shown with the animation
     :type message: (str)
-    :param background_color: (str) color of background
+    :param background_color: color of background
     :type background_color: (str)
     :param text_color:  color of the text
     :type text_color: (str)
@@ -15297,7 +17225,9 @@ def show_debugger_window(location=(None, None), *args):
     """
     Shows the large main debugger window
     :param location:  Locations (x,y) on the screen to place upper left corner of the window
-    :ttype location: Tuple[int, int]
+    :type location: Tuple[int, int]
+    :return: None
+    :rtype: None
     """
     if _Debugger.debugger is None:
         _Debugger.debugger = _Debugger()
@@ -15322,6 +17252,8 @@ def show_debugger_popout_window(location=(None, None), *args):
 
     :param location:  Locations (x,y) on the screen to place upper left corner of the window
     :type location: Tuple[int, int]
+    :return: None
+    :rtype: None
     """
     if _Debugger.debugger is None:
         _Debugger.debugger = _Debugger()
@@ -15345,7 +17277,8 @@ def _refresh_debugger():
     """
     Refreshes the debugger windows. USERS should NOT be calling this function. Within PySimpleGUI it is called for the USER every time the Window.Read function is called.
 
-    :return: rc (bool) False if user closed the main debugger window.
+    :return: return code False if user closed the main debugger window.
+    :rtype: (bool)
     """
     if _Debugger.debugger is None:
         _Debugger.debugger = _Debugger()
@@ -15364,6 +17297,35 @@ def _refresh_debugger():
     Window._read_call_from_debugger = False
     return rc
 
+
+# --------------------------------------- a few icons in base64 ---------------------------------------
+
+
+ICON_BASE64_BLOB_PALM = b'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/GMzLdsAADpCaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNjo1ODowNy0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTY6NTg6MDctMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE2OjU4OjA3LTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDo4NWFmYzM1My1hMzMyLWFlNGQtOGE0ZC1lYTExOTk1MDU5M2E8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDpiMWM2N2U0Zi1iY2E2LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDphNzVkMDNmMS1lNjE3LWM0NDktYjYxNy0zZjc4YWFjMDBjNTQ8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6YTc1ZDAzZjEtZTYxNy1jNDQ5LWI2MTctM2Y3OGFhYzAwYzU0PC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE2OjU4OjA3LTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOjg1YWZjMzUzLWEzMzItYWU0ZC04YTRkLWVhMTE5OTUwNTkzYTwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNjo1ODowNy0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjc4PC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjcxPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz62g3pFAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAABdqSURBVHja7Jz3c1xXlt+/5977cucANCKRmINAShoqzYxGOzsu79Ta/g/8L/kvsctll721nl1b3t1ZaShRFClRgkiQIAgih250eOkG/9ANEgRBECABSa7Sq+p6XQQL7+LzTj73XDLG4Jfr6Jf4uSxk+tp1Osr/v3Xz85/0jdNPJXF7QNFL7vtdZr/7jw3yRwe3CxgBYLvuvHff+U57AJreRwHQvc/Od7Pr/qNA/FHA7QOLARCcGcvi2rGFcYUwnmtpx3OUF7jacS3NLaE5Z4YBQCKZjlOWhDFL2xEP45RFiaQokRSnkkVKU6INyd0wTxLgiYPrQdsBZtlC24Gr/Jwvc/lAFfK+rOZ9Wcr6shy4qpBxVTbwlO9Yxu6BEzCQiWRIUpaECQvbIe+0It5sRXy9GfKNRlusNjpic7stGs1QtDoJ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'
+
+ICON_BASE64_BLOB_PAT = b'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/GMzLdsAADpCaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNjo1OTowNi0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTY6NTk6MDYtMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE2OjU5OjA2LTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDpiMWNmNDU1YS04Yjk4LTFmNDYtYmJlNi1iNmY1ZGMxMGYwYWE8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDpkM2FmN2UyNi1iY2E2LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDo0YjE4ZTE1Mi0yNWMzLWY3NDAtOWU4Yi0zYmRjNjFjMjI5Njk8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6NGIxOGUxNTItMjVjMy1mNzQwLTllOGItM2JkYzYxYzIyOTY5PC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE2OjU5OjA2LTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOmIxY2Y0NTVhLThiOTgtMWY0Ni1iYmU2LWI2ZjVkYzEwZjBhYTwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNjo1OTowNi0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjgxPC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjc1PC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz6vCsFxAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAABGmSURBVHja7Jx5cJzlfce/z/Meex+SdqWVVpdZWbIlY1lWjIhx42ZIYopT7jFgDCZOAy2QozChSWaShjQpAylkmhCaGHAHN5hjCuWoaaEl0A50SsHGMpaNbQlfyJZk3Vrtvsdz9I93dfpaW7vGJnpmdnTs7rvv+3l/9+/3LJFSYnbNbNFZBLMQZyHOQpxdsxBnIc5CnIU4u46z1PP55Fdf0eiPhXlzUUA0+D2yRFWEX0rCLIbRlEF6+5NKW++w0rbxxdbefJ4HOV8zlrvXNly6amnyPwu8Al5dQFMASiQkCIQAmABMTjGcIjjUp7a2HnQ9+qNf71o/CzGz/uKGhsbLGlNPLptvNuqKhEIlKJl4XgKQEhCSwOZAyqToH6U41Kft3nHItWHHQdf6jf+ybfAPWp3nRO2VF1ZajUG3cCSBnOiV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'
+
+ICON_BASE64_BLOB_THINK = b'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/GMzLdsAADpCaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNzowNjozMi0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTc6MDY6MzItMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE3OjA2OjMyLTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDpjZGY4YTM3NS05ODVkLTdhNGQtOTU5OS1iOGJmYjZiZGMwYmI8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDpkZWE3YjA5Yi1iY2E3LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDo5YjY3OTMyNi04MjExLTZjNDgtYjk0NS00NzY2MzI1NDU3M2Y8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6OWI2NzkzMjYtODIxMS02YzQ4LWI5NDUtNDc2NjMyNTQ1NzNmPC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE3OjA2OjMyLTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOmNkZjhhMzc1LTk4NWQtN2E0ZC05NTk5LWI4YmZiNmJkYzBiYjwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNzowNjozMi0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjU0PC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjUyPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz7BeLFDAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAArWSURBVHja7FppcFRVFv7ue6/3nXQ20kmAkJgQkjSGpKEhQiEIgkZQQBjEQXRwqUHU2YxDUaWjjFVayhQz4zbMoOWCzjC4MCAG2Q0DhBBMgjEGQkJIyEaW3vu9d+/8CGBQknSHBEeLW9U/Xte7957vnnO++91zH2GM4afYOPxE208WmDAUg86eke0cGS2lJ0RK6ZEmOcGip7E6NTMrBaYCgKBEAh4/6Wh3c40tnXxdXYtQUdMkVGwrPFo0WDaQwcqxSc6cJPuowIwpYwOLUm1Bp8XAFAaNDJXAIAgEHLl8HsoIJIkhIBG4fDzaXUSsrFcW7S1XbSo9pSr8oujIyR8U2I3ZudHjkoK3LJvuWpuRGLRp1Qz8AANcpoDXT1BWq6zfuNPw1LGTys9Kjh5uuubApuaNT192s3vtgjxPvlo5uOzq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'
+
+ICON_BASE64_BLOB_THINK2 = b'iVBORw0KGgoAAAANSUhEUgAAADoAAAA3CAYAAABdJVn2AAAACXBIWXMAAAsTAAALEwEAmpwYAAAKT2lDQ1BQaG90b3Nob3AgSUNDIHByb2ZpbGUAAHjanVNnVFPpFj333vRCS4iAlEtvUhUIIFJCi4AUkSYqIQkQSoghodkVUcERRUUEG8igiAOOjoCMFVEsDIoK2AfkIaKOg6OIisr74Xuja9a89+bN/rXXPues852zzwfACAyWSDNRNYAMqUIeEeCDx8TG4eQuQIEKJHAAEAizZCFz/SMBAPh+PDwrIsAHvgABeNMLCADATZvAMByH/w/qQplcAYCEAcB0kThLCIAUAEB6jkKmAEBGAYCdmCZTAKAEAGDLY2LjAFAtAGAnf+bTAICd+Jl7AQBblCEVAaCRACATZYhEAGg7AKzPVopFAFgwABRmS8Q5ANgtADBJV2ZIALC3AMDOEAuyAAgMADBRiIUpAAR7AGDIIyN4AISZABRG8lc88SuuEOcqAAB4mbI8uSQ5RYFbCC1xB1dXLh4ozkkXKxQ2YQJhmkAuwnmZGTKBNA/g88wAAKCRFRHgg/P9eM4Ors7ONo62Dl8t6r8G/yJiYuP+5c+rcEAAAOF0ftH+LC+zGoA7BoBt/qIl7gRoXgugdfeLZrIPQLUAoOnaV/Nw+H48PEWhkLnZ2eXk5NhKxEJbYcpXff5nwl/AV/1s+X48/Pf14L7iJIEyXYFHBPjgwsz0TKUcz5IJhGLc5o9H/LcL//wd0yLESWK5WCoU41EScY5EmozzMqUiiUKSKcUl0v9k4t8s+wM+3zUAsGo+AXuRLahdYwP2SycQWHTA4vcAAPK7b8HUKAgDgGiD4c93/+8//UegJQCAZkmScQAAXkQkLlTKsz/HCAAARKCBKrBBG/TBGCzABhzBBdzBC/xgNoRCJMTCQhBCCmSAHHJgKayCQiiGzbAdKmAv1EAdNMBRaIaTcA4uwlW4Dj1wD/phCJ7BKLyBCQRByAgTYSHaiAFiilgjjggXmYX4IcFIBBKLJCDJiBRRIkuRNUgxUopUIFVIHfI9cgI5h1xGupE7yAAygvyGvEcxlIGyUT3UDLVDuag3GoRGogvQZHQxmo8WoJvQcrQaPYw2oefQq2gP2o8+Q8cwwOgYBzPEbDAuxsNCsTgsCZNjy7EirAyrxhqwVqwDu4n1Y8+xdwQSgUXACTYEd0IgYR5BSFhMWE7YSKggHCQ0EdoJNwkDhFHCJyKTqEu0JroR+cQYYjIxh1hILCPWEo8TLxB7iEPENyQSiUMyJ7mQAkmxpFTSEtJG0m5SI+ksqZs0SBojk8naZGuyBzmULCAryIXkneTD5DPkG+Qh8lsKnWJAcaT4U+IoUspqShnlEOU05QZlmDJBVaOaUt2ooVQRNY9aQq2htlKvUYeoEzR1mjnNgxZJS6WtopXTGmgXaPdpr+h0uhHdlR5Ol9BX0svpR+iX6AP0dwwNhhWDx4hnKBmbGAcYZxl3GK+YTKYZ04sZx1QwNzHrmOeZD5lvVVgqtip8FZHKCpVKlSaVGyovVKmqpqreqgtV81XLVI+pXlN9rkZVM1PjqQnUlqtVqp1Q61MbU2epO6iHqmeob1Q/pH5Z/YkGWcNMw09DpFGgsV/jvMYgC2MZs3gsIWsNq4Z1gTXEJrHN2Xx2KruY/R27iz2qqaE5QzNKM1ezUvOUZj8H45hx+Jx0TgnnKKeX836K3hTvKeIpG6Y0TLkxZVxrqpaXllirSKtRq0frvTau7aedpr1Fu1n7gQ5Bx0onXCdHZ4/OBZ3nU9lT3acKpxZNPTr1ri6qa6UbobtEd79up+6Ynr5egJ5Mb6feeb3n+hx9L/1U/W36p/VHDFgGswwkBtsMzhg8xTVxbzwdL8fb8VFDXcNAQ6VhlWGX4YSRudE8o9VGjUYPjGnGXOMk423GbcajJgYmISZLTepN7ppSTbmmKaY7TDtMx83MzaLN1pk1mz0x1zLnm+eb15vft2BaeFostqi2uGVJsuRaplnutrxuhVo5WaVYVVpds0atna0l1rutu6cRp7lOk06rntZnw7Dxtsm2qbcZsOXYBtuutm22fWFnYhdnt8Wuw+6TvZN9un2N/T0HDYfZDqsdWh1+c7RyFDpWOt6azpzuP33F9JbpL2dYzxDP2DPjthPLKcRpnVOb00dnF2e5c4PziIuJS4LLLpc+Lpsbxt3IveRKdPVxXeF60vWdm7Obwu2o26/uNu5p7ofcn8w0nymeWTNz0MPIQ+BR5dE/C5+VMGvfrH5PQ0+BZ7XnIy9jL5FXrdewt6V3qvdh7xc+9j5yn+M+4zw33jLeWV/MN8C3yLfLT8Nvnl+F30N/I/9k/3r/0QCngCUBZwOJgUGBWwL7+Hp8Ib+OPzrbZfay2e1BjKC5QRVBj4KtguXBrSFoyOyQrSH355jOkc5pDoVQfujW0Adh5mGLw34MJ4WHhVeGP45wiFga0TGXNXfR3ENz30T6RJZE3ptnMU85ry1KNSo+qi5qPNo3ujS6P8YuZlnM1VidWElsSxw5LiquNm5svt/87fOH4p3iC+N7F5gvyF1weaHOwvSFpxapLhIsOpZATIhOOJTwQRAqqBaMJfITdyWOCnnCHcJnIi/RNtGI2ENcKh5O8kgqTXqS7JG8NXkkxTOlLOW5hCepkLxMDUzdmzqeFpp2IG0yPTq9MYOSkZBxQqohTZO2Z+pn5mZ2y6xlhbL+xW6Lty8elQfJa7OQrAVZLQq2QqboVFoo1yoHsmdlV2a/zYnKOZarnivN7cyzytuQN5zvn//tEsIS4ZK2pYZLVy0dWOa9rGo5sjxxedsK4xUFK4ZWBqw8uIq2Km3VT6vtV5eufr0mek1rgV7ByoLBtQFr6wtVCuWFfevc1+1dT1gvWd+1YfqGnRs+FYmKrhTbF5cVf9go3HjlG4dvyr+Z3JS0qavEuWTPZtJm6ebeLZ5bDpaql+aXDm4N2dq0Dd9WtO319kXbL5fNKNu7g7ZDuaO/PLi8ZafJzs07P1SkVPRU+lQ27tLdtWHX+G7R7ht7vPY07NXbW7z3/T7JvttVAVVN1WbVZftJ+7P3P66Jqun4lvttXa1ObXHtxwPSA/0HIw6217nU1R3SPVRSj9Yr60cOxx++/p3vdy0NNg1VjZzG4iNwRHnk6fcJ3/ceDTradox7rOEH0x92HWcdL2pCmvKaRptTmvtbYlu6T8w+0dbq3nr8R9sfD5w0PFl5SvNUyWna6YLTk2fyz4ydlZ19fi753GDborZ752PO32oPb++6EHTh0kX/i+c7vDvOXPK4dPKy2+UTV7hXmq86X23qdOo8/pPTT8e7nLuarrlca7nuer21e2b36RueN87d9L158Rb/1tWeOT3dvfN6b/fF9/XfFt1+cif9zsu72Xcn7q28T7xf9EDtQdlD3YfVP1v+3Njv3H9qwHeg89HcR/cGhYPP/pH1jw9DBY+Zj8uGDYbrnjg+OTniP3L96fynQ89kzyaeF/6i/suuFxYvfvjV69fO0ZjRoZfyl5O/bXyl/erA6xmv28bCxh6+yXgzMV70VvvtwXfcdx3vo98PT+R8IH8o/2j5sfVT0Kf7kxmTk/8EA5jz/GMzLdsAADpCaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNzowOTozMy0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTc6MDk6MzMtMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE3OjA5OjMzLTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDpiYzcxZTAzMC1hY2UwLWFlNGMtYTI2YS1hNGJlM2E4NDNlMDA8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDo0OWE4ZGNmZC1iY2E4LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDpjMWE2NTcxYS1lNGJlLTczNDMtYjAzNy1lYmE3NmRjMTA3YWI8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6YzFhNjU3MWEtZTRiZS03MzQzLWIwMzctZWJhNzZkYzEwN2FiPC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE3OjA5OjMzLTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOmJjNzFlMDMwLWFjZTAtYWU0Yy1hMjZhLWE0YmUzYTg0M2UwMDwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNzowOTozMy0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjU4PC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjU1PC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz5uOveQAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAAqxSURBVHja7Fp5VJTXFf+9b5kFBoYdDciwiMhe0xhFwYQYTdUTl7hErVWJWYptNGoalwQ92mOiydGqaRajiWarRk1jbIItjUHEiNYYRKKgMiMDiCDrMGyzfN/rH+PgAMMyAybmxHvOd2DuvPvN7/fu/d69776PUErxaxAGvxK5R/Qe0XtE7xG9K4S7Uzde9WxsRKi/OSJsgGmom5y6dTe2vJYtvVHHlmpvcppNu/Iv3wk8pD/z6MqnY8Of+V3jclepqFDIqLuLTJzsiH1zK3OkyUAa8zSSs99ekH29eXf+1buKaMqM3yiWTdWtj1aZhgFI7idsmZdK+NytXyjX7Tl0vvFnJ7r/tYj5MxObFvYjwU6ED5503Tt79eWPfhaiqb+P90md0LA6MsgUzxCMvb28SQH3kSCyIEDiDar7HtD/DxCN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'
+
+ICON_BASE64_BROW = b'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/GMzLdsAADpCaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNjo1MzowNC0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTY6NTM6MDQtMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE2OjUzOjA0LTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDo5ZGMyYTFmMC02ZWJhLWQ3NDYtOGIzMC1jYzYwMWM0ZGIzMzE8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDplNjE1MzI2Zi1iY2E1LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDpiMzM5ZDA0Mi1mNGFkLTQ5NDUtOTBiZS1hZTg0ZTE2ZGNiZDI8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6YjMzOWQwNDItZjRhZC00OTQ1LTkwYmUtYWU4NGUxNmRjYmQyPC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE2OjUzOjA0LTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOjlkYzJhMWYwLTZlYmEtZDc0Ni04YjMwLWNjNjAxYzRkYjMzMTwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNjo1MzowNC0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjUzPC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjUzPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz6xTRINAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAAeISURBVHja3Jp7UFTXHce/d3fZZR8sIPJQeSwghFeAsTVBIriWphkMGB9kGmOYaXWa1mQm0VJjCGGmDzdoUtT+0w7Q0GbUkNYHhBUz49iGRwKkolVQoKTA7gIqILIsu3ff9/YP0x3JPi+5IPj7a/fc8zt7Pvs753d/v3N+BE3TeNyEg8dQHksoHtsDHnw1NzEznp8pW8WVRYfyogJEhFTsT4gAwGCiyVmS1mkmbSOqO3ZVn9rae/iPLTfZngPBxp46UiLPKtggLEyV8VIIguAA2OqjaiNN09StYWvvhU6T8u3K5s5HDvXRe3k7ijaJdor9CQkDELeARjNFnm8z1e8+dPnviw71wVubN762VbJPLGQFxgmONNFkdZOhav97/2xeFKj++vyjSdF+SQsA4wTXr7b2J+347NCCQe3fkytT7A1U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'
+
+ICON_BASE64_BLOB_HEADACHE = b'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/GMzLdsAADpCaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNjo1NToyNi0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTY6NTU6MjYtMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE2OjU1OjI2LTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDoxYzUxOTkzZi05MjNiLTM2NGItYWY5ZS1mNGE3MzViYjgxYTI8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDo1MDgwYWJhOC1iY2E2LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDo3YWMwMzdjMC03ZmMzLWNhNDgtYmVlYi1lM2Q0ZDJjODJiNTU8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6N2FjMDM3YzAtN2ZjMy1jYTQ4LWJlZWItZTNkNGQyYzgyYjU1PC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE2OjU1OjI2LTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOjFjNTE5OTNmLTkyM2ItMzY0Yi1hZjllLWY0YTczNWJiODFhMjwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNjo1NToyNi0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjcxPC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjcxPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz5o6m+QAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAABbGSURBVHja7HxZcGTXed73n3Puvb13oxtrYx1gMJjBLMTOWUiKiiRGcuxS2Y7K5bhsObEdOXmIk5TzkJQqSfkpecxTqpyUK3mwrUiqKHbJkkxRIk1KwyFnBrNzFgwGGKyDrbH0fu9Z8nDRBIboBockhpJcc6pQ/dIXOOe7//J93zkHZIzBs1F9sGcQPAPnGTjPwHkGzs/HED/rCXzmxRFyLEBwQ4IbWBzEyIARiAjQxv9RiozSgNRkPAnjSYKnCD89f/GptVv6NFv50PAYBWzDGuNKNCRUMBnTibqwakpETFs4oJtDjmkJOSZhMRMRDEFi4FoDnoJyPSoWPcoVXbaWLdJytsDmt4psPpNlc2ubbHNti7sbeabGL79rfmHAGR4Zo5BjWGeTDHQ2ynRbvRxJRfVnE2E1Gg2ZdNjRkYBtLEsY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'
+
+ICON_BASE64_LEGO_THINK = b'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/GMzLdsAADpEaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iCiAgICAgICAgICAgIHhtbG5zOnN0RXZ0PSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VFdmVudCMiCiAgICAgICAgICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgICAgICAgICAgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIgogICAgICAgICAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwveG1wOkNyZWF0b3JUb29sPgogICAgICAgICA8eG1wOkNyZWF0ZURhdGU+MjAyMC0wNy0wMlQxNzoxNTozNC0wNDowMDwveG1wOkNyZWF0ZURhdGU+CiAgICAgICAgIDx4bXA6TWV0YWRhdGFEYXRlPjIwMjAtMDctMDJUMTc6MTU6MzQtMDQ6MDA8L3htcDpNZXRhZGF0YURhdGU+CiAgICAgICAgIDx4bXA6TW9kaWZ5RGF0ZT4yMDIwLTA3LTAyVDE3OjE1OjM0LTA0OjAwPC94bXA6TW9kaWZ5RGF0ZT4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDpkYzQ2ZDAwNS1hY2U0LTkwNDUtODUzMC1iY2Y4Zjc3Y2U2NjA8L3htcE1NOkluc3RhbmNlSUQ+CiAgICAgICAgIDx4bXBNTTpEb2N1bWVudElEPmFkb2JlOmRvY2lkOnBob3Rvc2hvcDoyM2FiN2M2NS1iY2E5LTExZWEtYTEwYi1iMTlmYTMxNTc1YWQ8L3htcE1NOkRvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+eG1wLmRpZDowNDRhZDA4Zi03ZmQ0LWMwNGItYmY1Yy01MTI4NzQzMjcyNTA8L3htcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkhpc3Rvcnk+CiAgICAgICAgICAgIDxyZGY6U2VxPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5jcmVhdGVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6MDQ0YWQwOGYtN2ZkNC1jMDRiLWJmNWMtNTEyODc0MzI3MjUwPC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE3OjE1OjM0LTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICAgICA8cmRmOmxpIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmFjdGlvbj5zYXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOmRjNDZkMDA1LWFjZTQtOTA0NS04NTMwLWJjZjhmNzdjZTY2MDwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNzoxNTozNC0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICAgICA8c3RFdnQ6Y2hhbmdlZD4vPC9zdEV2dDpjaGFuZ2VkPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgPC9yZGY6U2VxPgogICAgICAgICA8L3htcE1NOkhpc3Rvcnk+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjEwMzwvZXhpZjpQaXhlbFhEaW1lbnNpb24+CiAgICAgICAgIDxleGlmOlBpeGVsWURpbWVuc2lvbj4xMTI8L2V4aWY6UGl4ZWxZRGltZW5zaW9uPgogICAgICA8L3JkZjpEZXNjcmlwdGlvbj4KICAgPC9yZGY6UkRGPgo8L3g6eG1wbWV0YT4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAKPD94cGFja2V0IGVuZD0idyI/PnSBBO0AAAAgY0hSTQAAeiUAAICDAAD5/wAAgOkAAHUwAADqYAAAOpgAABdvkl/FRgAADbNJREFUeNrsnXuMXFUdxz/nznNn3y92u215s9tSrEXEF1BwqdgVJchDJSKaYKJEjZoYgxhEJSYSefhIJBgSjDS8o/KyJkClLSpt0ZRKlb62tLYWumz3PTu7M/ce//idW/Yuu8PM7szuLT2/ZHP23jn3zp3z+33P73nOVVprLIWTHDsEljmWLHMscyxZ5liyzAkxRcP2QD/65kXOLb943tv6aJcCVG1NBIBkTAEQi4jpH3Pk2FFy7Jjj6cjzNID2tPTLyjFZV44zWTkeGHIV4Dy+cdQF1C2/eN6br7FQYfZztj7adXVtTSQJuMmYcgE3FtHSOsoDco7SHuA5jsqZy1zAm/Tnep7WgOtppQGd9XTOMMcFdCYr9xkYcvWKq9buC8PvDy1z9EufigA7gYVmgPWEwc6BmnisDVP0pL7+OT2B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'
+
+ICON_BASE64_THINK = b'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/GMzLdsAAD+paVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8P3hwYWNrZXQgYmVnaW49Iu+7vyIgaWQ9Ilc1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCI/Pgo8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJBZG9iZSBYTVAgQ29yZSA1LjYtYzE0NSA3OS4xNjIzMTksIDIwMTgvMDIvMTUtMjA6Mjk6NDMgICAgICAgICI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgICAgICAgICAgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIgogICAgICAgICAgICB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIKICAgICAgICAgICAgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIKICAgICAgICAgICAgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiCiAgICAgICAgICAgIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIKICAgICAgICAgICAgeG1sbnM6dGlmZj0iaHR0cDovL25zLmFkb2JlLmNvbS90aWZmLzEuMC8iCiAgICAgICAgICAgIHhtbG5zOmV4aWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vZXhpZi8xLjAvIj4KICAgICAgICAgPHhtcDpDcmVhdG9yVG9vbD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3htcDpDcmVhdG9yVG9vbD4KICAgICAgICAgPHhtcDpDcmVhdGVEYXRlPjIwMjAtMDctMDJUMTc6MDI6MDUtMDQ6MDA8L3htcDpDcmVhdGVEYXRlPgogICAgICAgICA8eG1wOk1ldGFkYXRhRGF0ZT4yMDIwLTA3LTAyVDE3OjAyOjUxLTA0OjAwPC94bXA6TWV0YWRhdGFEYXRlPgogICAgICAgICA8eG1wOk1vZGlmeURhdGU+MjAyMC0wNy0wMlQxNzowMjo1MS0wNDowMDwveG1wOk1vZGlmeURhdGU+CiAgICAgICAgIDxkYzpmb3JtYXQ+aW1hZ2UvcG5nPC9kYzpmb3JtYXQ+CiAgICAgICAgIDx4bXBNTTpJbnN0YW5jZUlEPnhtcC5paWQ6NGZjMmNkMTQtYjBhZi05ODQ0LTkyNTAtZTk1NTRhYjMzYzJmPC94bXBNTTpJbnN0YW5jZUlEPgogICAgICAgICA8eG1wTU06RG9jdW1lbnRJRD5hZG9iZTpkb2NpZDpwaG90b3Nob3A6NTU3OWQyOWUtYmNhNy0xMWVhLWExMGItYjE5ZmEzMTU3NWFkPC94bXBNTTpEb2N1bWVudElEPgogICAgICAgICA8eG1wTU06T3JpZ2luYWxEb2N1bWVudElEPnhtcC5kaWQ6OWUzNGE0MWQtOTM2YS1jZTRhLTgzNTMtZWVhYWEyYWQ2NjU1PC94bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ+CiAgICAgICAgIDx4bXBNTTpIaXN0b3J5PgogICAgICAgICAgICA8cmRmOlNlcT4KICAgICAgICAgICAgICAgPHJkZjpsaSByZGY6cGFyc2VUeXBlPSJSZXNvdXJjZSI+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDphY3Rpb24+Y3JlYXRlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6aW5zdGFuY2VJRD54bXAuaWlkOjllMzRhNDFkLTkzNmEtY2U0YS04MzUzLWVlYWFhMmFkNjY1NTwvc3RFdnQ6aW5zdGFuY2VJRD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OndoZW4+MjAyMC0wNy0wMlQxNzowMjowNS0wNDowMDwvc3RFdnQ6d2hlbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OnNvZnR3YXJlQWdlbnQ+QWRvYmUgUGhvdG9zaG9wIEVsZW1lbnRzIDE3LjAgKFdpbmRvd3MpPC9zdEV2dDpzb2Z0d2FyZUFnZW50PgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgICAgPHJkZjpsaSByZGY6cGFyc2VUeXBlPSJSZXNvdXJjZSI+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDphY3Rpb24+c2F2ZWQ8L3N0RXZ0OmFjdGlvbj4KICAgICAgICAgICAgICAgICAgPHN0RXZ0Omluc3RhbmNlSUQ+eG1wLmlpZDoxMGZiMmQwMi04NmUzLTAyNDMtYTc0Ny1hOGVkODM3NDU3NDk8L3N0RXZ0Omluc3RhbmNlSUQ+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDp3aGVuPjIwMjAtMDctMDJUMTc6MDI6NTEtMDQ6MDA8L3N0RXZ0OndoZW4+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDpzb2Z0d2FyZUFnZW50PkFkb2JlIFBob3Rvc2hvcCBFbGVtZW50cyAxNy4wIChXaW5kb3dzKTwvc3RFdnQ6c29mdHdhcmVBZ2VudD4KICAgICAgICAgICAgICAgICAgPHN0RXZ0OmNoYW5nZWQ+Lzwvc3RFdnQ6Y2hhbmdlZD4KICAgICAgICAgICAgICAgPC9yZGY6bGk+CiAgICAgICAgICAgICAgIDxyZGY6bGkgcmRmOnBhcnNlVHlwZT0iUmVzb3VyY2UiPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6YWN0aW9uPmNvbnZlcnRlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6cGFyYW1ldGVycz5mcm9tIGFwcGxpY2F0aW9uL3ZuZC5hZG9iZS5waG90b3Nob3AgdG8gaW1hZ2UvcG5nPC9zdEV2dDpwYXJhbWV0ZXJzPgogICAgICAgICAgICAgICA8L3JkZjpsaT4KICAgICAgICAgICAgICAgPHJkZjpsaSByZGY6cGFyc2VUeXBlPSJSZXNvdXJjZSI+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDphY3Rpb24+ZGVyaXZlZDwvc3RFdnQ6YWN0aW9uPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6cGFyYW1ldGVycz5jb252ZXJ0ZWQgZnJvbSBhcHBsaWNhdGlvbi92bmQuYWRvYmUucGhvdG9zaG9wIHRvIGltYWdlL3BuZzwvc3RFdnQ6cGFyYW1ldGVycz4KICAgICAgICAgICAgICAgPC9yZGY6bGk+CiAgICAgICAgICAgICAgIDxyZGY6bGkgcmRmOnBhcnNlVHlwZT0iUmVzb3VyY2UiPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6YWN0aW9uPnNhdmVkPC9zdEV2dDphY3Rpb24+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDppbnN0YW5jZUlEPnhtcC5paWQ6NGZjMmNkMTQtYjBhZi05ODQ0LTkyNTAtZTk1NTRhYjMzYzJmPC9zdEV2dDppbnN0YW5jZUlEPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6d2hlbj4yMDIwLTA3LTAyVDE3OjAyOjUxLTA0OjAwPC9zdEV2dDp3aGVuPgogICAgICAgICAgICAgICAgICA8c3RFdnQ6c29mdHdhcmVBZ2VudD5BZG9iZSBQaG90b3Nob3AgRWxlbWVudHMgMTcuMCAoV2luZG93cyk8L3N0RXZ0OnNvZnR3YXJlQWdlbnQ+CiAgICAgICAgICAgICAgICAgIDxzdEV2dDpjaGFuZ2VkPi88L3N0RXZ0OmNoYW5nZWQ+CiAgICAgICAgICAgICAgIDwvcmRmOmxpPgogICAgICAgICAgICA8L3JkZjpTZXE+CiAgICAgICAgIDwveG1wTU06SGlzdG9yeT4KICAgICAgICAgPHhtcE1NOkRlcml2ZWRGcm9tIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgPHN0UmVmOmluc3RhbmNlSUQ+eG1wLmlpZDoxMGZiMmQwMi04NmUzLTAyNDMtYTc0Ny1hOGVkODM3NDU3NDk8L3N0UmVmOmluc3RhbmNlSUQ+CiAgICAgICAgICAgIDxzdFJlZjpkb2N1bWVudElEPnhtcC5kaWQ6OWUzNGE0MWQtOTM2YS1jZTRhLTgzNTMtZWVhYWEyYWQ2NjU1PC9zdFJlZjpkb2N1bWVudElEPgogICAgICAgICAgICA8c3RSZWY6b3JpZ2luYWxEb2N1bWVudElEPnhtcC5kaWQ6OWUzNGE0MWQtOTM2YS1jZTRhLTgzNTMtZWVhYWEyYWQ2NjU1PC9zdFJlZjpvcmlnaW5hbERvY3VtZW50SUQ+CiAgICAgICAgIDwveG1wTU06RGVyaXZlZEZyb20+CiAgICAgICAgIDxwaG90b3Nob3A6Q29sb3JNb2RlPjM8L3Bob3Rvc2hvcDpDb2xvck1vZGU+CiAgICAgICAgIDxwaG90b3Nob3A6SUNDUHJvZmlsZT5zUkdCIElFQzYxOTY2LTIuMTwvcGhvdG9zaG9wOklDQ1Byb2ZpbGU+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDx0aWZmOlhSZXNvbHV0aW9uPjcyMDAwMC8xMDAwMDwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6WVJlc29sdXRpb24+NzIwMDAwLzEwMDAwPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpSZXNvbHV0aW9uVW5pdD4yPC90aWZmOlJlc29sdXRpb25Vbml0PgogICAgICAgICA8ZXhpZjpDb2xvclNwYWNlPjE8L2V4aWY6Q29sb3JTcGFjZT4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjUwPC9leGlmOlBpeGVsWERpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxZRGltZW5zaW9uPjUwPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg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'
+
+
+ICON_BASE64_PALM = b'iVBORw0KGgoAAAANSUhEUgAAAEkAAAA8CAMAAAAdQmecAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAMAUExURQAAAB8SDx4UEiAUDyAUEiMZFSUbGSsUEy8aFiwbGTsUFTkdICwiHTIjHDQrHzsiGysjIjIlIDMqIzMsKjsgIzotID0uKT01IzszMUkYHE0ZIFkbKEQhHkUqH0sgHUUgI0MtIkUoKEsmIEwqIkwqL00rM0I1I0s1JEswKE04J0w7LUc9OVYpJ1omMVM0JVQ1K1I4JVU7KlszK1k6J1s7KVw4NGEdLmQeMWghNmE5LWQ4NXIiPWs2RHkkQnAzRVRENVNDOF1ENFxEOVpKOWNDM2NHPWNMPGxFOWxKPG9QPnJKPHVQP05HRFJMSltUUWpLQ2lUQ2NcWndNQndIU3JUQ3JUSHRZTHxSRHxVSHxZSnlaVH1YYmZgX39gVmZjYnZran14doFURoNWSYNbTYNeUoleUItbaYRgT4VhU4JiWIVoXIpjVIxlWo1oVo1pWpFiVpFlWZJsXZRxX4JmZYVsY4trY4pzaoN9e5NtYpRtaJltY5ZxYpRyaZpzZZx1ap14a5N4eJx1cJp3eJ15cZp6eqB2a6J6baN8cqJ7eax9cah+epx7hImBf5uBeqWAdKOCe6qCdKqDequJfbKJfY2EgpmIiZqVk52Zk6SBhKaFiKyDgqqFiayJgqyNi6aLkayNlKGQi6uRja+QlqySm6qZlLKMhLKOi7SRi76Th7qTi7KTk7KVm7KYk7SZm7iWk7yZk7ucm7Sco7ScqbqeorOfsK2knrmhnKukoqyop7GrqrqhpLqlq7mup7urqrSosbKuubqjsrymubyps7qqub6xrbSxsLizvbe1wr68ycKYi8OcmsCmo8KmqcGup8Ooq8qqqcersMGvv8yutMKxu8uwtM2zusy+v9G3usCwwsS0yca8xsW7y82/x8m9ysm90Ne8wMjAvMPCxsLAyc3Ax8vAy8/IzMbD0c3F08zK2NPLx9DJztnBydLO09LL2tPS19TS29rU29bU4dnT5NzV6NvZ4+Hf5uDd6+Pi7eXj8ejl9Ozp9/Lw+wAAAAAAAAAAAAAAAErQjXwAAAEAdFJOU////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wBT9wclAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAHU0lEQVRYR5WWf1gbZx3A8bw2y7nJVq00ZM9Eq63t0o3QFNKkrLbjoRjXsWFHCI+T0gNNe2nWm4Ndm9xFTLmj1UFONsUU1s2aZRRxdP7otNZN1Omc1inTdbad06danzlkVoR2/hG/7w8gNG/Y9iE/uPf9vp/7vt/37r0UZPLx34nxiYmJNybp4VuSxzQ9MXn5zempqelLlybfpotteu31ifFzfzp7/sL45PT09MS/aPOCME1jZ8+fGxs9Njw0fGLswuT01D/+SjsWgmU6fnJs7IUTx7410N8/MDx64eKlqV++DRXD9M2BkZOnfjicTvV0d/f0Hx09f/HNf//iL7QzP7mmn0XN9BMjR9PpfhOpkkdHz0z97+9PT9DuvOSa7gvHus2vYEzT6E4MDP10/PKlM0/T7rzkmoLBeyORWMwwzf6UaZowvydPX7z8nzPP0v585JhO7pIkWZbvVXUzlUomzYNmcui7L49fvPDs6zQiDzmmr9UHg7vDu8MRVTcOHESq5KEjz7z8yitnfkwj8pBr2njHNjEo7ZbliGFAQsk+eB155vTpc6f/RkPY5JiOr7i1uh5UYUVROw4ehEolk1193zj2k9+NLpxUbsWXrt5YfdfnpDAUS9UgLaCrq2/g6JETT9IINrmmJStWb9wUCKK6K0h1wDCMDs1IHjr8Tk23F63aeOsdooSXUNU6O7QOTdM7937x0NAbNIRJrumrS4tWb64OiFKrJEshWdnXqWr7QqGO/fuHztIQJrmmzKKiFauc9aLYIkp7xHvkfXtCLSG5Y+TU1w8foRFMGKat7y1asbLaH/CLkNeO5h2trZJk/Oq3I/uHh/9IQ1gwTD+4qnBpkbPK5xf9zTua/c1+fyT1WLLnvi+8MPwoDWHBMEWDjuuFpc5P+Hz3iM3Ndb5mPZVOKfU93xnqj/2GxjDINb3q8PicJYUly2vkutZWURR1PdErtwz8+vloQPk+DWLAyMnjWb58ZUnhrsf3SJ9s8fl1TVWlwODzI/HaxrYFpscw1fscxY7Slc7Yc5LkatDhTpZE3YzH133+1EsP0RgGDNOPqm74cJWrtHRbond9Q0LVdSmsmWa4rf3Ffw4/QmMYMEyZ9rIy502u0hpDlRK6HtNN40BCjI68+IeBtndWp0xmU5VrpWttFdqiensff27QjIuxwf6+/Y13v0YjGDBNr25yrV3rqoL7t7fX1A/0Girs6Eqw7fcPfJlGMGCaMt+rdt7k3Natqwkjpmnm4BNpQ27o+fNLD7yL4xYt+/RxGjYPtimTKSxxqYluEOm63psaTBtB89tDfe2LeY7neW7xnT+ncXPkMT109aoaJaYaugY7CmxSj6UHU12haNPV4EFw3I00cpY8psWLVlcHIxFdVTUtFod9Lm0aO+/adSMVAZy1icZSmKb738fzSzY1yJCRYcBGF48qWpdW11j/AapBQMW203gMw7SVRG4ORBKaqsXjWjSqaRGldkvV5utIF8JqFazWB+kQRI5pK4eLyvPVElQbyqRF92rxDll0rK+pXQRd8LK+/6MbNtzidrvXHKOjgCtMTVTD8++uDet6J1RJaVOie5XglrK6xlrUYf3QOo8HLG6v1+uuOEwHXmHajs45w05Fhx3c0JRQOBRUAi7P+pprIJuPrHHY7cXwZ3eAraJ8Nqss01NLqANzTbumxLSIrijhnTvDQWepq+x6oVAQBAuCh7dgs9sryj10dJbpttmJYT7eDlWOaJEwiO5uuRlJLNDMcSgK3lBOjkeyE3Q8NW1fNk8D1WiD9YJnZ1gOB1sCH0MK2oO/LYIF0gO3RWgkBmJ6cG51yRk5vkbR1IgcDisxWWwoIX0ILBAEm2AjCPx7sIeYbpvLx3odmgLPCaFIREY/WGDnrYOM5sAqUNgJNkEgImRaTGN44YPF0AFYhJsDIXicS/I+EC2n3QBHc7LZYO0q0KXgtttmTdfijDhLMQAiGxxYINK3Ax6ccqcq3jCzVrBaWAKdOKNyckk56N5esJ3UBqLQrAGYHg531CGV5ENtuAEDuSDWVKCMvN5Kb6X7s9R0O8poZvZ4FB0n2MrqGhr8vjLSij5JnYnMDSpIqbLS66amZbOiOSB9PNzmqdtSVVhL2rAcXtCHTeVIVQl4yfQKrs0WoWuNDKLp2dZ5eCvVzkGSmlWRpMCEhtORxIqj8TEBH88ja4IoKfxrqAC2wbmxUG0O7id6NAM+no+9GMuo6hZs+gxZKQQaRTPMFjFMUCuaFlo/Mr2CJkgJReNPfIFfmRM+ZIBVFfhS+BLOCZWb3C7kPofLEkM0CNqQy4zKuwGZ7iTRWIURIPW3mt0MMyo0vYL7s64luCt4Hu6ZeR4EHcgAuaBYcJ0XZPATAC0ampyAJ0fHz0IGZTPXiFTgQiYyJwAnh+pNd4QsZrcjgDYB5Bir7BvAhB5vKCvUZ+F4vMQ4cB54EP0/C2ik9/TDBZmnyG6BGqHuWJR9XvqdD2yCXcq+Dna6JtpIYJ15QWB+5W6v+1P/B0gPXHqaGwimAAAAAElFTkSuQmCC'
+
+
+ICON_BASE64_LIST = [ICON_BASE64_BLOB_HEADACHE, ICON_BASE64_BLOB_PALM, ICON_BASE64_BLOB_PAT, ICON_BASE64_BLOB_THINK, ICON_BASE64_BLOB_THINK2, ICON_BASE64_BROW, ICON_BASE64_LEGO_THINK, ICON_BASE64_PALM, ICON_BASE64_THINK]
+
+def _random_error_icon():
+    c =  random.choice(ICON_BASE64_LIST)
+    return c
 
 #                        d8b
 #                        Y8P
@@ -15421,10 +17383,13 @@ def _install(files, url=None):
 
     Version history
     ---------------
+    version 1.0.5  2020-06-24
+        Bug with removing the dist-info of packages starting with the same name fixed.
+
     version 1.0.4  2020-03-29
         Linux and ios versions now search in sys.path for site-packages,
-        wheras other platforms now use site.getsitepackages().
-        This is to aavoid installation in a roaming directory on Windows.
+        whereas other platforms now use site.getsitepackages().
+        This is to avoid installation in a roaming directory on Windows.
 
     version 1.0.2  2020-03-07
         modified several open calls to be compatible with Python < 3.6
@@ -15502,7 +17467,7 @@ def _install(files, url=None):
         file_contents[file] = ("from ." + package + " import *\n").encode()
         if version != "unknown":
             file_contents[file] += ("from ." + package + " import __version__\n").encode()
-    if sys.platform.startswith('linux') or (sys.platform == 'ios'):
+    if sys.platform.startswith("linux") or (sys.platform == "ios"):
         search_in = sys.path
     else:
         search_in = site.getsitepackages()
@@ -15542,7 +17507,7 @@ def _install(files, url=None):
     else:
         for entry in sitepackages_path.glob("*"):
             if entry.is_dir():
-                if entry.stem.startswith(package) and entry.suffix == ".dist-info":
+                if entry.stem.startswith(package + "-") and entry.suffix == ".dist-info":
                     shutil.rmtree(entry)
         path_distinfo = Path(str(path) + "-" + version + ".dist-info")
         if not path_distinfo.is_dir():
@@ -15587,18 +17552,11 @@ def _upgrade_from_github():
     info = _install(
         files="PySimpleGUI.py !init.py".split(), url="https://raw.githubusercontent.com/PySimpleGUI/PySimpleGUI/master/"
     )
-    """
-    info = install(
-        files="salabim.py !calibri.ttf !mplus-1m-regular.ttf !license.txt !DejaVuSansMono.ttf !changelog.txt".split(),
-        url="https://raw.githubusercontent.com/salabim/salabim/master/",
-    )
-    """
-
     # print(info.package + " " + info.version + " successfully installed in " + info.path)
-    # print("files copied: ", info.files_copied)
+    # print("files copied: ", ", ".join(info.files_copied))
 
-    popup("*** SUCCESS ***", info.package, info.version, "successfully installed in ", info.path, "files copied: ", info.files_copied,
-          keep_on_top=True, background_color='red', text_color='white')
+
+    popup("*** SUCCESS ***", info.package, info.version, "successfully installed in ", info.path, "files copied: ", info.files_copied, keep_on_top=True, background_color='red', text_color='white')
 
 
 def _upgrade_gui():
@@ -15616,15 +17574,33 @@ def _upgrade_gui():
     else:
         popup_quick_message('Cancelled upgrade\nNothing overwritten', background_color='red', text_color='white', keep_on_top=True, non_blocking=False)
 
+def _main_switch_theme():
+    layout = [
+              [Text('Click a look and feel color to see demo window')],
+              [Listbox(values=theme_list(),
+                          size=(20, 20), key='-LIST-')],
+              [Button('Choose'), Button('Cancel')]]
 
-def main():
+    window = Window('Change Themes', layout)
+
+    event, values = window.read(close=True)
+
+    if event == 'Choose':
+        theme_name = values['-LIST-'][0]
+        theme(theme_name)
+
+
+def _create_main_window():
     """
-    The PySimpleGUI "Test Harness".  This is meant to be a super-quick test of the Elements.
+    Creates the main test harness window.
+
+    :return: The test window
+    :rtype: Window
     """
-    from random import randint
 
     # theme('dark blue 3')
     # theme('dark brown 2')
+    # theme('dark')
     # theme('dark red')
     # theme('Light Green 6')
     ver = version.split('\n')[0]
@@ -15635,7 +17611,7 @@ def main():
 
     print('Starting up PySimpleGUI Test Harness\n', 'PySimpleGUI Version ', ver, '\ntcl ver = {}'.format(tclversion),
           'tkinter version = {}'.format(tkversion), '\nPython Version {}'.format(sys.version))
-
+    print('tcl detailed version = {}'.format(tclversion_detailed))
     # ------ Menu Definition ------ #
     menu_def = [['&File', ['!&Open', '&Save::savekey', '---', '&Properties', 'E&xit']],
                 ['!&Edit', ['!&Paste', ['Special', 'Normal', ], 'Undo'], ],
@@ -15691,9 +17667,16 @@ def main():
               col_widths=[5, 5, 5, 5], size=(400, 200), ),
         T('  '),
         Tree(data=treedata, headings=['col1', 'col2', 'col3'], change_submits=True, auto_size_columns=True,
-             num_rows=10, col0_width=10, key='_TREE_', show_expanded=True,),
-    ],
-    ]
+             num_rows=10, col0_width=10, key='_TREE_', show_expanded=True,)]]
+    frame7 = [[T('ONE thing.... you had one thing to NOT do.  "Do NOT click"')], [Image(data=_random_error_icon())],
+              [T("""Well, now what?\nYou could take moment and help this project out by sponsoring.
+PySimpleGUI is costly to simply exist.  If you work for a company and are receiving financial benefits in the way of cost
+savings or are selling a product, I hope that you will consider sharing a small portion of your savings.
+If you don't want to sponsor / contribute, that's OK too.  At the moment PySimpleGUI is still free of charge to use.
+You have no financial responsibility. 
+I hope you are enjoying using PySimpleGUI whether you sponsor the product or not.""")],
+              [T('Click here to help --->>>'), T('YES - I want to support PySimpleGUI!', enable_events=True, text_color='red', background_color='yellow', k='-SPONSOR-')],]
+
 
     graph_elem = Graph((600, 150), (0, 0), (800, 300), key='+GRAPH+')
 
@@ -15701,11 +17684,16 @@ def main():
         [graph_elem],
     ]
 
-    tab1 = Tab('Graph', frame6, tooltip='Graph is in here', title_color='red', )
-    tab2 = Tab('Multiple/Binary Choice Groups', [[Frame('Multiple Choice Group', frame2, title_color='green', tooltip='Checkboxes, radio buttons, etc'),
-                                                  Frame('Binary Choice Group', frame3, title_color='#FFFFFF', tooltip='Binary Choice'), ]], )
-    tab3 = Tab('Table and Tree', [[Frame('Structured Data Group', frame5, title_color='red', element_justification='l')]], tooltip='tab 3', title_color='red', )
+    tab1 = Tab('Graph', frame6, tooltip='Graph is in here', title_color='red')
+    tab2 = Tab('Multiple/Binary Choice Groups', [[Frame('Multiple Choice Group', frame2, title_color='green', tooltip='Checkboxes, radio buttons, etc', vertical_alignment='t'),
+                                                  Frame('Binary Choice Group', frame3, title_color='#FFFFFF', tooltip='Binary Choice', vertical_alignment='t'), ]], )
+    # tab3 = Tab('Table and Tree', [[Frame('Structured Data Group', frame5, title_color='red', element_justification='l')]], tooltip='tab 3', title_color='red', )
+    tab3 = Tab('Table and Tree', [[Column(frame5, element_justification='l', vertical_alignment='t')]], tooltip='tab 3', title_color='red', )
     tab4 = Tab('Variable Choice', [[Frame('Variable Choice Group', frame4, title_color='blue')]], tooltip='tab 4', title_color='red', )
+    tab5 = Tab('Text Input', [[Frame('TextInput', frame1, title_color='blue')]], tooltip='tab 5', title_color='red', )
+    tab6 = Tab('Do NOT click', frame7)
+
+
 
     def VerLine(version, description, justification='r', size=(30,1)):
         return [T(version, justification=justification, font='Any 12', text_color='yellow', size=size), T(description, font='Any 12')]
@@ -15715,51 +17703,64 @@ def main():
          Image(data=DEFAULT_BASE64_LOADING_GIF, enable_events=True, key='_IMAGE_'),
          Text('PySimpleGUI Test Harness\nYou are running PySimpleGUI.py file instead of importing', font='ANY 15',
               tooltip='My tooltip', key='_TEXT1_')],
-        [Frame('Input Text Group', frame1, title_color='red')],
          VerLine(ver, 'PySimpleGUI Version'),
          VerLine('{}/{}'.format(tkversion,tclversion),'TK/TCL Versions'),
          VerLine(tclversion_detailed, 'detailed tkinter version'),
          VerLine(os.path.dirname(os.path.abspath(__file__)), 'PySimpleGUI Location',justification='l',size=(30,2)),
          VerLine(sys.version, 'Python Version', justification='l', size=(40, 2)),
 
-        [TabGroup([[tab1, tab2, tab3, tab4]], key='_TAB_GROUP_')],
+        [B(SYMBOL_DOWN, pad=(0,0), k='-HIDE TABS-'),pin(Col([[TabGroup([[tab1, tab2, tab3, tab6, tab4, tab5]], key='_TAB_GROUP_')]],k='-TAB GROUP-'))],
         [Button('Button'), B('Hide Stuff', metadata='my metadata'),
          Button('ttk Button', use_ttk_buttons=True, tooltip='This is a TTK Button'),
          Button('See-through Mode', tooltip='Make the background transparent'),
-         Button('Install PySimpleGUI from GitHub', button_color=('white', 'red') ,key='-INSTALL-'),
+         Button('Upgrade PySimpleGUI from GitHub', button_color='white on red', key='-INSTALL-'),
+         B('Sponsor this effort', button_color='white on dark green', key='-SPONSOR-2'),
          Button('Exit', tooltip='Exit button')],
+        [T('Popup Tests --->'), B('Popup', k='P '), B('No Titlebar', k='P NoTitle'), B('Not Modal', k='P NoModal'), B('Non Blocking', k='P NoBlock'), B('Auto Close', k='P AutoClose'), B('Themes'),B('Switch Themes'),]
     ]
 
-    layout = [[Column([[Menu(menu_def, key='_MENU_', font='Courier 15')]] + layout1), Column([[ProgressBar(max_value=800, size=(45, 25), orientation='v', key='+PROGRESS+')]])]]
-    window = Window('Window Title', layout,
+    layout = [[Column([[Menu(menu_def, key='_MENU_', font='Courier 15')]] + layout1), Column([[ProgressBar(max_value=800, size=(30, 25), orientation='v', key='+PROGRESS+')]])]]
+    window = Window('PySimpleGUI Main Test Harness', layout,
                     # font=('Helvetica', 18),
                     # background_color='black',
                     right_click_menu=['&Right', ['Right', '!&Click', '&Menu', 'E&xit', 'Properties']],
                     # transparent_color= '#9FB8AD',
                     resizable=True,
                     keep_on_top=True,
-                    element_justification='left',
+                    element_justification='left',       # justify contents to the left
                     metadata='My window metadata',
-                    # ttk_theme=THEME_VISTA,
+                    finalize=True,
+                    grab_anywhere=True,
+                    # ttk_theme=THEME_ALT,
                     # icon=PSG_DEBUGGER_LOGO
                     )
-    # graph_elem.DrawCircle((200, 200), 50, 'blue')
+    window['-SPONSOR-'].set_cursor(cursor='hand2')
+
+    return window
+
+def main():
+    """
+    The PySimpleGUI "Test Harness".  This is meant to be a super-quick test of the Elements.
+    """
+    window = _create_main_window()
+    graph_elem = window['+GRAPH+']
     i = 0
-    Print('', location=(0, 0), font='Courier 10', size=(100, 20), grab_anywhere=True)
+    # Don't use the debug window
+    # Print('', location=(0, 0), font='Courier 10', size=(100, 20), grab_anywhere=True)
     # print(window.element_list())
     while True:  # Event Loop
         event, values = window.Read(timeout=5)
         if event != TIMEOUT_KEY:
             print(event, values)
-            Print(event, text_color='white', background_color='red', end='')
-            Print(values)
+            # Print(event, text_color='white', background_color='red', end='')
+            # Print(values)
         if event == WIN_CLOSED or event == 'Exit':
             break
         if i < 800:
-            graph_elem.DrawLine((i, 0), (i, randint(0, 300)), width=1, color='#{:06x}'.format(randint(0, 0xffffff)))
+            graph_elem.DrawLine((i, 0), (i, random.randint(0, 300)), width=1, color='#{:06x}'.format(random.randint(0, 0xffffff)))
         else:
             graph_elem.Move(-1, 0)
-            graph_elem.DrawLine((i, 0), (i, randint(0, 300)), width=1, color='#{:06x}'.format(randint(0, 0xffffff)))
+            graph_elem.DrawLine((i, 0), (i, random.randint(0, 300)), width=1, color='#{:06x}'.format(random.randint(0, 0xffffff)))
         window['+PROGRESS+'].UpdateBar(i % 800)
         window.Element('_IMAGE_').UpdateAnimation(DEFAULT_BASE64_LOADING_GIF, time_between_frames=50)
         i += 1
@@ -15774,11 +17775,41 @@ def main():
         elif event == 'Launch Debugger':
             show_debugger_window()
         elif event == 'About...':
-            popup_no_wait('About this program...', 'You are looking at the test harness for the PySimpleGUI program')
+            popup('About this program...', 'You are looking at the test harness for the PySimpleGUI program', keep_on_top=True, image=DEFAULT_BASE64_ICON)
         elif event.startswith('See'):
             window.set_transparent_color(theme_background_color())
         elif event == '-INSTALL-':
             _upgrade_gui()
+        elif event == 'Popup':
+            popup('This is your basic popup', keep_on_top=True)
+        elif event.startswith('-SPONSOR-'):
+            if webbrowser_available:
+                webbrowser.open_new_tab(r'https://www.paypal.me/psgui')
+        elif event == 'Themes':
+            search_string = popup_get_text('Enter a search term or leave blank for all themes', 'Show Available Themes', keep_on_top=True)
+            if search_string:
+                theme_previewer(search_string=search_string)
+        elif event == 'Switch Themes':
+            window.close()
+            _main_switch_theme()
+            window = _create_main_window()
+            graph_elem = window['+GRAPH+']
+        elif event == '-HIDE TABS-':
+            window['-TAB GROUP-'].update(visible=False)
+        elif event.startswith('P '):
+            if event == 'P ':
+                popup('Normal Popup - Modal', keep_on_top=True)
+            elif event == 'P NoTitle':
+                popup_no_titlebar('No titlebar', keep_on_top=True)
+            elif event == 'P NoModal':
+                popup('Normal Popup - Not Modal', 'You can interact with main window menubar ',
+                      'but will have no effect immediately', 'button clicks will happen after you close this popup',modal=False, keep_on_top=True)
+            elif event == 'P NoBlock':
+                popup_non_blocking('Non-blocking', 'The background window should still be running', keep_on_top=True)
+            elif event == 'P AutoClose':
+                popup_auto_close('Will autoclose in 3 seconds', auto_close_duration=3 ,keep_on_top=True)
+
+
 
         i += 1
         # _refresh_debugger()
@@ -15832,7 +17863,9 @@ test = main
 #------------------------ Set the "Official PySimpleGUI Theme Colors" ------------------------
 theme(CURRENT_LOOK_AND_FEEL)
 
-
+tclversion_detailed = tkinter.Tcl().eval('info patchlevel')
+if tclversion_detailed.startswith('8.5'):
+    warnings.warn('You are running a VERY old version of tkinter {}'.format(tclversion_detailed), UserWarning)
 # -------------------------------- ENTRY POINT IF RUN STANDALONE -------------------------------- #
 if __name__ == '__main__':
     # To execute the upgrade from command line, type:
@@ -15840,7 +17873,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'upgrade':
         _upgrade_gui()
         exit(0)
-
     main()
     exit(0)
+
 

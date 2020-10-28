@@ -1,0 +1,6 @@
+0.0	zero order
+404.656	Hg 
+435.833	Hg 
+546.075	Hg 
+578.109	Hg 
+809.312	Hg 2nd order
