@@ -10,7 +10,7 @@ import warnings
 from pathlib import Path
 
 import numpy as np
-from skimage import io
+from skimage import io as ios
 
 import PySimpleGUI as sg
 import m_calfun as lfun
@@ -34,7 +34,7 @@ def main():
         sg.change_look_and_feel('SystemDefault')  # suppresses message in PySimpleGUI >= 4.9.0
     print('version m_spec, m_specfun, m_plot', version, m_fun.version, m_plot.version)
     logging.info('M_SPEC START +++++++++++++++++++++++++++++++++++++++++++++')
-    info = f'M_CALIB version {version}, lfun version {lfun.version}, m_fun.version {m_fun.version}, ' \
+    info = f'M_SPEC version {version}, lfun version {lfun.version}, m_fun.version {m_fun.version}, ' \
            f'PySimpleGUI {sg_ver}'
     logging.info(info)
     ini_file = 'm_set.ini'
@@ -71,7 +71,7 @@ def main():
     outfile = ''
     last_file_sum = False
     # default values for calibration
-    _image = np.flipud(io.imread('tmp.png'))  # get shape of screen image
+    _image = np.flipud(ios.imread('tmp.png'))  # get shape of screen image
     (canvasy, canvasx) = _image.shape[:2]
     raw_spec_file = ''
     select_line_enabled = False
@@ -311,8 +311,8 @@ def main():
                    [sg.Input('', size=(40, 1), key='image_file')]])],
                [sg.Frame('Select Lines',
                   [[sg.Input(infile, size=(40, 1), key='input_file')],
-                   [sg.Button('Load Image', tooltip='select 1 or multiple images (load again) for calibration'),
-                    sg.Text('Calibration data, ".txt":')],
+                   [sg.Button('Load Image', tooltip='select 1 or multiple images (load again) for calibration')],
+                   [sg.Text('Calibration data, ".txt":')],
                    [sg.Input(outfil, size=(40, 1), key='output_file',
                              tooltip='select file for calibration data')],
                    [sg.Button('Select File'), sg.Button('Edit File'),

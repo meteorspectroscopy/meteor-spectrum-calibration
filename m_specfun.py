@@ -4,6 +4,7 @@
 # -------------------------------------------------------------------
 import configparser
 import ctypes
+import io
 import logging
 import os
 import os.path as path
@@ -13,19 +14,17 @@ import time
 import warnings
 from datetime import datetime, date
 
-import PySimpleGUI as sg
 import numpy as np
+from PIL import Image
 from astropy.io import fits
 from astropy.time import Time
 from scipy import optimize, interpolate
 from scipy.ndimage import map_coordinates
 from skimage import img_as_float
-from skimage import transform as tf
 from skimage import io as ios
-from PIL import Image
-import PIL
-import io
-import m_calfun as lfun
+from skimage import transform as tf
+
+import PySimpleGUI as sg
 
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
@@ -1584,14 +1583,14 @@ def draw_scaled_image(file, graph, opt_dict, idg, contr=1, tmp_image=False, resi
         # needed for imag.resize, converts numpy array to PIL format
         imag = Image.fromarray(np.array(ima))
     else:
-        imag = PIL.Image.open(file)
+        imag = Image.open(file)
         image = np.flipud(np.array(imag))
         if np.max(image) > 0.0:
             image = image / np.max(image)
     if resize:
         cur_width, cur_height = imag.size  # size of image
         im_scale = set_image_scale(cur_width, cur_height, opt_dict)
-        imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), PIL.Image.ANTIALIAS)
+        imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), Image.ANTIALIAS)
     bio = io.BytesIO()
     imag.save(bio, format="PNG")
     if tmp_image:

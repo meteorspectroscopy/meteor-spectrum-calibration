@@ -2,18 +2,19 @@
 #-------------------------------------------------------------------
 # m_calfun8 functions for m_pipe0, revised for m_specall
 #-------------------------------------------------------------------
-from skimage.transform import rescale
-from skimage import io
-from skimage import img_as_float  # , img_as_ubyte,
+import time
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-import time
 from lmfit import minimize, Parameters, report_fit
-from pathlib import Path
-import warnings
-import PySimpleGUI as sg
+from skimage import img_as_float  # , img_as_ubyte,
+from skimage import io as ios
+from skimage.transform import rescale
 
+import PySimpleGUI as sg
 import m_specfun as m_fun
 
 version = '0.8.7'
@@ -179,7 +180,7 @@ def plot_laser(x, y, w, sl, xf, yf, title):
 
 #-------------------------------------------------------------------------------
 def mreadbmp(filename, colflag='bb'):
-    image = np.flipud(img_as_float(io.imread(filename)))    
+    image = np.flipud(img_as_float(ios.imread(filename)))
     if (colflag[0] == 'b') and (len(image.shape)) == 3: 
         image = np.sum(image, axis=2)/3
     return image
@@ -226,7 +227,7 @@ def load_image(infil, opt_dict, imagesave=True):
             imscale = min(max_width/imx, max_height/imy)
             im = rescale(imbw, imscale)
         if imagesave:
-            io.imsave('tmp.png', np.flipud(im*255).astype(np.uint8))
+            ios.imsave('tmp.png', np.flipud(im*255).astype(np.uint8))
     return imbw, opt_dict
 
 
@@ -408,7 +409,7 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
 
     while winsetup_active:
         evsetup, valset = winsetup.Read(timeout=100)
-        if evsetup is 'Cancel':
+        if evsetup == 'Cancel':
             winsetup_active = False
             winsetup.Close()
 
