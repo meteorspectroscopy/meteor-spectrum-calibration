@@ -1,0 +1,1 @@
+%windir%\System32\cmd.exe /C  "C:\Anaconda3\Scripts\activate.bat C:\Anaconda3 & python m_spec.py"
