@@ -88,6 +88,14 @@ optvar = [zoom, wsize[0], wsize[1], wloc[0], wloc[1], xoff_calc, yoff_calc,
           outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max, graph_size, show_images]
 opt_dict = dict(list(zip(optkey, optvar)))
 
+# -------------------------------------------------------------------
+def my_rescale(im, imscale, multichannel=False):
+    try:
+        ima = tf.rescale(im, imscale, multichannel=multichannel)
+    except:
+        # for older versions of skimage
+        ima = tf.rescale(im, imscale)
+    return ima
 
 # -------------------------------------------------------------------
 def read_configuration(conf, par_dict, res_dict, opt_dict):
@@ -276,6 +284,9 @@ def extract_video_images(avifile, pngname, bobdoubler=False, binning=1, bff=True
     def tfits(p):
         # f = Path(p).name
         f, ext = path.splitext(path.basename(p))
+        if f[0] != 'M' :
+            print('f:', f)
+            f = f[1:]
         t = Time(datetime(int(f[1:5]), int(f[5:7]), int(f[7:9]), int(f[10:12]), int(f[12:14]), int(f[14:16]))).fits
         sta = f[17:22]
         return t, sta
@@ -572,7 +583,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             multichannel = True
         else:
             multichannel = False
-        ima = tf.rescale(back, (yscale, 1), multichannel=multichannel)  # scale sum and peak image start
+        ima = my_rescale(back, (yscale, 1), multichannel=multichannel)  # scale sum and peak image start
         if debug:
             print('imy imx , x00 y00: ', ima.shape, center)
     else:
@@ -591,7 +602,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             # calculate distortion
             if dist:
                 if abs(yscale - 1.0) > 1.0e-3:  # scale image if yscale <> 1.0
-                    idist = tf.rescale(idist, (yscale, 1), multichannel=multichannel)
+                    idist = my_rescale(idist, (yscale, 1), multichannel=multichannel)
                 if len(idist.shape) == 3:
                     for c in [0, 1, 2]:  # separate color planes for faster processing
                         idist2 = idist[:, :, c]
@@ -870,9 +881,9 @@ def show_fits_image(file, imscale, image_element, contr=1.0, show=True):
     """
     imbw, header = get_fits_image(file)
     if len(imbw.shape) == 2:
-        im = tf.rescale(imbw, imscale, multichannel=False)
+        im = my_rescale(imbw, imscale, multichannel=False)
     else:
-        im = tf.rescale(imbw, imscale, multichannel=True)
+        im = my_rescale(imbw, imscale, multichannel=True)
     im = im / np.max(im) * 255 * contr
     im = np.clip(im, 0.0, 255)
     with warnings.catch_warnings():
