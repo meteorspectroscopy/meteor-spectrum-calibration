@@ -1145,8 +1145,8 @@ def main():
                 plot_w = int(values['plot_w'])
                 plot_h = int(values['plot_h'])
                 offset = float(values['-OFFSET-'])
-            except:
-                sg.PopupError('bad value for plot range or offset, try again', title='Plot Graph')
+            except Exception as e:
+                sg.PopupError(f'bad value for plot range or offset, try again\n{e}', title='Plot Graph')
             else:
                 plot_title = values['-PLOT_TITLE-']
                 mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(spec_file, lmin=lmin,

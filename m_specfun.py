@@ -353,8 +353,8 @@ def extract_video_images(avifile, pngname, bobdoubler=False, binning=1, bff=True
                 print(f'last file written: {out}' + str(nim) + '.png')
             # get dattim from filename
             dattim, sta = tfits(avifile)
-        except:
-            sg.PopupError('problem with ffmpeg, no images converted', title='AVI conversion')
+        except Exception as e:
+            sg.PopupError(f'problem with ffmpeg, no images converted\n{e}', title='AVI conversion')
     return nim, dattim, sta, out
 
 
@@ -753,14 +753,15 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
             y0 = int(x)
             index += 1  # next image
         index += -1
-    except:
+    except Exception as e:
         # Exception, delete last image with error
         if path.exists(outfil + str(index - start + 1) + '.fit'):
             os.remove(outfil + str(index - start + 1) + '.fit')
         index += -1
         info = f'problem with register_images, last image: {image_file}, number of images: {index}'
         logging.info(info)
-        regtext += info + '\n'
+        logging.info({e})
+        regtext += f'{info}\n{e}\n'
     nim = index - start + 1
     if nim > 1:
         if index == nim + start - 1:
@@ -1121,8 +1122,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                     restext += f'tilt = {tilt:8.4f}, slant = {slant:7.3f}' + '\n'
                     window['-RESULT3-'].update(regtext + restext, autoscroll=True)
 
-                except:
-                    sg.PopupError('bad values for tilt or slant, try again',
+                except Exception as e:
+                    sg.PopupError(f'bad values for tilt or slant, try again\n{e}',
                                   keep_on_top=True)
                 write_fits_image(imtilt, '_st.fit', fits_dict, dist=dist)
                 image_data, idg, actual_file = draw_scaled_image('_st' + '.fit', window['-R_IMAGE-'],
@@ -1267,8 +1268,8 @@ def create_line_list_combo(m_linelist, window, combo=True):
                     index0 = i  # set default index for list
         if combo:
             window['-LAMBDA-'].update(values=lam_calib, set_to_index=index0)
-    except FileNotFoundError:
-        sg.PopupError(f'no calibration lines {m_linelist}.txt found, use default')
+    except Exception as e:
+        sg.PopupError(f'no calibration lines {m_linelist}.txt found, use default\n{e}')
     return label_str, lam_calib
 
 
@@ -1510,8 +1511,8 @@ def add_images(graph_size, contrast=1, average=True):
                     window['add_images'].update(short_files)
                     window['nim'].update(str(number_images))
                     window.refresh()
-                except ValueError:
-                    sg.PopupError('Images cannot be added, different size?')
+                except Exception as e:
+                    sg.PopupError(f'Images cannot be added, different size?\n{e}')
         if event == 'Darker':
             contrast = 0.5 * contrast
             image_data, idg, actual_file = draw_scaled_image('_add.fit', window['graph'],

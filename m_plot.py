@@ -173,7 +173,9 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
 
         elif event == 'Save':
             window.Minimize()
-            filename, info = m_fun.my_get_file(llist, save_as=True,
+            p, ext = path.splitext(llist)
+            p += '_plot.png'
+            filename, info = m_fun.my_get_file(p, save_as=True,
                                                file_types=(('Image Files', '*.png'), ('ALL Files', '*.*')),
                                                title='Save spectrum plot (.PNG)', default_extension='*.png', )
             window.Normal()
@@ -181,9 +183,6 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             if filename:
                 p, ext = path.splitext(filename)
                 p += '.png'
-            else:
-                p, ext = path.splitext(llist)
-                p += '_plot.png'
             save_element_as_file(window['graph'], p)
             info = f'spectrum {llist} plot saved as {str(p)}'
             logging.info(info)
@@ -199,8 +198,8 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                                          (lmax + 10 / lscale, imax + 30 / iscale))
                 draw_spectrum(lcal, ical, lmin, lmax, color='red')
                 graph.update()
-            except:
-                sg.PopupError('invalid values for Imin, Imax, try again', keep_on_top=True)
+            except Exception as e:
+                sg.PopupError(f'invalid values for Imin, Imax, try again\n{e}', keep_on_top=True)
         elif event in ('Multiply spectrum by factor', 'Divide Spectrum by factor'):
             try:
                 factor = float(values['factor'])
@@ -210,8 +209,8 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                 else:
                     ical = ical / factor
                     info = f'spectrum {llist} divided by factor {factor}'
-            except:
-                sg.PopupError('invalid value for Factor, try again', keep_on_top=True)
+            except Exception as e:
+                sg.PopupError(f'invalid value for Factor, try again\n{e}', keep_on_top=True)
                 info = 'invalid factor'
             caltext += info + '\n'
             logging.info(info)
