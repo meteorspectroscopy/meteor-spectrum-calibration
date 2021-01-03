@@ -44,6 +44,7 @@ def main():
     res_v = list(res_dict.values())
     fits_dict['VERSION'] = version
     fits_v = list(fits_dict.values())
+    fits_k = list(fits_dict.keys())
     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc, xoff_setup, yoff_setup,
         debug, fit_report, win2ima, opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
         plot_w, plot_h, i_min, i_max, graph_size, show_images] = list(opt_dict.values())
@@ -500,7 +501,8 @@ def main():
             res_dict = dict(list(zip(res_key, res_v)))  # update res_dict
             for k in range(7):
                 kk = f'k{k + 7}'
-                fits_v[k] = values[kk]
+                # fits_v[k] = values[kk]
+                fits_dict[fits_k[k]] = values[kk]
             for k in res_dict.keys():
                 fkey = 'D_' + k.upper()
                 fits_dict[fkey] = np.float32(res_dict[k])
