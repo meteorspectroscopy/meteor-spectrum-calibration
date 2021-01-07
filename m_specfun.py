@@ -1343,11 +1343,10 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     # for compatibility save *.dat with linear spacing
     lmin = np.int(np.min(lam)) + 1
     lmax = np.int(np.max(lam)) - 1
-    dell = int(5 * c[deg - 1]) / 10
+    dell = abs(int(5 * c[deg - 1]) / 10)
     # wavelength spacing of interpolated linear array, about double of original
     llin = np.arange(lmin, lmax, dell)
     y2 = interpolate.interp1d(lam, ical, kind='quadratic')(llin)
-    # cal2dat = str(Path(rawspec).with_suffix('')) + 'cal2.dat'
     cal2dat = change_extension(rawspec, 'cal2.dat')
     np.savetxt(cal2dat, np.transpose([llin, y2]), fmt='%8.3f %8.5f')
     return caldat, cal2dat, lmin, lmax, caltext
