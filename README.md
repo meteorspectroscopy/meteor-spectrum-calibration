@@ -1,6 +1,8 @@
 # meteor-spectrum-calibration
 Analysis of meteor spectra with windows GUI.
 
+Newest version with calculation and application of instrument response function.
+
 The previous calibration of camera, lens and grating combination has been included in the script. Therefore only a single GUI allows this calibration and the subsequent processing of meteor spectra. For details of the calibration, see:
 https://github.com/meteorspectroscopy/calibrate-spectrum
 <img src= https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/master/doc/m_spec%20calib%20calib.PNG>
@@ -13,8 +15,14 @@ Calibration page:
 Result: calibrated meteor spectrum as file wavelength vs. intensity .dat
 <img src= https://github.com/meteorspectroscopy/meteor-spectrum/blob/master/doc/m_spec%20plot%20spectrum.PNG>
 
+Instrument response page:
+<img src = https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/response/doc/response%20calculation.PNG>
+
 For a description of the processing see: https://meteorspectroscopy.org/2020/03/27/meteor-spectra-analysis-new-version/
 or the manual in the doc folder.
+
+For a description on the Instrument response (theory and application) see the response manual in the doc folder: 
+https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/response/doc/instrument%20response.pdf
 
 Further information about the theoretical background can be found at https://meteorspectroscopy.org/
 
