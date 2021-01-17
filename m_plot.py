@@ -9,21 +9,25 @@ import time
 import PySimpleGUI as sg
 import numpy as np
 from PIL import ImageGrab
+from scipy import interpolate
+from skimage.filters import gaussian
 
 import m_specfun as m_fun
 
-version = '0.9.21'
+version = '0.9.23'
 
 
-def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale=True, gridlines=True,
+def graph_calibrated_spectrum(spec_file, lmin=0, lmax=720, imin=0, imax=1, autoscale=True, gridlines=True,
                               canvas_size=(800, 400), plot_title='Spectrum', multi_plot=False, offset=0):
     """
-    displays calibrated spectrum llist in separate window
+    displays calibrated spectrum spec_file in separate window
     allows change of intensity scale and saving of resulting plot
-    if no filename is given, result is saved as llist + '_plot.png'
-    :param llist: filename of calibrated spectrum with extension .dat
-    :param lmin, lmax: wavelength range, can be inverse
-    :param imin, imax: intensity range
+    if no filename is given, result is saved as spec_file + '_plot.png'
+    :param spec_file: filename of calibrated spectrum with extension .dat
+    :param lmin: wavelength range, can be inverse
+    :param lmax: wavelength range, can be inverse
+    :param imin: intensity range
+    :param imax: intensity range
     :param autoscale: if True, range is determined automatically
     :param gridlines: if True, grid lines are shown
     :param canvas_size: size of image
@@ -41,13 +45,14 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                     graph.DrawLine((lcal[l0 - 1], ical[l0 - 1]), (lcal[l0], ical[l0]), color, 2)
 
     # --------------------------------------------------------------
-    if llist:
-        lcal, ical = np.loadtxt(llist, unpack=True, ndmin=2)
+    lcal = []
     mod_file = ''
     caltext = ''
     x = y = 0
     c_array = ['blue', 'green', 'red', 'black', 'grey', 'brown',
                'blue', 'green', 'red', 'black', 'grey', 'brown']
+    if spec_file:
+        lcal, ical = np.loadtxt(spec_file, unpack=True, ndmin=2)
     if multi_plot:
         index = 0
         l_array = []
@@ -98,11 +103,11 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                sg.InputText('', size=(26, 1), key='cursor', disabled=True),
                sg.Text('Scale Factor'), sg.InputText('1.0', key='factor', size=(8, 1))]]
 
-    right_click_menu = ['unused', ['Multiply spectrum by factor', 'Divide Spectrum by factor',
-                                   'Save modified spectrum', 'Normalize to peak value',
-                                   'Compare with spectrum', 'Label Peak']]
+    right_click_menu = ['unused', ['Plot Tools', 30*'-', 'Multiply spectrum by factor',
+                                   'Divide Spectrum by factor', 'Save modified spectrum',
+                                   'Normalize to peak value', 'Compare with spectrum', 'Label Peak']]
 
-    window = sg.Window(llist, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
+    window = sg.Window(spec_file, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
     graph = window['graph']
     label_str, lam_calib = m_fun.create_line_list_combo('m_linelist', window, combo=False)
 
@@ -173,7 +178,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
 
         elif event == 'Save':
             window.Minimize()
-            p, ext = path.splitext(llist)
+            p, ext = path.splitext(spec_file)
             p += '_plot.png'
             filename, info = m_fun.my_get_file(p, save_as=True,
                                                file_types=(('Image Files', '*.png'), ('ALL Files', '*.*')),
@@ -184,7 +189,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                 p, ext = path.splitext(filename)
                 p += '.png'
             save_element_as_file(window['graph'], p)
-            info = f'spectrum {llist} plot saved as {str(p)}'
+            info = f'spectrum {spec_file} plot saved as {str(p)}'
             logging.info(info)
             caltext += info + '\n'
             window.close()
@@ -205,10 +210,10 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
                 factor = float(values['factor'])
                 if event == 'Multiply spectrum by factor':
                     ical = ical * factor
-                    info = f'spectrum {llist} multiplied by factor {factor}'
+                    info = f'spectrum {spec_file} multiplied by factor {factor}'
                 else:
                     ical = ical / factor
-                    info = f'spectrum {llist} divided by factor {factor}'
+                    info = f'spectrum {spec_file} divided by factor {factor}'
             except Exception as e:
                 sg.PopupError(f'invalid value for Factor, try again\n{e}', keep_on_top=True)
                 info = 'invalid factor'
@@ -218,12 +223,12 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             graph.update()
         elif event == 'Save modified spectrum':
             window.Minimize()
-            mod_file, info = m_fun.my_get_file(llist, title='Save modified spectrum', save_as=True,
-                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+            mod_file, info = m_fun.my_get_file(spec_file, title='Save modified spectrum', save_as=True,
+                                               file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if mod_file:
                 mod_file = m_fun.change_extension(mod_file, '.dat')
                 np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
-                info = f'modified spectrum {llist} saved as {mod_file}'
+                info = f'modified spectrum {spec_file} saved as {mod_file}'
                 logging.info(info)
                 caltext += info + '\n'
             window.Normal()
@@ -232,7 +237,7 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             ical = ical / peak_int
             imin = -.1
             imax = 1.1
-            mod_file = m_fun.change_extension(llist, 'N.dat')
+            mod_file = m_fun.change_extension(spec_file, 'N.dat')
             np.savetxt(mod_file, np.transpose([lcal, ical]), fmt='%8.3f %8.5f')
             info = f'spectrum normalized to peak intensity = {peak_int}\n' \
                    f'saved as {mod_file}'
@@ -241,14 +246,14 @@ def graph_calibrated_spectrum(llist, lmin=0, lmax=720, imin=0, imax=1, autoscale
             draw_spectrum(lcal, ical, lmin, lmax, color='red')
         elif event == 'Compare with spectrum':
             window.Minimize()
-            comp_file, info = m_fun.my_get_file(llist, title='Compare with spectrum', save_as=False,
-                        file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+            comp_file, info = m_fun.my_get_file(spec_file, title='Compare with spectrum', save_as=False,
+                                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if comp_file:
                 window.Normal()
                 caltext += f'File {comp_file} loaded\n'
                 lcomp, icomp = np.loadtxt(comp_file, unpack=True, ndmin=2)
                 draw_spectrum(lcomp, icomp, lmin, lmax, color='red')
-                graph.DrawText(llist, (lmax - 20 / lscale, imax - 15 / iscale),
+                graph.DrawText(spec_file, (lmax - 20 / lscale, imax - 15 / iscale),
                                text_location=sg.TEXT_LOCATION_RIGHT,
                                font='Arial 12', color='blue')
                 graph.DrawText(comp_file, (lmax - 20 / lscale, imax - 40 / iscale),
@@ -323,39 +328,187 @@ def save_element_as_file(element, filename):
 # -------------------------------------------------------------------
 
 
-def plot_raw_spectrum(rawspec, graph, canvasx):
+def plot_raw_spectrum(rawspec, graph, canvasx, autoscale=True, plot_range=(0, 1000, -.2, 1),
+                      plot_style=('red', 1, 1, -0.05)):
     """
     plots  a raw (uncalibrated)spectrum for selection of calibration lines
     :param rawspec: filename of uncalibrated spectrum with extension .dat
     :param graph: window to display spectrum
     :param canvasx: width of graph (needed to size points in graph)
+    :param autoscale: if True fit scale to spectrum
+    :param plot_range: lmin, lmax, imin, imax
+    :param plot_style: defined in main: star_style, ref_style, raw_style, response_style
+                        (color, circle_size, line_size, offset)
     :return:
-    lmin, lmax: pixel range
+    lmin, lmax: pixel range for autoscale
     imin, imax: intensity range
     lcal, ical: pixel, intensity array
     """
+    lmin, lmax, imin, imax = plot_range
+    color, circle_size, line_size, offset = plot_style
     lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
-    lmin = lcal[0]
-    lmax = lcal[len(lcal) - 1]
-    # y coordinate autoscale
-    imin = min(ical)
-    imax = max(ical)
-    idelta = 0.05 * (imax - imin)
-    imin -= idelta
-    imax += idelta
+    if autoscale:
+        lmin = lcal[0]
+        lmax = lcal[len(lcal) - 1]
+        # y coordinate autoscale
+        imin = min(ical)
+        imax = max(ical)
+        idelta = 0.05 * (imax - imin)
+        imin -= idelta
+        imax += idelta
     points = []
     for l0 in range(len(lcal)):
         points.append((lcal[l0], ical[l0]))
     graph.change_coordinates((lmin, imin), (lmax, imax))
-    # erase graph with rectangle
-    graph.DrawRectangle((lmin, imin), (lmax, imax), fill_color='white', line_width=1)
-    graph.DrawText(rawspec, (0.5 * (lmax - lmin), imax - 0.05 * (imax - imin)))
+    graph.erase()
+    graph.DrawText(rawspec, (0.5 * (lmax + lmin), imax - 0.05 * (imax - imin)), color=color)
     # draw graph
     for l0 in range(0, len(lcal)):
         if lmin <= lcal[l0] < lmax:
-            graph.DrawCircle(points[l0], 2 / canvasx, line_color='red', fill_color='red')
-            if l0:
-                graph.DrawLine(points[l0 - 1], points[l0], 'red', 1)
-    return lmin, lmax, imin, imax, lcal, ical
+            if circle_size:
+                graph.DrawCircle(points[l0], circle_size*(lmax-lmin)/canvasx, line_color=color, fill_color=color)
+            if l0 and line_size:
+                graph.DrawLine(points[l0 - 1], points[l0], color, line_size)
+    return (lmin, lmax, imin, imax), lcal, ical
 
 # -------------------------------------------------------------------
+def plot_reference_spectrum(rawspec, lcal, ical, graph, canvasx, plot_range=(0, 1000, -.1, 2) ,
+                            plot_style=('blue', 0,2, -.1)):
+    """
+    plots  a raw (uncalibrated)spectrum for selection of calibration lines
+    :param rawspec: filename of reference spectrum
+    :param lcal: wavelength array of spectrum
+    :param ical: intensity array of spectrum
+    :param graph: window to display spectrum
+    :param canvasx: width of graph (needed to size points in graph)
+    :param plot_range: lmin, lmax, imin, imax
+    :param plot_style: defined in main: star_style, ref_style, raw_style, response_style
+                        (color, circle_size, line_size, offset)
+    """
+    # lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
+    color, circle_size, line_size, offset = plot_style
+    points = []
+    lmin, lmax, imin, imax = plot_range
+    for l0 in range(len(lcal) - 1):
+        points.append((lcal[l0], ical[l0]))
+    graph.change_coordinates((lmin, imin), (lmax, imax))
+    graph.DrawText(rawspec, (0.5 * (lmax + lmin), imax + offset * (imax - imin)), color=color)
+    graph.DrawLine((lmin, 0), (lmax, 0), 'grey', 1)
+    # draw graph
+    for l0 in range(0, len(lcal) - 1):
+        if lmin <= lcal[l0] < lmax :
+            if circle_size:
+                graph.DrawCircle(points[l0], circle_size*(lmax-lmin)/canvasx ,
+                                 line_color=color, fill_color=color, line_width=1)
+            if l0 > 0 and line_size:
+                graph.DrawLine(points[l0 - 1], points[l0], color, line_size)
+    return
+
+def wavelength_tools(sigma_nm, file='', type='reference'):
+    """
+    several tools for wavelength manipulation
+    convolute with Gaussian with width sigma (standard deviation)
+    convert A to nm
+    convert nm to A
+    convert negative and higher orders to wavelength (spectrum is scaled in wavelength*order)
+        therefore the wavelength scale is divided by order
+    :param sigma_nm: width of the Gaussian in units nm for a spectrum calibrated in nm
+    :param file: input file for operations
+    :param type: 'star' for order conversion,
+                 'reference' for gaussian and A <--> nm
+                 this is used to set the output file in the correct place in the main window
+    :return: file, new_file, l_new, i_new, info, type
+    """
+    new_file = ''
+    l_new = i_new = []
+    info = ''
+    layout = [[sg.Text('Input File'), sg.InputText(file, key='file', size=(33, 1)),
+               sg.Button('Load File')],
+              [sg.Frame('Gaussian Filter', [[sg.Text('Sigma Gaussian:'), sg.InputText(sigma_nm, size=(19, 1), key='sigma'),
+               sg.Button('Apply Gaussian')]])],
+              [sg.Frame('Wavelength conversion', [[sg.Button('Convert A -> nm'), sg.T('', size=(17,1)),
+                                                   sg.Button('Convert nm -> A')]])],
+               [sg.Frame('Order conversion', [[sg.Combo(list(range(-5,0)) + list(range(2,6)),
+                                                      key='order', enable_events=True, default_value=-1),
+               sg.Text('Order --> 1st order', size=(20,1)), sg.Button('Convert order')]]), sg.Button('Cancel')]]
+    window = sg.Window('Convolute with Gaussian, convert wavelength', layout, keep_on_top=True).Finalize()
+    while True:
+        event, values = window.read()
+        if event in (None, 'Cancel'):
+            window.close()
+            return file, new_file, l_new, i_new, info, type
+
+        elif event == 'Load File':
+            file, info = m_fun.my_get_file(values['file'], title='Spectrum file',
+                                     file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*')),
+                                     default_extension='*.dat')
+            if file:
+                window['file'].update(file)
+
+        elif event in ('Convert A -> nm', 'Convert nm -> A', 'Convert order'):
+            try:
+                l_ori, i_ori = np.loadtxt(file, unpack=True, ndmin=2)
+                p, ext = path.splitext(file)
+                type = 'reference'
+                if event == 'Convert A -> nm':
+                    l_new = l_ori / 10.0
+                    p += '_nm.dat'
+                    info = f'spectrum {p} converted to nm'
+                elif event == 'Convert nm -> A':
+                    l_new = l_ori * 10.0
+                    p += '_A.dat'
+                    info = f'spectrum {p} converted to A'
+                else:
+                    type = 'star'
+                    order = int(values['order'])
+                    l_new = l_ori/order
+                    if order < 0:
+                        l_new = list(reversed(l_new))  # best solution
+                        i_new = list(reversed(i_new))
+                        # l_new = l_new[::-1]  # also good
+                        # i_new = i_new[::-1]
+                        # l_swap = list(l_new)  # complicated 3 lines
+                        # l_swap.reverse()
+                        # l_new = l_swap ...
+                    p += f'_O{order}.dat'
+                    info = f'spectrum {p} converted from order {order} to wavelength'
+                np.savetxt(p, np.transpose([l_new, i_ori]), fmt='%8.3f %8.5f')
+                logging.info(info)
+                window.close()
+                return file, p, l_new, i_ori, info, type
+            except Exception as e:
+                sg.PopupError(f'invalid value for file or sigma_nm, try again\n{e}', keep_on_top=True)
+                info = 'invalid wavelength conversion'
+
+        elif event == 'Apply Gaussian':
+            try:
+                l_ori, i_ori = np.loadtxt(file, unpack=True, ndmin=2)
+                delta = (l_ori[-1] - l_ori[0]) / (len(l_ori) - 1)
+                sigma_nm = float(values['sigma'])
+                sigma = sigma_nm / delta
+                for k in range(len(l_ori)):
+                    l_new.append(l_ori[0] + k * delta)
+                i_iso = interpolate.interp1d(l_ori, i_ori, kind='quadratic')(l_new)
+                i_new = gaussian(i_iso, sigma=sigma)
+                window.Minimize()
+                p, ext = path.splitext(file)
+                p += '_gauss.dat'
+                filename, info = m_fun.my_get_file(p, save_as=True,
+                                                   file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*')),
+                                                   title='Save convoluted spectrum', default_extension='*.dat', )
+                window.Normal()
+                if len(l_new) > 1:
+                    p, ext = path.splitext(filename)
+                    if not filename:
+                        p = f'filtered{sigma_nm}nm'
+                    p += '.dat'
+                    np.savetxt(p, np.transpose([l_new, i_new]), fmt='%8.3f %8.5f')
+                    info = f'spectrum {p} saved with sigma = {sigma_nm}'
+                    logging.info(info)
+                    new_file = p
+                window.close()
+                return file, new_file, l_new, i_new, info, type
+            except Exception as e:
+                sg.PopupError(f'invalid value for file or sigma_nm, try again\n{e}', keep_on_top=True)
+                info = 'invalid Gaussian smoothing'
+

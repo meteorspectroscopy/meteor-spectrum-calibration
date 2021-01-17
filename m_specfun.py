@@ -29,7 +29,7 @@ import PySimpleGUI as sg
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
-version = '0.9.22'
+version = '0.9.23'
 # today = date.today()
 logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
@@ -78,7 +78,7 @@ i_min = -0.5
 i_max = 5
 graph_size = 2000
 show_images = True
-video_list_length = 20
+video_list_length = 50
 optkey = ['zoom', 'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x',
           'calc_off_y', 'setup_off_x', 'setup_off_y', 'debug', 'fit-report',
           'scale_win2ima', 'comment', 'png_name', 'outpath', 'mdist', 'colorflag', 'bob',
@@ -1055,9 +1055,10 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
         key='-GRAPH-',
         change_submits=True,  # mouse click events
         drag_submits=True)]
-    layout_select = [[sg.Text('Start File: ' + outfile, size=(50, 1)),
-                      sg.Text('Tilt'), sg.InputText(tilt, size=(8, 1), key='-TILT-'),
-                      sg.Text('Slant'), sg.InputText(slant, size=(8, 1), key='-SLANT-'),
+    layout_select = [[sg.Text('Start File: ' + outfile, size=(40, 1)),
+                      sg.Checkbox('correct background', key='-BACK-'),
+                      sg.Text('Tilt'), sg.InputText(tilt, size=(6, 1), key='-TILT-'),
+                      sg.Text('Slant'), sg.InputText(slant, size=(6, 1), key='-SLANT-'),
                       sg.Button('Apply', key='-APPLY_TS-', bind_return_key=True),
                       sg.Ok(), sg.Cancel()],
                      image_elem_sel, [sg.Text(key='info', size=(60, 1))]]
@@ -1071,12 +1072,13 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
     graph = winselect['-GRAPH-']  # type: sg.Graph
     graph.draw_image(image_file, location=(0, imy)) if image_file else None
     dragging = False
-    start_point = end_point = prior_rect = None
+    start_point = end_point = prior_rect = upper_back = lower_back = None
 
     while winselect_active:
         event, values = winselect.read()
         graph.draw_rectangle((0, 0), (imx, imy), line_color='blue')
         if event == "-GRAPH-":  # if there's a "Graph" event, then it's a mouse
+            background = values['-BACK-']
             x, y = (values["-GRAPH-"])
             if not dragging:
                 start_point = (x, y)
@@ -1085,9 +1087,18 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                 end_point = (x, y)
             if prior_rect:
                 graph.delete_figure(prior_rect)
+            if upper_back:
+                graph.delete_figure(upper_back)
+                graph.delete_figure(lower_back)
             if None not in (start_point, end_point):
                 ymin = min(start_point[1], end_point[1])
                 ymax = max(start_point[1], end_point[1])
+                width = ymax -ymin
+                if background:
+                    upper_back = graph.draw_rectangle((0, ymax + width // 2),
+                                                      (imx, ymax + width // 2 + width), line_color='green')
+                    lower_back = graph.draw_rectangle((0, ymin - width // 2 - width),
+                                                      (imx, ymin - width // 2), line_color='green')
                 prior_rect = graph.draw_rectangle((0, ymin),
                                                   (imx, ymax), line_color='red')
         elif event is not None and event.endswith('+UP'):
@@ -1129,7 +1140,10 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                 image_data, idg, actual_file = draw_scaled_image('_st' + '.fit', window['-R_IMAGE-'],
                                                                  opt_dict, idg, contr=contr, tmp_image=True)
                 graph.draw_image(data=image_data, location=(0, imy))
-                graph.draw_rectangle((0, ymin), (imx, ymax), line_color='red')
+                # graph.draw_rectangle((0, ymin), (imx, ymax), line_color='red')
+                for figure in (prior_rect, upper_back, lower_back):
+                    if figure:
+                        graph.BringFigureToFront(figure)
                 graph.update()
 
         elif event == 'Ok':
@@ -1152,6 +1166,11 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             row_sum = np.sum(imbw[ymin:ymax, :], axis=0)  # Object spectrum extraction and flat
             i = np.arange(0, np.size(row_sum), 1)  # create pixels vector
             np.savetxt(outfile + '.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
+            # background correction for reference star images
+            if background:
+                row_sum -= 0.5*np.sum(imbw[ymax + width // 2:ymax + 3 * width // 2 , :], axis=0)
+                row_sum -= 0.5*np.sum(imbw[ymin - 3 * width // 2:ymin - width // 2, :], axis=0)
+                np.savetxt(outfile + '_bg.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
             fits_dict.pop('M_TILT', None)
             fits_dict.pop('M_SLANT', None)
             fits_dict.pop('M_ROWMIN', None)
@@ -1289,7 +1308,12 @@ def read_video_list(file):
 
 
 # -------------------------------------------------------------------
-def update_video_list(video_list, avifile):
+def update_video_list(file, avifile):
+    """
+    updates list of latest converted video files from table
+    :param file: filename of video file table, e.g. 'videolist.txt'
+    """
+    video_list = read_video_list(file)
     video_name, ext = path.splitext(path.basename(avifile))
     # for UFO Capture videos, replace M by S:
     if video_name[0] == 'M':
@@ -1386,7 +1410,7 @@ def log_window(logfile):
 
 
 # -------------------------------------------------------------------
-def edit_text_window(text_file, select=True, size=(100, 30)):
+def edit_text_window(text_file, select=True, size=(100, 30), default_extension='*.txt'):
     """
     displays editor window, file is saved under the same name
     :param text_file: filename
@@ -1395,9 +1419,13 @@ def edit_text_window(text_file, select=True, size=(100, 30)):
     """
     tmp_file = path.basename(text_file)
     if select:
+        if default_extension == '*.dat':
+            files = ('Spectra', '*.dat')
+        else:
+            files = ('Text Files', '*.txt')
         file, info = my_get_file(tmp_file, title='Edit Text File',
-                                          file_types=(('Text Files', '*.txt'), ('ALL Files', '*.*'),),
-                                          default_extension='*.txt')
+                                          file_types=(files, ('ALL Files', '*.*'),),
+                                          default_extension=default_extension)
     else:
         file = tmp_file
     if file:
@@ -1608,7 +1636,8 @@ def draw_scaled_image(file, graph, opt_dict, idg, contr=1, tmp_image=False, resi
         imag.save('tmp.png')
     del imag
     data = bio.getvalue()
-    if idg: graph.delete_figure(idg)
+    # if idg: graph.delete_figure(idg)
+    graph.Erase()
     idg = graph.draw_image(data=data, location=(0, opt_dict['graph_size']))
     graph.update()
     if get_array:
