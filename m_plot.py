@@ -264,7 +264,7 @@ def graph_calibrated_spectrum(spec_file, lmin=0, lmax=720, imin=0, imax=1, autos
                             [sg.InputText('', size=(40, 1), key='label')],
                             [sg.Button('Apply'), sg.Button('Cancel')]]
             window_label = sg.Window('Label Peak', layout_label, keep_on_top=True).Finalize()
-            for k in range(len(lam_calib)):
+            for k in range(len(lam_calib)-1):
                 if label_str[k][0] < x:
                     kk = k
             if kk < len(lam_calib):
@@ -464,7 +464,7 @@ def wavelength_tools(sigma_nm, file='', type='reference'):
                     l_new = l_ori/order
                     if order < 0:
                         l_new = list(reversed(l_new))  # best solution
-                        i_new = list(reversed(i_new))
+                        i_ori = list(reversed(i_ori))
                         # l_new = l_new[::-1]  # also good
                         # i_new = i_new[::-1]
                         # l_swap = list(l_new)  # complicated 3 lines

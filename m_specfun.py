@@ -1195,7 +1195,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
 
 
 # -------------------------------------------------------------------
-def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext):
+def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, abs_sign=1):
     """
     fits a parabola to peak of selected line, determines peak position, intensity and width
     results are appended to table together with wavelength of selected line
@@ -1207,7 +1207,7 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext)
     :param ical: intensity array
     :param graph: displayed window
     :param table: table with calibration results
-    :param caltext: multiline info
+    :param abs_sign: sign for emission = + 1, absorption = -1
     :return:
     coeff[1]: peak position of parabolic fit
     fwp: peak width (approximate)
@@ -1230,33 +1230,36 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, caltext)
                       line_width=60)
     else:
         try:
-            lcr0 = lc[icleft:icright]
+            lcr0 = abs_sign*lc[icleft:icright]
             lmax0 = np.max(lcr0)
+            lmin0 = (lcr0[0] + lcr0[icright - icleft - 1]) / 2
             for i in range(icright - icleft):
                 if (lcr0[i] - lmax0 + 1.e-5) > 0:
                     m = i
             peak0 = icleft + m  # index of max value, center for parabolic fit
             icr = ic[peak0 - 2:peak0 + 3]
-            lcr = lc[peak0 - 2:peak0 + 3]
+            lcr = abs_sign*lc[peak0 - 2:peak0 + 3]
             coeff[0] = lmax0
             coeff[1] = peak0
             coeff[2] = 1 / (w + 1)
             coeff, var_matrix = optimize.curve_fit(parab, icr, lcr, p0=coeff)
             # lcp_fit = parab(icr, *coeff) # function for display results
             x0p = coeff[1]
-            fwp = np.sqrt(1.5 / coeff[2])
+            fwp = np.sqrt(1.5 / abs(coeff[2]))
+            if abs_sign < 0:  # Absorption line, correct peak height
+                fwp *= np.sqrt(abs((coeff[0]-lmin0) / coeff[0]))
             # parabolic fit
             if debug:
                 print(f'x0p ={x0p:8.2f} FWHMP={fwp:8.3f}')
             points = []
             l0: int
             for l0 in range(peak0 - 2, peak0 + 3):
-                points.append((lcal[l0], parab(lcal[l0], *coeff)))
+                points.append((lcal[l0], abs_sign*parab(lcal[l0], *coeff)))
             for l0 in range(1, 5):
                 graph.DrawLine(points[l0 - 1], points[l0], 'blue', 1)
             table.append((coeff[1], lam))
             info = f'{coeff[1]:8.2f} {fwp:6.2f} {lam:8.2f} {name}'
-            caltext += info + '\n'
+            caltext = info + '\n'
             logging.info(info)
         except:
             sg.PopupError('Select Line: no peak found, try again', title='Select line')

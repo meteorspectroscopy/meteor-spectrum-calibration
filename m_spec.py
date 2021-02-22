@@ -307,10 +307,11 @@ def main():
         [sg.InputText(outfile, size=(31, 1), key='-SPEC_R-'),
          sg.Button('Load Raw', key='-LOAD_RAW-', tooltip='load uncalibrated 1d spectrum r_addxx.dat')],
         [sg.Button('Select Lines', key='-S_LINES-', disabled=True, button_color=bc_disabled,
-                   tooltip='Click to start new calibration, finish with "Save table"')],
+                   tooltip='Click to start new calibration, finish with "Save table"'),
+         sg.Checkbox('Absorption line', default=False, key='-ABSORPTION-')],
         [sg.Text('Pos          Wavelength')],
-        [sg.InputText('0', size=(9, 1), justification='r', key='-POS-', disabled=True),
-         sg.Combo(['           ', '0 zero', '517.5 Mg I', '589 Na I', '777.4 O I'], key='-LAMBDA-',
+        [sg.InputText('0', size=(7, 1), justification='r', key='-POS-', disabled=True),
+         sg.Combo(['             ', '0 zero', '517.5 Mg I', '589 Na I', '777.4 O I'], key='-LAMBDA-',
                   enable_events=True, disabled=True, tooltip='click Box to enable selection, then select, ' +
                   'click Button Sel. Line to confirm'),
          sg.Button('Sel. Line', key='-S_LINE-', disabled=True, button_color=bc_disabled),
@@ -1130,8 +1131,9 @@ def main():
             window['-LAMBDA-'].update(disabled=True)
             (l0, name) = values['-LAMBDA-'].split(' ', 1)
             lam = float(l0)
+            abs_sign = -1 if values['-ABSORPTION-'] else 1
             x0, fwp, cal_text_file = m_fun.select_calibration_line(x0, w, lam, name, lcal, ical,
-                                                                   graph, table, cal_text_file)
+                                                                   graph, table, abs_sign=abs_sign)
             result_text += cal_text_file
             window['-RESULT4-'].update(result_text, disabled=True)
 

@@ -15,3 +15,13 @@
 1035 Mg I
 1178 Na I
 1554.8 O I
+1767 Na I
+2322.2 O I
+2356 Na I
+2954 Na I
+388.9 H-zeta
+397.0 H-eps
+410.2 H-delta
+434.0 H-gamma
+486.1 H-beta
+656.3 H-alpha
