@@ -29,13 +29,13 @@ import PySimpleGUI as sg
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
-version = '0.9.23'
+version = '0.9.25'
 # today = date.today()
 logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
-logging.basicConfig(filename=logfile, format='%(asctime)s %(message)s', level=logging.INFO)
+logging.basicConfig(filename=logfile, format='%(asctime)s %(levelno)s %(lineno)d %(message)s', level=logging.INFO)
 # -------------------------------------------------------------------
 # initialize dictionaries for configuration
 parv = ['1' for x in range(10)] + ['' for x in range(10, 15)]
@@ -78,14 +78,15 @@ i_min = -0.5
 i_max = 5
 graph_size = 2000
 show_images = True
+meteor_lines = 'meteor_lines'
 video_list_length = 50
 optkey = ['zoom', 'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x',
           'calc_off_y', 'setup_off_x', 'setup_off_y', 'debug', 'fit-report',
           'scale_win2ima', 'comment', 'png_name', 'outpath', 'mdist', 'colorflag', 'bob',
-          'plot_w', 'plot_h', 'i_min', 'i_max', 'graph_size', 'show_images']
+          'plot_w', 'plot_h', 'i_min', 'i_max', 'graph_size', 'show_images', 'meteor_lines']
 optvar = [zoom, wsize[0], wsize[1], wloc[0], wloc[1], xoff_calc, yoff_calc,
           xoff_setup, yoff_setup, debug, fit_report, win2ima, opt_comment, png_name,
-          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max, graph_size, show_images]
+          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines]
 opt_dict = dict(list(zip(optkey, optvar)))
 
 # -------------------------------------------------------------------
@@ -229,7 +230,7 @@ def write_fits_image(image, filename, fits_dict, dist=True):
     """
     if len(image.shape) == 3:
         if image.shape[2] > 3:  # cannot read plots with multiple image planes
-            sg.PopupError('cannot convert png image, try bmp or fit')
+            sg.PopupError('cannot convert png image, try bmp or fit', title='write_fits_image')
             return 1
         image = np.transpose(image, (2, 0, 1))
     hdu = fits.PrimaryHDU(image.astype(np.float32))
@@ -284,7 +285,7 @@ def extract_video_images(avifile, pngname, bobdoubler=False, binning=1, bff=True
     def tfits(p):
         # f = Path(p).name
         f, ext = path.splitext(path.basename(p))
-        if f[0] != 'M' :
+        if f[0] != 'M':
             print('f:', f)
             f = f[1:]
         t = Time(datetime(int(f[1:5]), int(f[5:7]), int(f[7:9]), int(f[10:12]), int(f[12:14]), int(f[14:16]))).fits
@@ -354,7 +355,10 @@ def extract_video_images(avifile, pngname, bobdoubler=False, binning=1, bff=True
             # get dattim from filename
             dattim, sta = tfits(avifile)
         except Exception as e:
-            sg.PopupError(f'problem with ffmpeg, no images converted\n{e}', title='AVI conversion')
+            info = 'problem with ffmpeg, no images converted'
+            sg.PopupError(info + f'\n{e}', title='AVI conversion')
+            logging.error(info)
+            logging.error({e})
     return nim, dattim, sta, out
 
 
@@ -453,7 +457,7 @@ def create_background_image(im, nb, colorflag=False):  # returns background imag
 
 
 # -------------------------------------------------------------------
-def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, graph_size, dist=False,
+def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, dist=False,
                           background=False, center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False,
                           show_images=True, cval=0):
     # subtracts background and transforms images in a single step
@@ -645,6 +649,8 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             disttext += '\n!!!no fits-header DATE-OBS, M-STATIO!!!\n'
         logging.info(f"'DATE-OBS' = {dattim}")
         logging.info(f"'M-STATIO' = {sta}")
+        if not background:
+            logging.info('no background applied')
         info = f'Bobdoubler, start image = {im}{first}'
         if int(fits_dict['M_BOB']):
             logging.info(f'with ' + info)
@@ -687,7 +693,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     outfile = ''
     dist = False
     fits_dict.pop('M_NIM', None)  # M_NIM only defined for added images
-    info = (f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}')
+    info = f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}'
     regtext = info + '\n'
     logging.info(info)
     image_list = create_file_list(infile, nim, ext='', start=start)
@@ -759,8 +765,8 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
             os.remove(outfil + str(index - start + 1) + '.fit')
         index += -1
         info = f'problem with register_images, last image: {image_file}, number of images: {index}'
-        logging.info(info)
-        logging.info({e})
+        logging.error(info)
+        logging.error({e})
         regtext += f'{info}\n{e}\n'
     nim = index - start + 1
     if nim > 1:
@@ -1093,7 +1099,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             if None not in (start_point, end_point):
                 ymin = min(start_point[1], end_point[1])
                 ymax = max(start_point[1], end_point[1])
-                width = ymax -ymin
+                width = ymax - ymin
                 if background:
                     upper_back = graph.draw_rectangle((0, ymax + width // 2),
                                                       (imx, ymax + width // 2 + width), line_color='green')
@@ -1135,7 +1141,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
 
                 except Exception as e:
                     sg.PopupError(f'bad values for tilt or slant, try again\n{e}',
-                                  keep_on_top=True)
+                                  title='apply_tilt_slant', keep_on_top=True)
                 write_fits_image(imtilt, '_st.fit', fits_dict, dist=dist)
                 image_data, idg, actual_file = draw_scaled_image('_st' + '.fit', window['-R_IMAGE-'],
                                                                  opt_dict, idg, contr=contr, tmp_image=True)
@@ -1168,7 +1174,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             np.savetxt(outfile + '.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
             # background correction for reference star images
             if background:
-                row_sum -= 0.5*np.sum(imbw[ymax + width // 2:ymax + 3 * width // 2 , :], axis=0)
+                row_sum -= 0.5*np.sum(imbw[ymax + width // 2:ymax + 3 * width // 2, :], axis=0)
                 row_sum -= 0.5*np.sum(imbw[ymin - 3 * width // 2:ymin - width // 2, :], axis=0)
                 np.savetxt(outfile + '_bg.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
             fits_dict.pop('M_TILT', None)
@@ -1261,8 +1267,8 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, abs_sign
             info = f'{coeff[1]:8.2f} {fwp:6.2f} {lam:8.2f} {name}'
             caltext = info + '\n'
             logging.info(info)
-        except:
-            sg.PopupError('Select Line: no peak found, try again', title='Select line')
+        except Exception as e:
+            sg.PopupError(f'No peak found, try again\n{e}', title='Select line')
     return coeff[1], fwp, caltext
 
 
@@ -1273,13 +1279,13 @@ def create_line_list_combo(m_linelist, window, combo=True):
     :param m_linelist: table with wavelength, line identifier (space separated)
     :param window: Combobox for selecting wavelength
     :param combo: if True: update Combo, else only create list
-    :return: label_str
+    :return: label_str, lam_calib
     """
     try:
         lam_calib = []
         label_str = []
         i = -1
-        with open(m_linelist + '.txt')as f:
+        with open(change_extension(m_linelist, '.txt')) as f:
             for x in f:
                 x = x.lstrip()
                 (l, name) = x.split(' ', 1)
@@ -1291,7 +1297,7 @@ def create_line_list_combo(m_linelist, window, combo=True):
         if combo:
             window['-LAMBDA-'].update(values=lam_calib, set_to_index=index0)
     except Exception as e:
-        sg.PopupError(f'no calibration lines {m_linelist}.txt found, use default\n{e}')
+        sg.PopupError(f'error with calibration lines {m_linelist}.txt\n{e}', keep_on_top=True)
     return label_str, lam_calib
 
 
@@ -1315,6 +1321,7 @@ def update_video_list(file, avifile):
     """
     updates list of latest converted video files from table
     :param file: filename of video file table, e.g. 'videolist.txt'
+    :param avifile: filename to be added to video file table
     """
     video_list = read_video_list(file)
     video_name, ext = path.splitext(path.basename(avifile))
@@ -1419,6 +1426,7 @@ def edit_text_window(text_file, select=True, size=(100, 30), default_extension='
     :param text_file: filename
     :param select: if True, open file open dialog
     :param size: (columns, rows)
+    :param default_extension: of filename
     """
     tmp_file = path.basename(text_file)
     if select:
@@ -1427,8 +1435,8 @@ def edit_text_window(text_file, select=True, size=(100, 30), default_extension='
         else:
             files = ('Text Files', '*.txt')
         file, info = my_get_file(tmp_file, title='Edit Text File',
-                                          file_types=(files, ('ALL Files', '*.*'),),
-                                          default_extension=default_extension)
+                                 file_types=(files, ('ALL Files', '*.*'),),
+                                 default_extension=default_extension)
     else:
         file = tmp_file
     if file:
@@ -1456,7 +1464,7 @@ def view_fits_header(fits_file):
     :param fits_file: filename of fits-file
     """
     file, info = my_get_file(fits_file, title='View Fits-Header', default_extension='.fit',
-                              file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
+                             file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
     if file:
         im, header = fits.getdata(file, header=True)
         text = ''
@@ -1542,7 +1550,7 @@ def add_images(graph_size, contrast=1, average=True):
                     window['nim'].update(str(number_images))
                     window.refresh()
                 except Exception as e:
-                    sg.PopupError(f'Images cannot be added, different size?\n{e}')
+                    sg.PopupError(f'Images cannot be added, different size?\n{e}', title='add_images')
         if event == 'Darker':
             contrast = 0.5 * contrast
             image_data, idg, actual_file = draw_scaled_image('_add.fit', window['graph'],
@@ -1555,7 +1563,7 @@ def add_images(graph_size, contrast=1, average=True):
         window.refresh()
         if event == 'Save' and files:
             sum_file, info = my_get_file('', title='Save images', save_as=True, default_extension='.fit',
-                             file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
+                                         file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
             if sum_file:
                 write_fits_image(sum_image, sum_file, fits_dict)
                 if idg: window['graph'].delete_figure(idg)
@@ -1609,7 +1617,7 @@ def draw_scaled_image(file, graph, opt_dict, idg, contr=1, tmp_image=False, resi
         (image: numpy image array)
     """
     if not path.exists(file):
-        sg.PopupError(f'file {file} not found', keep_on_top=True)
+        sg.PopupError(f'file {file} not found', title='draw_scaled_image', keep_on_top=True)
         if get_array:
             return None, None, file, None
         else:
@@ -1715,4 +1723,29 @@ def save_fit_png(imfilename, image, fits_dict):
         warnings.simplefilter("ignore")
         ios.imsave(change_extension(imfilename, '.png'), np.flipud(image*255).astype(np.uint8))
     write_fits_image(image, str(change_extension(imfilename, '.fit')), fits_dict)
+
+
 #-------------------------------------------------------------------
+def select_options(opt_dict, ):
+    zoom_elem = sg.Input(opt_dict['zoom'], key='-ZOOM-', size=(7, 1), tooltip='display image scale if scale_win2ima')
+    cb_elem_debug = sg.Checkbox('debug', default=opt_dict['debug'], pad=(10, 0), key='-DEBUG-')
+    cb_elem_fitreport = sg.Checkbox('fit-report', default=opt_dict['fit-report'],
+                                    pad=(10, 0), key='-FIT_REPORT-')
+    cb_elem_w2i = sg.Checkbox('scale_win2ima', default=opt_dict['scale_win2ima'],
+                              pad=(10, 0), key='-W2I-', tooltip='if not checked scale image to window size')
+    layout_options = [[sg.Text('Zoom', size=(6, 1)), zoom_elem],
+                      [cb_elem_debug], [cb_elem_fitreport], [cb_elem_w2i],
+                      [sg.Button('Apply', key='-APPLY_OPT-')]]
+    options_window = sg.Window('Options', layout_options, keep_on_top=True, disable_minimize=True)
+    while True:
+        ev, vals = options_window.read(timeout=100)
+        if ev is None:  # always give a way out!
+            break
+        if ev == '-APPLY_OPT-':
+            opt_dict['zoom'] = float(zoom_elem.Get())
+            opt_dict['debug'] = cb_elem_debug.Get()
+            opt_dict['fit-report'] = cb_elem_fitreport.Get()
+            opt_dict['scale_win2ima'] = cb_elem_w2i.Get()
+            break
+    options_window.close()
+    return opt_dict

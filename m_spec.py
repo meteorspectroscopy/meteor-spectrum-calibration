@@ -22,7 +22,7 @@ import myselect as sel
 try:
     from csaps import csaps
     csaps_installed = True
-except  Exception as e:
+except Exception as e:
     sg.PopupError(f'missing module\ninstall csaps, if you want to use response function\n'
                   f'or continue without response\n{e}', no_titlebar=True, keep_on_top=True)
     csaps_installed = False
@@ -33,7 +33,7 @@ except  Exception as e:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.23'
+    version = '0.9.25'
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
     sg.SetGlobalIcon('Koji.ico')
@@ -56,7 +56,7 @@ def main():
     fits_k = list(fits_dict.keys())
     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc, xoff_setup, yoff_setup,
         debug, fit_report, win2ima, opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
-        plot_w, plot_h, i_min, i_max, graph_size, show_images] = list(opt_dict.values())
+        plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines] = list(opt_dict.values())
     if par_text == '':
         sg.PopupError(f'no valid configuration found, default {ini_file} created')
     # default values for video
@@ -116,7 +116,7 @@ def main():
     plot_range = (lmin, lmax, i_min, i_max)
     graph_ir_enabled = False
     autoscale = True
-    l_smooth = l_resp = []
+    l_spec = l_smooth = l_resp = []
     smooth_parameter = 0.01
     response_ok = False
     response_folder = 'response'
@@ -126,8 +126,14 @@ def main():
     raw_style = ('green', 2, 0, -.15)
     response_style = ('darkred', 0, 2, -0.2)
     flux_style = ('green', 0, 2, -.15)
+    flux_file = ''
     sigma = 2.0
     tool_type = 'reference'
+    idg_ref = []
+    idg_resp =[]
+    idg_smooth = []
+    idg_flux = []
+    flux_flag = False
     # -------------------------------------------------------------------
     # definition of GUI
     # -------------------------------------------------------------------
@@ -141,6 +147,7 @@ def main():
         ['View', ['Fits-Header']],
         ['Tools', ['!Offset', 'Edit Text File', 'Edit Log File', 'Edit Spectrum',
                    'Add Images', '!Gaussian, wavelength tools']],
+        ['Options', ['Setup Options', 'Meteor lines']],
         ['Help', 'About...'], ]
 
     setup_file_element = sg.Frame('Configuration File',
@@ -159,23 +166,9 @@ def main():
         row_layout += [sg.Text(list(fits_dict.keys())[k], size=(10, 1)),
                        sg.Input(fits_v[k], size=(45, 1), key=kk, tooltip='Fits-header default values')],
 
-    # Options
-    zoom_elem = sg.Input(zoom, key='-ZOOM-', size=(7, 1), tooltip='display image scale if scale_win2ima')
-    cb_elem_debug = sg.Checkbox('debug', default=debug, pad=(10, 0), key='-DEBUG-')
-    cb_elem_fitreport = sg.Checkbox('fit-report', default=fit_report,
-                                    pad=(10, 0), key='-FIT_REPORT-')
-    cb_elem_w2i = sg.Checkbox('scale_win2ima', default=win2ima,
-                              pad=(10, 0), key='-W2I-', tooltip='if not checked scale image to window size')
-    input_rows = [[sg.Text('Zoom', size=(6, 1)), zoom_elem],
-                  [cb_elem_debug], [cb_elem_fitreport], [cb_elem_w2i],
-                  [sg.Text('Comment', size=(10, 1))],
-                  [sg.InputText(opt_comment, size=(16, 1), key='-COMMENT-')],
-                  [sg.Button('Apply', key='-APPLY_OPT-')]]
-    layout_options = sg.Frame('Options', input_rows)
-
     # Parameters
     layout_setup = [[sg.Frame('Settings', [[setup_file_element], [result_elem,
-                    sg.Frame('Setup Parameters', row_layout, tooltip='Edit parameters'), layout_options]])]]
+                    sg.Frame('Setup Parameters', row_layout, tooltip='Edit parameters')]])]]
 
     # Video tab---------------------------------------------------------------------
     image_element_video = sg.Graph(canvas_size=graph_s2, graph_bottom_left=(0, 0),
@@ -204,8 +197,8 @@ def main():
                                                 sg.Button('Previous', key='-PREVIOUS-', disabled=True),
                                                 sg.Button('Next', key='-NEXT-', disabled=True),
                                                 sg.Button('Continue', key='-GOTO_DIST-', disabled=True,
-                                                button_color=bc_disabled, bind_return_key=True,
-                                                tooltip='Go to next tab for applying distortion')]])
+                                                          button_color=bc_disabled, bind_return_key=False,
+                                                          tooltip='Go to next tab for applying distortion')]])
     video_options_element = sg.Frame('Options', image_options_element)
 
     # Distortion tab--------------------------------------------------------------------
@@ -331,15 +324,14 @@ def main():
                         enable_events=True, drag_submits=True, float_values=True,
                         tooltip='erase points with mouse draw')]]
     ir_elem = [[sg.Frame('Instrument response', [
-        [sg.Frame('Reference', [
-        [sg.InputText('', size=(31, 1), key='-STAR-'),
+        [sg.Frame('Reference', [[sg.InputText('', size=(31, 1), key='-STAR-'),
          sg.Button('Load Spectrum', key='-LOAD_STAR-', tooltip='load calibrated star spectrum *.dat')],
         [sg.InputText('', size=(31, 1), key='-REF_I-'),
          sg.Button('Load Reference', key='-LOAD_REF-', tooltip='load calibrated reference spectrum *.dat')],
         [sg.Button('Divide spectra', key='raw_response',
                    tooltip='divide star spectrum by calibration reference'),
-         sg.Button('Smooth response', key='smooth_response'), sg.In(smooth_parameter, size=(7, 1),
-                    key='smooth_parameter', tooltip='Smooth parameter'),
+         sg.Button('Smooth response', key='smooth_response'),
+         sg.In(smooth_parameter, size=(7, 1), key='smooth_parameter', tooltip='Smooth parameter'),
          sg.Button('Reset', key='response_reset')],
         [sg.InputText('response', size=(31, 1), key='-RESPONSE-'),
          sg.Button('Save response', key='-SAVE_RESPONSE-')], ]), ],
@@ -354,9 +346,8 @@ def main():
          sg.Button('Load Response', key='-LOAD_RESPONSE-')],
         [sg.InputText(outpath + '/', size=(31, 1), key='-SPECTRUM-'),
          sg.Button('Load Spectrum', key='-LOAD_SPECTRUM-', tooltip='load calibrated spectrum *.dat')],
-        [sg.Button('Apply', key='apply_response',
-                   tooltip='divide meteor spectrum by response'),
-        sg.InputText('', size=(28, 1), key='-FLUX-'),
+        [sg.Button('Apply', key='apply_response', tooltip='divide meteor spectrum by response'),
+         sg.InputText('', size=(28, 1), key='-FLUX-'),
          sg.Button('Save flux', key='-SAVE_FLUX-')],
         ]), ],
         [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT5-', autoscroll=True)]]),
@@ -371,14 +362,14 @@ def main():
     # layout laser calibration window
     layout_parameters = sg.Frame('', [[sg.Frame('Setup',
                   [[sg.Input(ini_file, size=(40, 1), key='setup_file')],
-                   [sg.Button('Load Setup'), sg.Button('Edit Setup',
-                        tooltip='edit specific laser calibration parameters')]])],
-               [sg.Frame('Video Extraction',
+                   [sg.Button('Load Setup'),
+                    sg.Button('Edit Setup', tooltip='edit specific laser calibration parameters')]])],
+                  [sg.Frame('Video Extraction',
                   [[sg.Input('', size=(40, 1), key='avi_file')],
                    [sg.Button('Load Avi', tooltip='convert avi-file to average background image'),
                     sg.Text('Calibration image:'), sg.Button('Save Image', tooltip='save image before using it')],
                    [sg.Input('', size=(40, 1), key='image_file')]])],
-               [sg.Frame('Select Lines',
+                  [sg.Frame('Select Lines',
                   [[sg.Input(infile, size=(40, 1), key='input_file')],
                    [sg.Button('Load Image', tooltip='select 1 or multiple images (load again) for calibration')],
                    [sg.Text('Calibration data, ".txt":')],
@@ -389,16 +380,15 @@ def main():
                    [sg.Text('Linelist'), sg.Input(linelist, size=(20, 1), key='linelist'),
                     sg.Button('Load L_list', tooltip='select file with ordered list of calibration wavelengths, '
                                                      '\ntype "l" for laser calibration')]])],
-               [sg.Frame('Calibration',
+                  [sg.Frame('Calibration',
                   [[sg.Button('LSQF', tooltip='determine transformation parameters '
                                               '\nwith least square fit of observed line positions'),
-                    sg.Checkbox('SQRT-Fit',
-                                    default=par_dict['b_sqrt'], key='SQRT-Fit'),
+                    sg.Checkbox('SQRT-Fit', default=par_dict['b_sqrt'], key='SQRT-Fit'),
                     sg.Checkbox('Fit-xy', default=par_dict['b_fitxy'], key='fitxy')]])],
-               [sg.Text('Results:')], [log_elem]])
+                   [sg.Text('Results:')], [log_elem]])
     laser_calib_elem = [[layout_parameters,
-                     sg.Column([[sg.Text(infile, size=(100, 1), key='image_filename')],
-                                [image_elem_calib]])]]
+                         sg.Column([[sg.Text(infile, size=(100, 1), key='image_filename')],
+                                   [image_elem_calib]])]]
 
     # ==============================================================================
     # Tabs and window
@@ -413,8 +403,7 @@ def main():
                              tooltip='Register, add images, apply tilt, slant')
     cal_tab_element = sg.Tab('Calibration', calibrate_elem, key='-T_CAL-',
                              tooltip='Calibrate wavelength scale')
-    ir_tab_element = sg.Tab('Instrument Response', ir_elem, key='-T_IR-',
-                            tooltip='')
+    ir_tab_element = sg.Tab('Instrument Response', ir_elem, key='-T_IR-')
     laser_tab_element = sg.Tab('Laser Calibration', laser_calib_elem, key='T_LASER_CAL-')
     tabs_element = sg.TabGroup([[setup_tab_element], [video_tab_element],
                                 [dist_tab_element], [reg_tab_element], [cal_tab_element],
@@ -425,7 +414,7 @@ def main():
                        [tabs_element]], location=(wlocx, wlocy), size=(wsx, wsy), resizable=True)
     window.read()
     image_data, idg, actual_file = m_fun.draw_scaled_image('tmp.png', window['-V_IMAGE-'],
-                                       opt_dict, idg, resize=False)
+                                                            opt_dict, idg, resize=False)
     graph_ir = window['graph_ir']
 
     # ==============================================================================
@@ -503,7 +492,7 @@ def main():
                     plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(file, graph_ir, canvasx,
                                              autoscale=values['autoscale'], plot_range=plot_range)
                     if reference_file:
-                        m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
+                        idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
                                                        plot_range=plot_range, plot_style=ref_style)
                     window['-REF_I-'].update(reference_file)
                 else:
@@ -514,6 +503,18 @@ def main():
                     result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 window.refresh()
+
+        if event == 'Setup Options':
+            opt_dict = m_fun.select_options(opt_dict, )
+            debug = opt_dict['debug']
+        if event == 'Meteor lines':
+            meteor_lines, info = m_fun.my_get_file(meteor_lines, title='Meteor line catalog', default_extension='.txt',
+                                             file_types=(('Calibration Files', '*.txt'),),
+                                             error_message='no file loaded')
+            if not meteor_lines:
+                sg.PopupError('no file selected, use default list')
+                meteor_lines = 'meteor_lines'
+            opt_dict['meteor_lines'] = m_fun.m_join(meteor_lines)
 
         if event == 'About...':
             m_fun.about(version)
@@ -534,7 +535,7 @@ def main():
                     print('clip: min, max , ave ', np.min(imbw), np.max(imbw), np.average(imbw))
                     m_fun.write_fits_image(imbw, file_offset, fits_dict)
                     image_data, idg, actual_file = m_fun.draw_scaled_image(file_offset,
-                        image_elem_calib, opt_dict, idg, tmp_image=True)
+                                        image_elem_calib, opt_dict, idg, tmp_image=True)
                     infile = infile + '_off'
                     window['image_filename'].Update(infile)
                     window['input_file'].Update(infile)
@@ -572,12 +573,7 @@ def main():
                     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc,
                      xoff_setup, yoff_setup, debug, fit_report, win2ima,
                      opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
-                     plot_w, plot_h, i_min, i_max, graph_size, show_images] = list(opt_dict.values())
-                zoom_elem.Update(zoom)
-                cb_elem_debug.Update(debug)
-                cb_elem_fitreport.Update(fit_report)
-                cb_elem_w2i.Update(win2ima)
-                window['-COMMENT-'].Update(opt_comment)
+                     plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines] = list(opt_dict.values())
                 window['-PNG_BASE-'].Update(png_name)
                 window['-PNG_BASED-'].Update(png_name)
                 window['-OUT-'].Update(outpath)
@@ -592,7 +588,7 @@ def main():
                 window['-SHOW_IM-'].Update(show_images)
                 window.Move(wlocx, wlocy)
 
-        elif event in ('-SAVE_SETUP-', '-SAVE_DEFAULT-', '-APPLY_OPT-', 'Exit'):
+        elif event in ('-SAVE_SETUP-', '-SAVE_DEFAULT-', 'Exit'):
             if event == '-SAVE_SETUP-':
                 ini_file, info = m_fun.my_get_file(setup_file_display_elem.Get(), save_as=True,
                                file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
@@ -616,12 +612,6 @@ def main():
                 logging.info(f'{k} = {res_dict[k]:9.3e}') if k[0] == 'a' else logging.info(f'{k} = {res_dict[k]:9.3f}')
             logging.info(f"'DATE-OBS' = {dat_tim}")
             logging.info(f"'M-STATIO' = {sta}")
-            # update options
-            opt_dict['zoom'] = float(zoom_elem.Get())
-            opt_dict['debug'] = cb_elem_debug.Get()
-            opt_dict['fit-report'] = cb_elem_fitreport.Get()
-            opt_dict['scale_win2ima'] = cb_elem_w2i.Get()
-            opt_dict['comment'] = values['-COMMENT-']
             opt_dict['png_name'] = values['-PNG_BASE-']
             opt_dict['outpath'] = values['-OUT-']
             opt_dict['mdist'] = values['-M_DIST-']
@@ -633,9 +623,9 @@ def main():
             opt_dict['i_max'] = i_max
             opt_dict['show_images'] = values['-SHOW_IM-']
             [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc,
-            xoff_setup, yoff_setup, debug, fit_report, win2ima,
-            opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
-            plot_w, plot_h, i_min, i_max, graph_size, show_images] = list(opt_dict.values())
+                xoff_setup, yoff_setup, debug, fit_report, win2ima,
+                opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
+                plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines] = list(opt_dict.values())
             if ini_file and event != '-APPLY_OPT-':
                 m_fun.write_configuration(ini_file, par_dict, res_dict, fits_dict, opt_dict)
             try:
@@ -686,7 +676,7 @@ def main():
                     logging.info(f'converted {avifile} {nim} images')
                     logging.info(f'Station = {sta} Time = {dat_tim}')
                     result_text = f'Station = {sta}\nTime = {dat_tim}\n'
-                    result_text += opt_comment + f'\nNumber converted images = {str(nim)}\n'
+                    result_text += f'\nNumber converted images = {str(nim)}\n'
                     window['-RESULT2-'].update(result_text)
                     window['-PNG_BASED-'].update(png_name)
                     window['-BOB_D-'].update(bob_doubler)
@@ -811,11 +801,13 @@ def main():
                             fits_dict[fkey] = np.float32(res_dict[key])
                             logging.info(f'{key} = {res_dict[key]:9.3e}') if key[0] == 'a' \
                                 else logging.info(f'{key} = {res_dict[key]:9.3f}')
+                    else:
+                        logging.info('no distortion applied')
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
                                 m_fun.m_join(outpath, 'm_back.fit'), outpath, mdist, first, nm, window,
-                                fits_dict, graph_size, dist, background, (x00, y00), a3, a5, rot, scalxy,
+                                fits_dict, dist, background, (x00, y00), a3, a5, rot, scalxy,
                                 colorflag, show_images=show_images)
                     image_data, idg, actual_file = m_fun.draw_scaled_image(infile + '_peak.png',
                                                             window['-D_IMAGE-'], opt_dict, idg, tmp_image=True)
@@ -888,7 +880,6 @@ def main():
                 result_text = '\n!!!no fits-header DATE-OBS, M-STATIO!!!\n'
             result_text += ('Station = ' + sta + '\n'
                             + 'Time = ' + dat_tim + '\n'
-                            + opt_comment + '\n'
                             + 'Number Images = ' + str(nim) + '\n')
             window['-RESULT3-'].update(result_text)
         # image contrast--------------------------------------------------------
@@ -901,10 +892,10 @@ def main():
                 if values['-SHOW_REG-']:
                     if path.exists(out_fil + str(i_reg) + '.fit'):
                         image_data, idg, actual_file = m_fun.draw_scaled_image(out_fil + str(i_reg) + '.fit',
-                                                                window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
+                                                            window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
                 else:
                     image_data, idg, actual_file = m_fun.draw_scaled_image(infile + str(i_reg) + '.fit',
-                                                                window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
+                                                            window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
 
         # image selection-------------------------------------------------------
         elif event == '-SHOW_SUM_R-':
@@ -963,7 +954,7 @@ def main():
                 if nim > 1:
                     logging.info(f'time for register one image : {t3 / nim:6.2f} sec')
                     result_text += (f'Station = {sta}\nTime = {dat_tim}\n'
-                                    + opt_comment + f'\nStart image = {str(start)}\n'
+                                    + f'\nStart image = {str(start)}\n'
                                     + f'Number registered images: {nim}\nof total images: {nmp}\n'
                                     + f'time for register one image: {t3 / nim:6.2f} sec\n')
                     image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
@@ -975,8 +966,9 @@ def main():
                 else:
                     result_text = (f'Number registered images: {nim}\n'
                                    + f'of total images: {nmp}\nnot enough images\n')
-                    sg.PopupError(f'register did not work with last image, try again!')
-                    logging.info(f'register did not work with last image, try again!')
+                    info = 'register did not work with last image, try again!'
+                    sg.PopupError(info)
+                    logging.error(info)
                 window['-RESULT3-'].update(reg_text + result_text)
 
         # =======================================================================
@@ -1006,7 +998,7 @@ def main():
             window['-CAL_R-'].update(disabled=True, button_color=bc_disabled)
             outfile, info = m_fun.my_get_file(outfile, title='Get Registered File',
                                       file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),),
-                                     default_extension='*.fit')
+                                      default_extension='*.fit')
             if outfile:
                 # remove fits header items not present in mdist files, load actual values below
                 fits_dict['M_NIM'] = '1'
@@ -1046,7 +1038,7 @@ def main():
             # update fits_dict
             m_fun.get_fits_keys(header, fits_dict, res_dict, keyprint=debug)
             new_outfile, info = m_fun.my_get_file(outfile, title='Save image and raw spectrum as', save_as=True,
-                             file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                        file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if new_outfile:
                 outfile, ext = path.splitext(new_outfile)
                 window['-RADD-'].update(outfile)
@@ -1072,12 +1064,18 @@ def main():
                                         default_extension='*.dat')
             window['-S_LINES-'].update(disabled=True, button_color=bc_disabled)
             if raw_spec_file:
-                window['-SPEC_R-'].update(raw_spec_file)
                 m_fun.create_line_list_combo(line_list, window)
                 result_text += f'File {raw_spec_file} loaded\n'
                 graph = window['graph']
                 # plot raw spectrum
                 plot_range, lcal, ical = m_plot.plot_raw_spectrum(raw_spec_file, graph, canvasx, plot_style=star_style)
+                base, ext = path.splitext(raw_spec_file)
+                if ext != '.dat':  # .dat files uploaded to github as .txt, .dat not allowed, converted here
+                    raw_spec_file = m_fun.change_extension(base, '.dat')
+                    np.savetxt(raw_spec_file, np.transpose([lcal, ical]), fmt='%6i %8.5f')
+                    result_text += f'File saved as :{raw_spec_file}\n'
+                    window['-RESULT4-'].update(reg_text + result_text)
+                window['-SPEC_R-'].update(raw_spec_file)
                 lmin, lmax, i_min, i_max = plot_range
                 window['-S_LINES-'].update(disabled=False, button_color=bc_enabled)
                 window['-LOAD_TABLE-'].update(disabled=False, button_color=bc_enabled)
@@ -1196,7 +1194,7 @@ def main():
                 disp0 = float(fits_dict['D_DISP0'])
                 try:
                     disp = float(sg.PopupGetText('select value for disp0:',
-                                             title='linear dispersion [nm/Pixel]', default_text=str(disp0)))
+                                                 title='linear dispersion [nm/Pixel]', default_text=str(disp0)))
                 except Exception as e:
                     sg.PopupError(f'invalid value for dispersion, try again\n{e}')
                     disp = disp0
@@ -1221,9 +1219,15 @@ def main():
         if event == '-LOADS-':
             window['-S_LINES-'].update(disabled=True, button_color=bc_disabled)
             spec_file, info = m_fun.my_get_file(spec_file, title='Load spectrum', save_as=False,
-                        file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if spec_file:
                 lspec, ispec = np.loadtxt(spec_file, unpack=True, ndmin=2)
+                base, ext = path.splitext(spec_file)
+                if ext != '.dat':  # .dat files uploaded to github as .txt, .dat not allowed, converted here
+                    spec_file = m_fun.change_extension(base, '.dat')
+                    np.savetxt(spec_file, np.transpose([lspec, ispec]), fmt='%8.3f %8.5f')
+                    result_text += f'File saved as :{spec_file}\n'
+                    window['-RESULT4-'].update(reg_text + result_text)
                 lmin = lspec[0]
                 lmax = lspec[len(lspec) - 1]
                 video_list = m_fun.read_video_list('videolist.txt')
@@ -1261,7 +1265,8 @@ def main():
                 sg.PopupError(f'bad value for plot range or offset, try again\n{e}', title='Plot Graph')
             else:
                 plot_title = values['-PLOT_TITLE-']
-                mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(spec_file, lmin=lmin,
+                mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(spec_file, line_list,
+                                         meteor_lines=meteor_lines, lmin=lmin,
                                          lmax=lmax, imin=i_min, imax=i_max, autoscale=autoscale, gridlines=gridlines,
                                          canvas_size=(plot_w, plot_h), plot_title=plot_title,
                                          multi_plot=multi_plot, offset=offset)
@@ -1274,7 +1279,7 @@ def main():
 
         if event == '-SAVES-':
             new_file, info = m_fun.my_get_file(spec_file, title='Save spectrum', save_as=True,
-                             file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if new_file:
                 lam, ical = np.loadtxt(spec_file, unpack=True, ndmin=2)
                 np.savetxt(new_file, np.transpose([lam, ical]), fmt='%8.3f %8.5f')
@@ -1286,6 +1291,7 @@ def main():
         # =======================================================================
         # load uncalibrated raw spectrum
         elif event == '-LOAD_STAR-':
+            flux_flag = False
             response_ok = False
             star_file, info = m_fun.my_get_file(values['-STAR-'], title='Load star spectrum',
                                   file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
@@ -1305,22 +1311,26 @@ def main():
                 except Exception as e:
                     sg.PopupError(f'bad value for plot range or offset, try again\n{e}', title='Plot Graph')
                 plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file, graph_ir, canvasx,
-                                         autoscale=autoscale, plot_range=plot_range)
+                                                    autoscale=autoscale, plot_range=plot_range)
 
         elif event == '-LOAD_REF-':
-            reference_file = m_fun.m_join(response_folder, path.basename(values['-REF_I-']))
-            reference_file, info = m_fun.my_get_file(reference_file, title='Load reference spectrum',
-                                  file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                 default_extension='*.dat')
-            if reference_file:
-                window['-REF_I-'].update(reference_file)
-                result_text += info + '\n'
-                window['-RESULT5-'].update(result_text)
-                graph_ir = window['graph_ir']
-                # plot raw spectrum
-                lref, iref = np.loadtxt(reference_file, unpack=True, ndmin=2)
-                m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
-                                               plot_range=plot_range, plot_style=ref_style)
+            if not Path(response_folder).exists():
+                sg.PopupError('Response folder does not exist, select correct folder')
+            else:
+                reference_file = m_fun.m_join(response_folder, path.basename(values['-REF_I-']))
+                reference_file, info = m_fun.my_get_file(reference_file, title='Load reference spectrum',
+                                      file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
+                                      default_extension='*.dat')
+                if reference_file:
+                    window['-REF_I-'].update(reference_file)
+                    result_text += info + '\n'
+                    window['-RESULT5-'].update(result_text)
+                    graph_ir = window['graph_ir']
+                    # plot raw spectrum
+                    lref, iref = np.loadtxt(reference_file, unpack=True, ndmin=2)
+                    m_plot.delete_curve(idg_ref, graph_ir)
+                    idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
+                                                   plot_range=plot_range, plot_style=ref_style)
 
         elif event == 'raw_response' and len(lcal) and len(lref):
             l_response = []
@@ -1340,8 +1350,9 @@ def main():
             result_text += info + '\n'
             logging.info(info)
             window['-RESULT5-'].update(result_text)
-            m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response, graph_ir, canvasx,
-                                           plot_range=plot_range, plot_style=raw_style)
+            m_plot.delete_curve(idg_resp, graph_ir)
+            idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
+                            graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
             graph_ir_enabled = True
             select_line_enabled = True
             dragging = False
@@ -1363,8 +1374,7 @@ def main():
                 if None not in (start_point, end_point):
                     xmin = min(start_point[0], end_point[0])
                     xmax = max(start_point[0], end_point[0])
-                    prior_rect = graph_ir.draw_rectangle((xmin, i_min),
-                                                      (xmax, i_max), line_color='LightGreen')
+                    prior_rect = graph_ir.draw_rectangle((xmin, i_min), (xmax, i_max), line_color='LightGreen')
         elif str(event).endswith('+UP') and graph_ir_enabled:
             if select_line_enabled:
                 start_point, end_point = None, None  # enable grabbing a new rect
@@ -1376,62 +1386,66 @@ def main():
                     if xmin < l_resp[k] < xmax:
                         l_resp.pop(k)
                         i_resp.pop(k)
-                graph_ir.erase()
+                # graph_ir.erase()
+                m_plot.delete_curve(idg_resp, graph_ir)
                 logging.info(f'points in [{xmin:6.1f}, {xmax:6.1f}] deleted from raw_response')
-                m_plot.plot_reference_spectrum('filter_response', l_resp, i_resp, graph_ir, canvasx,
-                                           plot_range=plot_range, plot_style=raw_style)
+                idg_resp = m_plot.plot_reference_spectrum('filter_response', l_resp, i_resp,
+                                graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
 
         elif event == 'smooth_response' and len(l_resp) > 1:
+            flux_flag = False
             smooth_parameter = float(values['smooth_parameter'])
             l_smooth = np.linspace(l_resp[0], l_resp[-1], len(l_response))
             if csaps_installed:
                 i_smooth = csaps(l_resp, i_resp, l_smooth, smooth=smooth_parameter)
                 response_ok = True
-                graph_ir.erase()
-                m_plot.plot_reference_spectrum('filter_response.txt', l_resp, i_resp, graph_ir, canvasx,
-                                               plot_range=plot_range, plot_style=raw_style)
-                m_plot.plot_reference_spectrum('smooth_response.txt', l_smooth, i_smooth, graph_ir, canvasx,
-                                           plot_range=plot_range, plot_style=response_style)
+                # graph_ir.erase()
+                # m_plot.plot_reference_spectrum('filter_response.txt', l_resp, i_resp, graph_ir, canvasx,
+                #                                plot_range=plot_range, plot_style=raw_style)
+                m_plot.delete_curve(idg_smooth, graph_ir)
+                idg_smooth = m_plot.plot_reference_spectrum('smooth_response.txt', l_smooth, i_smooth,
+                                                graph_ir, canvasx,
+                                                plot_range=plot_range, plot_style=response_style)
                 logging.info(f'smoothing with smooth parameter = {smooth_parameter}')
             else: sg.PopupError('csaps not installed')
 
-        elif event == '-SEL_RESPONSE_FOLDER-':
+        elif event == '-SEL_RESP_FOLDER-':
             response_folder = values['-RESPONSE_FOLDER-']
             response_folder = sg.PopupGetFolder('', title='Select Response Folder',
                                         initial_folder=response_folder, no_window=True)
-            window['-RESPONSE_FOLDER-'].update(response_folder)
+            window['-RESPONSE_FOLDER-'].update(m_fun.m_join(response_folder))
 
         elif event in ('lmin', 'lmax', 'imin', 'imax', 'response_reset'):
             try:
-                lmin0 = float(values['lmin'])
-                lmax0 = float(values['lmax'])
-                i_min0 = float(values['imin'])
-                i_max0 = float(values['imax'])
-                plot_range = (lmin, lmax, i_min, i_max)
-                if lmin != lmin0 or lmax != lmax0 or i_min != i_min0 or \
-                    i_max != i_max0 or event == 'response_reset':
                     lmin = float(values['lmin'])
                     lmax = float(values['lmax'])
                     i_min = float(values['imin'])
                     i_max = float(values['imax'])
-                    logging.info('reset response')
-                    if star_file:
-                        plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file,
-                                        graph_ir, canvasx, autoscale=autoscale,
-                                        plot_range=plot_range)
+                    plot_range = (lmin, lmax, i_min, i_max)
+                    # logging.info('reset response')
                     graph_ir_enabled = True
-                    if reference_file:
-                        m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
-                                        plot_range=plot_range, plot_style=ref_style)
-                        m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response, graph_ir,
-                                                canvasx, plot_range=plot_range, plot_style=raw_style)
+                    if flux_flag:
+                        plot_range, lcal, ical = m_plot.plot_raw_spectrum(spectrum_file,
+                                                    graph_ir, canvasx, autoscale=autoscale,
+                                                    plot_range=plot_range)
+                        idg_flux = m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
+                                                       plot_range=plot_range, plot_style=ref_style)
+                    else:
+                        graph_ir_enabled = True
+                        plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file,
+                                                    graph_ir, canvasx, autoscale=autoscale,
+                                                    plot_range=plot_range)
+                        idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
+                                                       plot_range=plot_range, plot_style=ref_style)
+                        idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
+                                              graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
             except:
                 pass
 
         elif event == '-SAVE_RESPONSE-':
             response_file = m_fun.m_join(response_folder, path.basename(values['-RESPONSE-']))
             new_file, info = m_fun.my_get_file(response_file, title='Save response', save_as=True,
-                             file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if new_file:
                 if response_ok:
                     np.savetxt(new_file, np.transpose([l_smooth, i_smooth]), fmt='%8.3f %8.5f')
@@ -1444,21 +1458,22 @@ def main():
         #  Response correction
         elif event == '-LOAD_RESPONSE-':
             response_file, info = m_fun.my_get_file(values['-RESPONSE2-'], title='Load response',
-                                  file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                 default_extension='*.dat')
+                                    file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
+                                    default_extension='*.dat')
             if response_file:
                 window['-RESPONSE2-'].update(response_file)
                 result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
-                m_plot.plot_reference_spectrum(response_file, l_smooth, i_smooth, graph_ir, canvasx,
+                m_plot.delete_curve(idg_smooth, graph_ir)
+                idg_smooth = m_plot.plot_reference_spectrum(response_file, l_smooth, i_smooth, graph_ir, canvasx,
                                                plot_range=plot_range, plot_style=flux_style)
                 response_ok = True
 
         elif event == '-LOAD_SPECTRUM-':
             spectrum_file, info = m_fun.my_get_file(values['-SPECTRUM-'], title='Load spectrum',
-                                  file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                 default_extension='*.dat')
+                                    file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
+                                    default_extension='*.dat')
             if spectrum_file:
                 window['-SPECTRUM-'].update(spectrum_file)
                 result_text += info + '\n'
@@ -1469,6 +1484,7 @@ def main():
                                          autoscale=False, plot_range=plot_range)
 
         elif event == 'apply_response' and len(l_smooth) and len(l_spec):
+            flux_flag = True
             l_flux = []
             for l2 in l_spec:
                 if lmin <= l2 <= lmax and l_smooth[0] <= l2 <= l_smooth[-1]:
@@ -1488,12 +1504,12 @@ def main():
             plot_range = (lmin, lmax, i_min, i_max)
             plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(spectrum_file, graph_ir, canvasx,
                                                                   autoscale=False, plot_range=plot_range)
-            m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
+            idg_flux = m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
                                            plot_range=plot_range, plot_style=ref_style)
 
         elif event == '-SAVE_FLUX-':
             new_file, info = m_fun.my_get_file(values['-FLUX-'], title='Save flux', save_as=True,
-                             file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                    file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
             if new_file:
                 np.savetxt(new_file, np.transpose([l_flux, i_flux]), fmt='%8.3f %8.5f')
                 result_text += info + '\n'
@@ -1716,8 +1732,8 @@ def main():
                     logtext += 'END OF LSQ-Fit!\n'
                 except Exception as e:
                     sg.PopupError(f'Error in LSQ-fit, wrong {outfil} ?\n{e}')
-                    result = ' Error with: ' + str(outfil) + '.txt'
-                    logging.info(result)
+                    result = 'Error with: ' + str(outfil) + '.txt'
+                    logging.error(result + ', {e}')
                     result += '\n----------------------------------------\n'
                     logtext += result
             else:
@@ -1757,13 +1773,21 @@ def main():
                     imbw = []
             else:
                 imbw = []
+            if not len(imbw):
+                sg.PopupError(f'Image {infile}.fit not found, load {infile}.png instead:', keep_on_top=True)
+                infile, info = m_fun.my_get_file(infile, title='Load image',
+                                                file_types=(('PNG-File', '*.png'), ('Image Files', '*.fit'),
+                                                            ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
+                                                default_extension='*.png')
+                if infile:
+                    lfun.load_image(infile, opt_dict)  # creates fit image
+                    image_data, idg, actual_file, imbw = m_fun.draw_scaled_image(infile, image_elem_calib,
+                                                                                 opt_dict, idg, get_array=True)
+                    infile = m_fun.m_join(m_fun.change_extension(infile))
             if len(imbw):
                 window['input_file'].Update(infile)
                 window['image_filename'].Update(infile)
-            else:
-                sg.PopupError(f'Image {infile} not found, load tmp.png instead:', keep_on_top=True)
-                image_data, idg, actual_file, imbw = m_fun.draw_scaled_image('tmp.png', image_elem_calib, opt_dict,
-                                                                             idg, get_array=True)
+                par_dict['s_infile'] = infile
             window['setup_file'].Update(ini_file)
             window['output_file'].Update(par_dict['s_outfil'])
             window['SQRT-Fit'].Update(par_dict['b_sqrt'])
