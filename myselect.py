@@ -42,7 +42,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
             return 0, 0, 0, 0, 0
 
     xyl = []
-    dxy = [10,10]
+    dxy = [10, 10]
     i = i_plot = 0
     im, header = m_fun.get_fits_image(infile)
     if len(im.shape) == 3:
@@ -60,8 +60,8 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
     image_file = 'tmp.png'      # scaled image
     imrescale = np.flipud(ios.imread(image_file))  # get shape
     (canvasy, canvasx) = imrescale.shape[:2]
-    wlocw = (wloc[0] , wloc[1])
-    image_elem_sel = [sg.Graph( canvas_size=(canvasx, canvasy), graph_bottom_left=(0, 0),
+    wlocw = (wloc[0], wloc[1])
+    image_elem_sel = [sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0, 0),
         graph_top_right=(imx, imy), key='-GRAPH-', change_submits=True, drag_submits=True)]
     layout_select = [[sg.Ok(), sg.Cancel(), sg.Button('Skip Line'), sg.Button('Finish'),
                       sg.Button('I'), sg.Button('D'), sg.Text(infile, size=(30, 1)),
@@ -69,7 +69,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
     winselect = sg.Window(f'select rectangle  for fit size, click lines',
                           layout_select, finalize=True, location=wlocw,
                           keep_on_top=True, no_titlebar=False, resizable=True,
-                          disable_close=False, disable_minimize=True, element_padding=(2,2))
+                          disable_close=False, disable_minimize=True, element_padding=(2, 2))
     # get the graph element for ease of use later
     graph = winselect['-GRAPH-']  # type: sg.Graph
     # initialize interactive graphics
@@ -77,15 +77,11 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
     img = graph.draw_image(image_file, location=(0, imy))
     dragging = False
     start_point = end_point = prior_rect = None
-    x0 = y0 = 0
     index = 0
     icircle = itext = None
     color = 'yellow'
     while winselect_active:
         event, values = winselect.read()
-        # print(event)
-        dx = int((dxy[0] + 1) // 2)
-        dy = int((dxy[1] + 1) // 2)
         if event == "-GRAPH-":  # if there's a "Graph" event, then it's a mouse
             x, y = (values["-GRAPH-"])
             if not dragging:
@@ -114,21 +110,17 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
             elif i < len(lines):
                 if prior_rect:
                     graph.delete_figure(prior_rect)
-                x0 = xy0[0]
-                y0 = xy0[1]
                 print(xy0, lines[i])
-                xyw = (fitgaussimage(imbw, xy0,dxy, lines[i]))
-                if xyw[0]: #successful fit
+                xyw = (fitgaussimage(imbw, xy0, dxy, lines[i]))
+                if xyw[0]:  # successful fit
                     if 0 < xyw[0] < imx and 0 < xyw[1] < imy:
                         print(np.float16(xyw))
                         xyl.append(np.float32(xyw))
                         # Draw the click just made
                         r = (xyw[2] + xyw[3])/4
                         icircle = graph.DrawCircle((xyw[0], xyw[1]), r, line_color=color, line_width=3)
-                        itext =graph.DrawText('  ' + str(lines[i]), location=(xyw[0], xyw[1]), color=color,
+                        itext = graph.DrawText('  ' + str(lines[i]), location=(xyw[0], xyw[1]), color=color,
                                 font=('Arial', 12), angle=45, text_location=sg.TEXT_LOCATION_BOTTOM_LEFT)
-                        # itext =graph.DrawText('+', location=(xyw[0], xyw[1]), color='yellow',
-                        #         font=('Arial', 12), text_location=sg.TEXT_LOCATION_CENTER)
                         info.update(value=f"line {lines[i]} at {np.float16(xyw)}")
                         graph.update()
                         i += 1
@@ -145,7 +137,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
         elif event == 'Ok':
             if np.array(xyl).shape[0] > 1:
                 # minimum of two lines needed for fit
-                xyl = np.array(xyl,dtype=np.float32) # for ordered output
+                xyl = np.array(xyl, dtype=np.float32)  # for ordered output
                 with open(m_fun.change_extension(outfil, '.txt'), 'ab+') as f:
                     np.savetxt(f, xyl, fmt='%8.2f', header=str(index) + ' ' + str(infile) + '.fit')
                     np.savetxt(f, np.zeros((1, 5)), fmt='%8.2f')
@@ -160,9 +152,9 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
 
         elif event == 'Cancel':
             for ind in range(i_plot):
-                xyl = np.array(xyl,dtype=np.float32) # for ordered output
+                xyl = np.array(xyl, dtype=np.float32)  # for ordered output
                 rsq2 = (xyl[ind, 2] + xyl[ind, 3])/5.6
-                drag_figures = graph.get_figures_at_location((xyl[ind, 0] + rsq2, xyl[ind, 1] + rsq2 ))
+                drag_figures = graph.get_figures_at_location((xyl[ind, 0] + rsq2, xyl[ind, 1] + rsq2))
                 for figure in drag_figures:
                     if figure != img:
                         graph.delete_figure(figure)
@@ -190,7 +182,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
         elif event in ('Finish', None):
             if event == 'Finish':
                 with open(outfil + '.txt', 'ab+') as f:
-                     np.savetxt(f, np.zeros((1, 5)), fmt='%8.2f')
+                    np.savetxt(f, np.zeros((1, 5)), fmt='%8.2f')
                 (x, y) = winselect.current_location()
                 wlocw = (x, y)
             winselect.close()

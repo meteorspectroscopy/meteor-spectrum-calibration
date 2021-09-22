@@ -1,0 +1,52 @@
+0 https://ui.adsabs.harvard.edu/abs/2005Icar..174...15B/abstract 
+0 Lam(lab)[nm] atom/ion multiplet
+422.6 Ca 2
+427.3 Fe 42
+430.8 Fe 42
+432.6 Fe 42
+438.4 Fe 41
+440.5 Fe 41
+492.0 Fe 318
+495.7 Fe 318
+504.7 Fe 114
+518.2 Mg 2
+526.9 Fe 15
+532.8 Fe 15
+537.1 Fe 15
+540.1 Fe 15
+543.1 Fe 15
+544.9 Fe 15
+552.8 Mg 9
+558.9 Ca 21
+589.2 Na 1
+616.3 Ca 3
+643.9 Ca 18
+646.3 Ca 18
+819.4 Na 4
+0 High temperature line
+448.1 Mg+ 4h
+0 Wake lines
+421.6 Fe 3w
+437.6 Fe 2w
+442.7 Fe 2w
+446.2 Fe 2w
+448.2 Fe 2w
+457.1 Mg 1w
+511.0 Fe 1w
+516.9 Fe 1w
+520.5 Fe 1w
+0 Atmospheric lines
+533.0 O 
+543.6 O
+615.7 O
+645.5 O
+648.4 N
+742.2 N
+746.8 N
+777.4 O
+818.6 N
+821.8 N
+824.3 N
+844.6 N
+0 train line 
+557.7 [O]

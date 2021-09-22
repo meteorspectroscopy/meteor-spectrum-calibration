@@ -94,6 +94,8 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                'blue', 'green', 'red', 'black', 'grey', 'brown']
     id_list = []
     id_list_comp = []
+    id_label = []
+    id_line = []
     if spec_file:
         lcal, ical = np.loadtxt(spec_file, unpack=True, ndmin=2)
     if multi_plot:
@@ -134,9 +136,17 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
     # plotscale pixel/unit
     lscale = canvas_size[0] / (lmax - lmin)
     iscale = canvas_size[1] / (imax - imin)
-    plot_pixel_increment = int(abs((lcal[1] - lcal[0]) / lscale) + 1)
+    if lcal != []:
+        plot_pixel_increment = int(abs((lcal[1] - lcal[0]) / lscale) + 1)
+    else:
+        return mod_file, imin, imax, caltext
     # layout with border for scales, legends
-    layout = [[sg.Graph(canvas_size=canvas_size, drag_submits=True,
+    right_click_menu = ['&Tools', ['Plot Tools', '---', '&Multiply spectrum by factor',
+                                   '&Divide Spectrum by factor', '&Save modified spectrum',
+                                   '&Normalize to peak value', 'Clip wavelength range',
+                                   '&Compare with spectrum', '&Label calibration lines',
+                                   'Label meteor lines', '&Remove label', 'Line&width tool']]
+    layout = [[sg.Menu([right_click_menu])],[sg.Graph(canvas_size=canvas_size, drag_submits=True,
                         graph_bottom_left=(lmin - 40 / lscale, imin - 40 / iscale),
                         graph_top_right=(lmax + 10 / lscale, imax + 30 / iscale),
                         enable_events=True, float_values=True, background_color='white', key='graph')],
@@ -149,11 +159,6 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                sg.Button('FWHM', disabled=True),
                sg.Text('Scale Factor'), sg.InputText('1.0', key='factor', size=(8, 1))]]
 
-    right_click_menu = ['unused', ['Plot Tools', 30*'-', 'Multiply spectrum by factor',
-                                   'Divide Spectrum by factor', 'Save modified spectrum',
-                                   'Normalize to peak value', 'Clip wavelength range',
-                                   'Compare with spectrum', 'Label calibration lines',
-                                   'Label meteor lines', 'Linewidth tool']]
 
     window = sg.Window(spec_file, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
     graph = window['graph']
@@ -239,6 +244,7 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                                                file_types=(('Image Files', '*.png'), ('ALL Files', '*.*')),
                                                title='Save spectrum plot (.PNG)', default_extension='*.png', )
             window.Normal()
+            window.refresh()
             time.sleep(1.0)
             if filename:
                 p, ext = path.splitext(filename)
@@ -397,15 +403,17 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                                 sg.PopupError(f'invalid value for wavelength, try again\n{e}',
                                               title='Input Error', keep_on_top=True)
                         if y > i_peak:
-                            graph.DrawLine((lam_peak, i_peak + 20 / iscale), (lam_peak, y - 20 / iscale), 'black', 2)
+                            id_line = graph.DrawLine((lam_peak, i_peak + 20 / iscale),
+                                                      (lam_peak, y - 20 / iscale), 'black', 2)
                         else:
-                            graph.DrawLine((lam_peak, i_peak - 20 / iscale), (lam_peak, y + 20 / iscale), 'black', 2)
-                        graph.DrawText(new_label, location=(lam_peak, y),
+                            id_line = graph.DrawLine((lam_peak, i_peak - 20 / iscale),
+                                                     (lam_peak, y + 20 / iscale), 'black', 2)
+                        id_label = graph.DrawText(new_label, location=(lam_peak, y),
                                        text_location=sg.TEXT_LOCATION_CENTER,
                                        font='Arial 12', color='black')
                     else:
-                        graph.DrawLine((lam_peak, y - 20 / iscale), (lam_peak, imin), 'green', 1)
-                        graph.DrawText(new_label, location=(lam_peak, y),
+                        id_line = graph.DrawLine((lam_peak, y - 20 / iscale), (lam_peak, imin), 'green', 1)
+                        id_label = graph.DrawText(new_label, location=(lam_peak, y),
                                        text_location=sg.TEXT_LOCATION_CENTER,
                                        font='Arial 12', color='green')
                 if event in ('Cancel', None):
@@ -413,7 +421,10 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                 window_label.close()
                 break
             window.Enable()
-
+        elif event == 'Remove label':
+            graph.delete_figure(id_line)
+            graph.delete_figure(id_label)
+            window.refresh()
         elif event == 'Linewidth tool':
             linewidth_tool_enabled = True
             dragging = False

@@ -2,6 +2,7 @@
 # m_specfun functions for m_spec
 # Author: Martin Dubs, 2020
 # -------------------------------------------------------------------
+import math
 import configparser
 import ctypes
 import io
@@ -19,23 +20,32 @@ from PIL import Image
 from astropy.io import fits
 from astropy.time import Time
 from scipy import optimize, interpolate
-from scipy.ndimage import map_coordinates
+# from scipy.ndimage import map_coordinates
+from scipy.ndimage import shift as image_shift
 from skimage import img_as_float
 from skimage import io as ios
 from skimage import transform as tf
+from skimage.feature import register_translation
+from skimage import draw
 
 import PySimpleGUI as sg
 
+# def fxn():
+#     warnings.warn("deprecated", DeprecationWarning)
+#
+# with warnings.catch_warnings():
+#     warnings.simplefilter("ignore")
+#     fxn()
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
-version = '0.9.25'
+version = '0.9.26'
 # today = date.today()
 logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
-logging.basicConfig(filename=logfile, format='%(asctime)s %(levelno)s %(lineno)d %(message)s', level=logging.INFO)
+logging.basicConfig(filename=logfile, format='%(asctime)s %(message)s', level=logging.INFO)
 # -------------------------------------------------------------------
 # initialize dictionaries for configuration
 parv = ['1' for x in range(10)] + ['' for x in range(10, 15)]
@@ -619,8 +629,8 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
                                     mode='constant', cval=cval)
             write_fits_image(idist, fileout + '.fit', fits_dict, dist=dist)
             if show_images:
-                image_data, idg, actual_file = draw_scaled_image(fileout + '.fit',
-                                    window['-D_IMAGE-'], opt_dict, idg, resize=True)
+                image_data, actual_file = draw_scaled_image(fileout + '.fit',
+                                    window['-D_IMAGE-'], opt_dict, resize=True)
             # create sum and peak image
             imsum = imsum + idist
             file = path.basename(fileout + '.fit')
@@ -660,7 +670,8 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
 
 
 # -------------------------------------------------------------------
-def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dict, contr=1, idg=0, show_reg=False):
+def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dict, contr=1,
+                    gauss=True, show_reg=False, debug=False):
     """
     :param start: index of first image (reference) for registering
     :param nim: number of images to register_images
@@ -673,8 +684,9 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     :param window: GUI window for displaying results of registered files
     :param fits_dict: content of fits-header
     :param contr: image brightness
-    :param idg: graph number, used to delete previous graph
+    :param gauss: if True use Gaussian fit to register, else cross correlation
     :param show_reg: if True show registered images, otherwise mdist images
+    :param debug: if True, shows masked area of reference and offset image
     if the procedure stops early, nim = index - start + 1
     :return:
     index: last processed image
@@ -684,90 +696,145 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     outfile: filename of sum-image, e.g. for sum of 20 added images: out/r_add20
     fits_dict: updated values of fits-header
     """
-
-    def _shift(xy):
-        return xy - np.array(dxy)[None, :]
-
     index = start
     sum_image = []
     outfile = ''
     dist = False
+    # gauss = False
     fits_dict.pop('M_NIM', None)  # M_NIM only defined for added images
-    info = f'start x y, dx dy, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}'
+    info = f'start x y, width, height, file: {x0} {y0},{2 * dx} {2 * dy}, {infile}'
     regtext = info + '\n'
     logging.info(info)
     image_list = create_file_list(infile, nim, ext='', start=start)
-    info = f'file          peak    x         y    wx   wy'
+    if gauss:
+        info = f'file          peak    x         y    wx   wy'
+    else:
+        info = f'file      x        y          dx        dy'
     regtext += '        ' + info + '\n'
     logging.info(info)
+    shift = [0.0, 0.0]
     try:
         for image_file in image_list:
+            registered_name = m_join(outfil) + str(index - start + 1)
+            registered_short = os.path.basename(registered_name)
             im, header = get_fits_image(image_file)
             if 'D_X00' in header.keys():
                 dist = True
             if 'M_BOB' in header.keys():
                 fits_dict['M_BOB'] = header['M_BOB']
             if len(im.shape) == 3:
-                imbw = np.sum(im, axis=2)  # used for fit_gaussian_2d(data)
-                data = imbw[y0 - dy:y0 + dy, x0 - dx:x0 + dx]
+                # b/w image used for fit_gaussian_2d(data) or cross correlation
+                imbw = np.sum(im, axis=2)
                 shifted = im
-            # selected area
             else:
-                data = im[y0 - dy:y0 + dy, x0 - dx:x0 + dx]
-            params, success = fit_gaussian_2d(data)
-            (height, x, y, width_x, width_y) = params  # x and y reversed
-            width_x = 2 * np.sqrt(2 * np.log(2)) * np.abs(width_x)  # FWHM
-            width_y = 2 * np.sqrt(2 * np.log(2)) * np.abs(width_y)  # FWHM
-            # full image
-            x = x + y0 - dy  # y and x reversed
-            y = y + x0 - dx
-            imagename = os.path.basename(image_file)
-            info = f'{imagename:12s} {height:7.3f} {y:6.1f} {x:6.1f} {width_y:5.2f} {width_x:5.2f}'
+                imbw = im
+            if gauss:
+                data = imbw[y0 - dy:y0 + dy, x0 - dx:x0 + dx]
+                params, success = fit_gaussian_2d(data)
+                (height, x, y, width_x, width_y) = params  # x and y reversed
+                width_x = 2 * np.sqrt(2 * np.log(2)) * np.abs(width_x)  # FWHM
+                width_y = 2 * np.sqrt(2 * np.log(2)) * np.abs(width_y)  # FWHM
+                # full image
+                x = x + y0 - dy  # y and x reversed
+                y = y + x0 - dx
+                info = f'{registered_short:12s} {height:7.3f} {y:6.1f} {x:6.1f} {width_y:5.2f} {width_x:5.2f}'
+                if index == start:  # reference position for register_images
+                    x00 = y
+                    y00 = x
+                    sum_image = im - im  # empty image, added at end of loop
+                # register_images
+                shift = [x00 - y, y00 - x]
+                x0 = int(y)
+                y0 = int(x)
+
+            else:  # cross-correlation
+                ishift = [int(i) for i in shift]  # integer shift for moving indices
+                xy0 = [x0, y0]
+                dxy = [dx, dy]
+                xyshape = np.subtract(list(imbw.shape), [1, 1])  # image coordinates [0...ny-1, 0...nx-1]
+                # mask rectangle
+                top_right = tuple(reversed(np.add(xy0, dxy)))
+                bot_left = tuple(reversed(np.subtract(xy0, dxy)))
+                tm, rm = top_right
+                bm, lm = bot_left
+                # cross correlation image size
+                top_right2 = tuple(reversed(np.add(xy0, np.add(dxy, dxy))))
+                bot_left2 = tuple(reversed(np.subtract(xy0, np.add(dxy, dxy))))
+                (bc, lc) = tuple(np.maximum(list(bot_left2), [0, 0]))
+                (tc, rc) = tuple(np.minimum(list(top_right2), xyshape))
+                rr1, cc1 = draw.rectangle(bot_left, top_right, shape=imbw.shape)
+                mask1 = np.zeros_like(imbw, dtype=bool)
+                mask1[rr1, cc1] = True
+                if index == start:
+                    masked_image = imbw * mask1
+                    reference_image = masked_image[bc:tc, lc:rc]  # clipped to double size rectangle
+                    ref_mask = masked_image[bm:tm, lm:rm]  # used for debug
+                    sum_image = im - im  # empty image, added at end of loop
+                    info = f'{registered_short:12s} {shift[0]:6.1f} {shift[1]:6.1f} '
+                else:
+                    # shift offset image with expected shift to actual image
+                    offset_shifted = image_shift(imbw, list(reversed(ishift)), order=0)
+                    offset_image_full = (offset_shifted * mask1)
+                    offset_image = offset_image_full[bc:tc, lc:rc]
+                    offset_mask = offset_image_full[bm:tm, lm:rm]
+                    shift_old = shift
+                    shift_cc, error, diffphase = register_translation(reference_image, offset_image,
+                                                                      upsample_factor=100)
+                    shift = np.add(ishift, list(reversed(shift_cc)))  # [x, y], scipy uses [y, x]
+                    move = np.subtract(shift, shift_old)
+                    info = f'{registered_short:12s} {shift[0]:6.1f} {shift[1]:6.1f} {move[0]:6.2f} {move[1]:6.2f} '
+                    jump = np.max(np.subtract(np.abs(move), dxy))
+                    if jump > 0:
+                        raise Exception('register jumped outside box')
+                    if debug:
+                        print('clipped image bc, lc, tc, rc', bc, lc, tc, rc)
+                        print(f"Detected pixel offset unmasked (x, y): {shift}, {error}")
+                        fig = plt.figure(figsize=(12, 4))
+                        ax1 = plt.subplot(1, 2, 1)
+                        ax2 = plt.subplot(1, 2, 2)
+                        ax1.imshow(reference_image, cmap='gray')
+                        # ax1.imshow(ref_mask, cmap='gray')
+                        ax1.invert_yaxis()  # ax1.set_axis_off()
+                        ax1.set_title('Reference mask')
+                        ax2.imshow(offset_image, cmap='gray')
+                        # ax2.imshow(offset_mask, cmap='gray')
+                        ax2.invert_yaxis()  # ax2.set_axis_off()
+                        ax2.set_title(f'{registered_short}')
+                        plt.show()
+            if len(im.shape) == 3:
+                for c in [0, 1, 2]:  # separate color planes for faster processing
+                    im2 = im[:, :, c]
+                    sh2 = image_shift(im2, list(reversed(shift)))  # scipy uses [y, x] for shift
+                    shifted[:, :, c] = sh2
+            else:
+                shifted = image_shift(im, list(reversed(shift)))  # scipy uses [y, x] for shift
+            sum_image += shifted
+
+            # write image as fit-file
             regtext += info + '\n'
             window['-RESULT3-'].update(regtext)
             window.refresh()
             logging.info(info)
-            if index == start:  # reference position for register_images
-                x00 = y
-                y00 = x
-            # register_images
-            dxy = [x00 - y, y00 - x]
-            if len(im.shape) == 3:
-                for c in [0, 1, 2]:  # separate color planes for faster processing
-                    im2 = im[:, :, c]
-                    coords = tf.warp_coords(_shift, im2.shape)
-                    sh2 = map_coordinates(im2, coords)  # / 255
-                    shifted[:, :, c] = sh2
-            else:
-                coords = tf.warp_coords(_shift, im.shape)
-                shifted = map_coordinates(im, coords)  # / 255
-            if index == start:  # reference position for register_images
-                sum_image = shifted
-
-            else:
-                sum_image += shifted
-            # write image as fit-file
-            write_fits_image(shifted, outfil + str(index - start + 1) + '.fit', fits_dict, dist=dist)
+            write_fits_image(shifted, registered_name + '.fit', fits_dict, dist=dist)
             if show_reg:
-                image_data, idg, actual_file = draw_scaled_image(outfil + str(index - start + 1) + '.fit',
-                                                                 window['-R_IMAGE-'], opt_dict, idg, contr=contr,
-                                                                 resize=True, tmp_image=True)
+                image_data, actual_file = draw_scaled_image(registered_name + '.fit',
+                                                 window['-R_IMAGE-'], opt_dict, contr=contr,
+                                                 resize=True, tmp_image=True)
                 window.set_title('Register: ' + str(actual_file))
                 window.refresh()
             # set new start value
-            x0 = int(y)
-            y0 = int(x)
             index += 1  # next image
         index += -1
     except Exception as e:
         # Exception, delete last image with error
-        if path.exists(outfil + str(index - start + 1) + '.fit'):
-            os.remove(outfil + str(index - start + 1) + '.fit')
+        if path.exists(registered_name + '.fit'):
+            os.remove(registered_name + '.fit')
         index += -1
         info = f'problem with register_images, last image: {image_file}, number of images: {index}'
         logging.error(info)
-        logging.error({e})
+        logging.error(f'{e}')
         regtext += f'{info}\n{e}\n'
+        window['-RESULT3-'].update(regtext)
     nim = index - start + 1
     if nim > 1:
         if index == nim + start - 1:
@@ -987,7 +1054,7 @@ def select_rectangle(infile, start, res_dict, fits_dict, wloc, outfil, maxim):
                 dx = int((size[0] + 1) / 2)
                 dy = int((size[1] + 1) / 2)
 
-        elif event in ('Ok', 'Cancel'):
+        elif event in ('Ok', 'Cancel', None):
             graph.delete_figure(idg)
             winselect_active = False
             winselect.close()
@@ -1143,8 +1210,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                     sg.PopupError(f'bad values for tilt or slant, try again\n{e}',
                                   title='apply_tilt_slant', keep_on_top=True)
                 write_fits_image(imtilt, '_st.fit', fits_dict, dist=dist)
-                image_data, idg, actual_file = draw_scaled_image('_st' + '.fit', window['-R_IMAGE-'],
-                                                                 opt_dict, idg, contr=contr, tmp_image=True)
+                image_data, actual_file = draw_scaled_image('_st' + '.fit', window['-R_IMAGE-'],
+                                                                 opt_dict, contr=contr, tmp_image=True)
                 graph.draw_image(data=image_data, location=(0, imy))
                 # graph.draw_rectangle((0, ymin), (imx, ymax), line_color='red')
                 for figure in (prior_rect, upper_back, lower_back):
@@ -1154,8 +1221,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
 
         elif event == 'Ok':
             write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)
-            image_data, idg, actual_file = draw_scaled_image(outfile + 'st.fit', window['-R_IMAGE-'],
-                                                             opt_dict, idg, contr=contr, tmp_image=True)
+            image_data, actual_file = draw_scaled_image(outfile + 'st.fit', window['-R_IMAGE-'],
+                                                             opt_dict, contr=contr, tmp_image=True)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 im = imtilt / np.max(imtilt) * 255 * contr
@@ -1544,8 +1611,8 @@ def add_images(graph_size, contrast=1, average=True):
                     fits_dict['M_NIM'] = str(number_images)
                     write_fits_image(sum_image, '_add.fit', fits_dict, dist=dist)
                     # show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
-                    image_data, idg, actual_file = draw_scaled_image('_add.fit', window['graph'],
-                                                                     opt_dict, idg, contr=contrast)
+                    image_data, actual_file = draw_scaled_image('_add.fit', window['graph'],
+                                                                     opt_dict, contr=contrast)
                     window['add_images'].update(short_files)
                     window['nim'].update(str(number_images))
                     window.refresh()
@@ -1553,13 +1620,13 @@ def add_images(graph_size, contrast=1, average=True):
                     sg.PopupError(f'Images cannot be added, different size?\n{e}', title='add_images')
         if event == 'Darker':
             contrast = 0.5 * contrast
-            image_data, idg, actual_file = draw_scaled_image('_add.fit', window['graph'],
-                                                             opt_dict, idg, contr=contrast)
+            image_data, actual_file = draw_scaled_image('_add.fit', window['graph'],
+                                                             opt_dict, contr=contrast)
             window.refresh()
         if event == 'Brighter':
             contrast = 2.0 * contrast
-            image_data, idg, actual_file = draw_scaled_image('_add.fit', window['graph'],
-                                                             opt_dict, idg, contr=contrast)
+            image_data, actual_file = draw_scaled_image('_add.fit', window['graph'],
+                                                             opt_dict, contr=contrast)
         window.refresh()
         if event == 'Save' and files:
             sum_file, info = my_get_file('', title='Save images', save_as=True, default_extension='.fit',
@@ -1599,13 +1666,12 @@ def set_image_scale(imx, imy, opt_dict):
 
 
 # -------------------------------------------------------------------
-def draw_scaled_image(file, graph, opt_dict, idg, contr=1, tmp_image=False, resize=True, get_array=False):
+def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=True, get_array=False):
     """
     main drawing routine, draws scaled image into graph window and stores image as BytesIO
     :param file: image file (.fit, .png, .jpg etc)
     :param graph: graph window to put graph
     :param opt_dict: setup parameters
-    :param idg: graph number, used to delete previous graph
     :param contr: image brightness, default = 1
     :param tmp_image: if true, save scaled image as tmp.png
     :param resize: if true, resize image
@@ -1622,7 +1688,7 @@ def draw_scaled_image(file, graph, opt_dict, idg, contr=1, tmp_image=False, resi
             return None, None, file, None
         else:
             return None, None, file
-    im_scale = 1.0
+    # im_scale = 1.0
     if file.lower().endswith('.fit'):
         image, header = get_fits_image(file)  # get numpy array and fits-header
         if np.max(image) > 0.0:
@@ -1652,9 +1718,9 @@ def draw_scaled_image(file, graph, opt_dict, idg, contr=1, tmp_image=False, resi
     idg = graph.draw_image(data=data, location=(0, opt_dict['graph_size']))
     graph.update()
     if get_array:
-        return data, idg, file, image
+        return data, file, image
     else:
-        return data, idg, file
+        return data, file
 
 
 # -------------------------------------------------------------------
@@ -1749,3 +1815,136 @@ def select_options(opt_dict, ):
             break
     options_window.close()
     return opt_dict
+
+
+# -------------------------------------------------------------------
+def tau(lambda_nm, h=0.0, aod=0.1):
+    """
+    from: Hayes et Latham dans Ap. J, 197, 593 (1975)
+    in http://www.astrosurf.com/aras/extinction/calcul.htm
+    :param lambda_nm: wavelength [nm]
+    :param h: height observatory [m]
+    :param aod: Aerosol Optical Depth (AOD) tau = -ln(transmission(550nm)) = A*ln(10)
+        Un air très sec de montage correspond à un AOD de 0,02.
+        Dans un désert sec le AOD vaut 0.04.
+        En France, le AOD est de 0,07 en hiver, de 0,21 en été, et en moyenne sur l'année de 0,13.
+        Lorsque le temps est très chauds et orageux, le AOD peut atteindre 0,50.
+    :return tau: optical depth for air mass 1 (zenith)
+            = 0.921 * absorption in magnitudes for air mass 1 (zenith)
+    """
+    lm = lambda_nm/1000
+    h_km = h/1000
+    # absorbance measured at sea_level, air_mass 1, from Buil
+    a_rayleigh = 9.4977e-3 / lm**4 * (0.23465 + 1.076e2/(146 - lm**-2) + 0.93161/(41 - lm**-2))**2
+    tau_r = 0.4*math.log(10)*math.exp(-h_km/7.996) * a_rayleigh
+    tau_oz = 0.0168 * math.exp(-15.0 * abs(lm - 0.59))
+    tau_ae = aod * (lm/0.55)**-1.3
+    tau_0 = tau_r + tau_oz + tau_ae  # for air mass 1 (AM1) zenith
+    return tau_0
+
+
+# -------------------------------------------------------------------
+def transmission(lambda_nm, elevation_deg=90.0, h=0.0, aod=0.1):
+    """
+    in http://www.astrosurf.com/aras/extinction/calcul.htm
+    :param lambda_nm: wavelength [nm]
+    :param elevation_deg: elevation of star, meteor above horizon [°]
+    :param h: height observatory [m]
+    :param aod: Aerosol Optical Depth (AOD) tau = -ln(transmission(550nm)) = A*ln(10)
+        Un air très sec de montage correspond à un AOD de 0,02.
+        Dans un désert sec le AOD vaut 0.04.
+        En France, le AOD est de 0,07 en hiver, de 0,21 en été, et en moyenne sur l'année de 0,13.
+        Lorsque le temps est très chauds et orageux, le AOD peut atteindre 0,50.
+    :return transmission: transmission for air mass(elevation)
+    """
+    hrad = math.pi/180*elevation_deg
+    air_mass = 1.0/(math.sin(hrad + 0.025 * math.exp(-11.0 * math.sin(hrad))))
+    trans = math.exp(-air_mass * tau(lambda_nm, h, aod))
+    return trans
+
+
+# -------------------------------------------------------------------
+def extinction_tool(file, elevation_deg=90.0, h=0.0, aod=0.1, resp_flag=False, trans_flag=True):
+    """
+    in http://www.astrosurf.com/aras/extinction/calcul.htm
+    :param file: spectrum with atmospheric extinction
+    :param elevation_deg: elevation of star, meteor above horizon [°]
+    :param h: height observatory [m]
+    :param aod: Aerosol Optical Depth (AOD) tau = -ln(transmission(550nm)) = A*ln(10)
+        Un air très sec de montage correspond à un AOD de 0,02.
+        Dans un désert sec le AOD vaut 0.04.
+        En France, le AOD est de 0,07 en hiver, de 0,21 en été, et en moyenne sur l'année de 0,13.
+        Lorsque le temps est très chauds et orageux, le AOD peut atteindre 0,50.
+    :param resp_flag: if True, correction is applied to response
+    :param trans_flag: if True, transmission is plotted after return
+    :return new_file: file with appendix '_AM0', elevation_deg, h, aod, info, resp_flag, trans_flag
+    """
+    # do not apply atmospheric correction twice, operate on the original file, strip appendix '_AM0'
+    file = m_join(file).replace('_AM0', '')
+    layout = [[sg.Text('Input File'), sg.InputText(file, key='file', size=(50, 1)),
+               sg.Button('Load File')],
+              [sg.Frame('Atmospheric transmittance', [[sg.Text('Elevation [°]:'),
+                                           sg.InputText(elevation_deg, size=(19, 1), key='elev_deg')],
+                                          [sg.T('AOD'), sg.In(aod, size=(10, 1), key='AOD'),
+                                           sg.T('Height Obs. [m]'), sg.In(h, size=(10, 1), key='height')]])],
+                                          [sg.B('Apply'), sg.B('Cancel'),
+                                           sg.Checkbox('Save as response', default=resp_flag, key='resp'),
+                                           sg.Checkbox('Plot transmission', default=trans_flag, key='trans')]]
+    window = sg.Window('Atmospheric transmission correction', layout, keep_on_top=True).Finalize()
+    info = ''
+    new_file = ''
+
+    while True:
+        event, values = window.read()
+        if event in (None, 'Cancel'):
+            window.close()
+            return new_file, elevation_deg, h, aod, info, False, False
+
+        if event == 'Load File':
+            window.Minimize()
+            file, info = my_get_file(file, title='Load uncorrected spectrum',
+                                           file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
+                                           default_extension='*.dat')
+            window['file'].update(file)
+            window.Normal()
+
+        if event == 'Apply':
+            t = []
+            l_corr = []
+            i_corr = []
+            file = values['file']
+            resp_flag = values['resp']
+            trans_flag = values['trans']
+            try:
+                l_ori, i_ori = np.loadtxt(file, unpack=True, ndmin=2)
+                new_file = change_extension(file, '_AM0.dat')
+                if l_ori != []:
+                    elevation_deg = float(values['elev_deg'])
+                    h = float(values['height'])
+                    aod = float(values['AOD'])
+                    for k in range(0, len(l_ori)):
+                        if 900 > l_ori[k] > 300:
+                            l_corr.append(l_ori[k])
+                            trans_air = transmission(l_ori[k], elevation_deg, h, aod)
+                            t.append(trans_air)
+                            i_corr.append(i_ori[k] / trans_air)
+                    if resp_flag:
+                        # normalize response to peak value
+                        i_corr = i_corr / np.max(i_corr)
+                    np.savetxt(new_file, np.transpose([l_corr, i_corr]), fmt='%8.3f %8.5f')
+                    info = f'corrected spectrum {new_file} saved for elev. = {elevation_deg}°, h= {h}m, AOD= {aod}'
+                    if trans_flag:
+                        np.savetxt('transmission_atmos.dat', np.transpose([l_corr, t]), fmt='%8.3f %8.5f')
+                        info += f'\ntransmission_atmos.dat saved for elev. = {elevation_deg}°, h= {h}m, AOD= {aod}'
+                    logging.info(info)
+                else:
+                    sg.PopupError('no file or invalid file loaded', title='Input Error', keep_on_top=True)
+                    file = ''
+                    trans_flag = False
+            except Exception as e:
+                sg.PopupError(f'error with {file}\n{e}', title='Input Error', keep_on_top=True)
+                trans_flag = False
+            finally:
+                window.close()
+                return new_file, elevation_deg, h, aod, info, resp_flag, trans_flag
+

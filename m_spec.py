@@ -18,7 +18,8 @@ import m_calfun as lfun
 import m_plot
 import m_specfun as m_fun
 import myselect as sel
-
+# import register as reg
+# import extinction
 try:
     from csaps import csaps
     csaps_installed = True
@@ -33,7 +34,7 @@ except Exception as e:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.25'
+    version = '0.9.26'
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
     sg.SetGlobalIcon('Koji.ico')
@@ -125,15 +126,22 @@ def main():
     ref_style = ('blue', 0, 2, -.1)
     raw_style = ('green', 2, 0, -.15)
     response_style = ('darkred', 0, 2, -0.2)
-    flux_style = ('green', 0, 2, -.15)
+    trans_style = ('lightblue', 0, 2, -0.15)
+    flux_style = ref_style
     flux_file = ''
     sigma = 2.0
     tool_type = 'reference'
     idg_ref = []
-    idg_resp =[]
+    idg_resp = []
     idg_smooth = []
-    idg_flux = []
+    idg_trans = []
     flux_flag = False
+    elevation_deg = 90.0
+    h = 0.0
+    aod = 0.1
+    # spectrum_am0 = ''
+    trans_flag = True
+    resp_flag = False
     # -------------------------------------------------------------------
     # definition of GUI
     # -------------------------------------------------------------------
@@ -143,12 +151,12 @@ def main():
     setup_file_display_elem = sg.InputText('m_set.ini', size=(60, 1), key='-INI_FILE-')
 
     menu_def = [
-        ['File', ['Save calibration Image', 'Exit']],
-        ['View', ['Fits-Header']],
-        ['Tools', ['!Offset', 'Edit Text File', 'Edit Log File', 'Edit Spectrum',
-                   'Add Images', '!Gaussian, wavelength tools']],
-        ['Options', ['Setup Options', 'Meteor lines']],
-        ['Help', 'About...'], ]
+        ['&File', ['Save calibration &Image', 'E&xit']],
+        ['&View', ['&Fits-Header']],
+        ['&Tools', ['!&Offset', 'Edit &Text File', 'Edit &Log File', 'Edit &Spectrum',
+                   '&Add Images', '!&Gaussian, wavelength tools', '!Atmospheric correction']],
+        ['&Options', ['&Setup Options', '&Meteor lines']],
+        ['&Help', '&About...'], ]
 
     setup_file_element = sg.Frame('Configuration File',
                                   [[sg.Text('File'), setup_file_display_elem,
@@ -258,10 +266,12 @@ def main():
                                 'if register fails, limit is set automatically')],
                     [sg.Text('_' * 44)],
                     [sg.Button('Sel Start', key='-SEL_START-', tooltip='set actual image as start image'),
-                    sg.Button('Sel Last', key='-SEL_LAST-', tooltip='set actual image as last image')],
+                    sg.Button('Sel Last', key='-SEL_LAST-', tooltip='set actual image as last image', size=(12, 1)),
+                     sg.Checkbox('Gaussian', default=False, pad=(10, 0), key='-GAUSSIAN-',
+                                 tooltip='use Gaussian fit, default is cross correlation method')],
                     [sg.Button('Register', key='-REGISTER-'),
-                    sg.Button('Show Sum', key='-SHOW_SUM_R-', disabled=True),
-                    sg.Checkbox('show registered', default=False, pad=(10, 0), key='-SHOW_REG-')],
+                    sg.Button('Show Sum', key='-SHOW_SUM_R-', disabled=True, size=(12, 1)),
+                    sg.Checkbox('show registered', default=False, pad=(10, 0), key='-SHOW_REG-'),],
                     [sg.InputText('r_add', size=(32, 1), key='-RADD-', tooltip='File for spectrum extraction'),
                     sg.Button('Load Radd', key='-LOAD_R-', tooltip='Load file for spectrum extraction')],
                     [sg.Button('Add Rows', disabled=True, key='-ADD_ROWS-', tooltip='Convert to 1d spectrum *.dat'),
@@ -413,8 +423,8 @@ def main():
     window = sg.Window(window_title, [[sg.Menu(menu_def, tearoff=True, key='menu')],
                        [tabs_element]], location=(wlocx, wlocy), size=(wsx, wsy), resizable=True)
     window.read()
-    image_data, idg, actual_file = m_fun.draw_scaled_image('tmp.png', window['-V_IMAGE-'],
-                                                            opt_dict, idg, resize=False)
+    image_data, actual_file = m_fun.draw_scaled_image('tmp.png', window['-V_IMAGE-'],
+                                                            opt_dict, resize=False)
     graph_ir = window['graph_ir']
 
     # ==============================================================================
@@ -442,8 +452,8 @@ def main():
             opt_dict['win_height'] = wsy
             opt_dict['win_x'] = wlocx
             opt_dict['win_y'] = wlocy
-            image_data, idg, actual_file = m_fun.draw_scaled_image(actual_file, actual_image,
-                                                    opt_dict, idg, resize=True, tmp_image=True)
+            image_data, actual_file = m_fun.draw_scaled_image(actual_file, actual_image,
+                                                    opt_dict, resize=True, tmp_image=True)
         window.set_title(window_title + str(actual_file))
         if tabs_element.get() == 'T_LASER_CAL-':
             log_elem.Update(logtext)
@@ -456,11 +466,12 @@ def main():
 
         # enable, disable 'Offset', only if tab 'T_LASER_CAL-' switched
         if cal_tab != old_cal_tab:
-            menu_def[2][1][0] = 'Offset' if cal_tab else '!Offset'
+            menu_def[2][1][0] = '&Offset' if cal_tab else '!%Offset'
             window['menu'].update(menu_def)
             old_cal_tab = cal_tab
         elif ir_tab != old_ir_tab:
-            menu_def[2][1][5] = 'Gaussian, wavelength tools' if ir_tab else '!Gaussian, wavelength tools'
+            menu_def[2][1][5] = '&Gaussian, wavelength tools' if ir_tab else '!Gaussian, wavelength tools'
+            menu_def[2][1][6] = 'Atmospheric correction' if ir_tab else '!Atmospheric correction'
             window['menu'].update(menu_def)
             old_ir_tab = ir_tab
 
@@ -504,6 +515,34 @@ def main():
                 window['-RESULT5-'].update(result_text)
                 window.refresh()
 
+        if event == 'Atmospheric correction':
+            spectrum_uncorrected = values['-SPECTRUM-']
+            spectrum_am0, elevation_deg, h, aod, info, resp_flag, trans_flag = m_fun.extinction_tool(
+                                            spectrum_uncorrected, elevation_deg, h, aod, resp_flag, trans_flag)
+            if spectrum_am0:
+                if resp_flag:
+                    response_file = spectrum_am0
+                    window['-RESPONSE2-'].update(response_file)
+                    m_plot.delete_curve(idg_resp, graph_ir)
+                    l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
+                    idg_resp = m_plot.plot_reference_spectrum(spectrum_am0,l_smooth, i_smooth, graph_ir, canvasx,
+                                               plot_range=plot_range, plot_style=response_style)
+                else:
+                    spectrum_file = spectrum_am0
+                    window['-SPECTRUM-'].update(spectrum_am0)
+                    m_plot.delete_curve(idg_ref, graph_ir)
+                    l_spec, i_spec = np.loadtxt(spectrum_am0, unpack=True, ndmin=2)
+                    idg_ref = m_plot.plot_reference_spectrum(spectrum_am0, l_spec, i_spec, graph_ir, canvasx,
+                                               plot_range=plot_range, plot_style=ref_style)
+                result_text += info +'\n'
+                window['-RESULT5-'].update(result_text)
+                window.refresh()
+                if trans_flag:
+                    l_trans, i_trans = np.loadtxt('transmission_atmos.dat', unpack=True, ndmin=2)
+                    m_plot.delete_curve(idg_trans, graph_ir)
+                    idg_trans = m_plot.plot_reference_spectrum('transmission_atmos.dat', l_trans, i_trans,
+                                            graph_ir, canvasx, plot_range=plot_range, plot_style=trans_style)
+
         if event == 'Setup Options':
             opt_dict = m_fun.select_options(opt_dict, )
             debug = opt_dict['debug']
@@ -521,9 +560,9 @@ def main():
         if event == 'Offset':
             if infile:
                 if Path(m_fun.change_extension(infile, '.fit')).exists():
-                    image_data, idg, actual_file, imbw = m_fun.draw_scaled_image(
+                    image_data, actual_file, imbw = m_fun.draw_scaled_image(
                         m_fun.change_extension(infile, '.fit'),
-                        image_elem_calib, opt_dict, idg, get_array=True)
+                        image_elem_calib, opt_dict, get_array=True)
                     im = imbw - np.average(imbw)
                     im_std = np.std(im)
                     im_clip = np.clip(im, -2.0 * im_std, 2.0 * im_std)
@@ -534,8 +573,8 @@ def main():
                     file_offset = m_fun.change_extension(infile, '_off.fit')
                     print('clip: min, max , ave ', np.min(imbw), np.max(imbw), np.average(imbw))
                     m_fun.write_fits_image(imbw, file_offset, fits_dict)
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(file_offset,
-                                        image_elem_calib, opt_dict, idg, tmp_image=True)
+                    image_data, actual_file = m_fun.draw_scaled_image(file_offset,
+                                        image_elem_calib, opt_dict, tmp_image=True)
                     infile = infile + '_off'
                     window['image_filename'].Update(infile)
                     window['input_file'].Update(infile)
@@ -630,8 +669,8 @@ def main():
                 m_fun.write_configuration(ini_file, par_dict, res_dict, fits_dict, opt_dict)
             try:
                 # finish with meaningful image for next start, if not, use existing image
-                image_data, idg, actual_file = m_fun.draw_scaled_image(m_fun.m_join(outpath, mdist) + '_peak.fit',
-                                                  window['-D_IMAGE-'], opt_dict, idg, contr=1, tmp_image=True)
+                image_data, actual_file = m_fun.draw_scaled_image(m_fun.m_join(outpath, mdist) + '_peak.fit',
+                                                  window['-D_IMAGE-'], opt_dict, contr=1, tmp_image=True)
             except Exception as e:
                 print(f'save tmp.png error, outpath: {outpath},\n{e}')
             finally:
@@ -653,6 +692,8 @@ def main():
                 bob_doubler = values['-BOB-']
                 par_dict['i_binning'] = int(values['-BIN-'])
                 bff = values['-BFF-']
+                result_text = ''
+                window['-RESULT-'].update(result_text)
                 # check previous PNG images
                 old_files, deleted, answer = m_fun.delete_old_files(png_name, maxim)
                 if answer != 'Cancel':
@@ -669,7 +710,7 @@ def main():
                         kk = f'k{k + 7}'
                         window[kk].Update(fits_v[k])
                     if nim:
-                        image_data, idg, actual_file = m_fun.draw_scaled_image(out + '1.png', window['-V_IMAGE-'],
+                        image_data, actual_file = m_fun.draw_scaled_image(out + '1.png', window['-V_IMAGE-'],
                                                                                opt_dict, idg)
                         # add avifile to video_list
                         m_fun.update_video_list('videolist.txt', avifile)
@@ -705,11 +746,11 @@ def main():
                 i += 1
             if event == '-PREVIOUS-' and i > 1:
                 i -= 1
-            image_data, idg, actual_file = m_fun.draw_scaled_image(out + str(i) + '.png',
+            image_data, actual_file = m_fun.draw_scaled_image(out + str(i) + '.png',
                                                                    window['-V_IMAGE-'], opt_dict, idg)
 
         if event == '-GOTO_DIST-':
-            image_data, idg, actual_file = m_fun.draw_scaled_image(out + str(i) + '.png',
+            image_data, actual_file = m_fun.draw_scaled_image(out + str(i) + '.png',
                                                                    window['-D_IMAGE-'], opt_dict, idg)
             window['-T_DIST-'].select()  # works
 
@@ -733,8 +774,8 @@ def main():
                                         initial_folder=outpath, no_window=True)
             outpath = m_fun.m_join(outpath)
             print('outpath', str(outpath))
-            if outpath == '.':
-                outpath = values['-OUT-']
+            # if outpath == '.':
+            #     outpath = values['-OUT-']
             window['-OUT-'].update(outpath)
             window['-OUT_C-'].update(outpath)
             window['-OUT_R-'].update(outpath)
@@ -788,11 +829,11 @@ def main():
                     fits_dict.pop('M_NIM', None)
                     fits_dict.pop('M_STARTI', None)
                     m_fun.save_fit_png(m_fun.m_join(outpath, 'm_back'), back, fits_dict)
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(m_fun.m_join(outpath, 'm_back.fit'),
-                                                        window['-D_IMAGE-'], opt_dict, idg, tmp_image=True)
+                    image_data, actual_file = m_fun.draw_scaled_image(m_fun.m_join(outpath, 'm_back.fit'),
+                                                        window['-D_IMAGE-'], opt_dict, tmp_image=True)
                     disttext += f'background created of {n_back} images\n'
                     disttext += f'process time background {time.time() - t0:8.2f} sec\n'
-                    window['-RESULT2-'].update(disttext)
+                    window['-RESULT2-'].update(result_text + disttext)
                     window.refresh()
                     # apply distortion
                     if dist:  # with distortion, add parameters to fits-header
@@ -809,8 +850,8 @@ def main():
                                 m_fun.m_join(outpath, 'm_back.fit'), outpath, mdist, first, nm, window,
                                 fits_dict, dist, background, (x00, y00), a3, a5, rot, scalxy,
                                 colorflag, show_images=show_images)
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(infile + '_peak.png',
-                                                            window['-D_IMAGE-'], opt_dict, idg, tmp_image=True)
+                    image_data, actual_file = m_fun.draw_scaled_image(infile + '_peak.png',
+                                                            window['-D_IMAGE-'], opt_dict, tmp_image=True)
                     window['-RESULT2-'].update(result_text + disttext)
                     window['-GOTO_REG-'].update(disabled=False, button_color=bc_enabled)
                     last_file_sum = False
@@ -818,7 +859,7 @@ def main():
                     sg.PopupError('Load valid calibration parameters before applying distortion',)
                 else:
                     disttext = 'no files deleted'
-                window['-RESULT2-'].update(disttext)
+                window['-RESULT2-'].update(result_text + disttext)
                 window['-M_DIST_R-'].update(mdist)
                 window.refresh()
 
@@ -828,6 +869,7 @@ def main():
             window['-N_MAX_R-'].update(nmp)
             m_fun.refresh_image(image_data, window['-R_IMAGE-'], opt_dict, idg)
             window['-SHOW_SUM_R-'].update(disabled=True, button_color=bc_disabled)
+            window['-SHOW_REG-'].update(False)
 
         # ==============================================================================
         # Registration Tab
@@ -860,15 +902,15 @@ def main():
                 nim = m_fun.check_files(out_fil, maxim, ext='.fit')
                 i_reg = min(nim, i_reg)
                 if i_reg <= nim and path.exists(out_fil + str(i_reg) + '.fit'):
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(out_fil + str(i_reg) + '.fit',
-                                                        window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
+                    image_data, actual_file = m_fun.draw_scaled_image(out_fil + str(i_reg) + '.fit',
+                                                        window['-R_IMAGE-'], opt_dict, contr=contrast)
                     window['-INDEX_R-'].update(reg_file + str(i_reg))
                 elif i_reg > 1:
                     i_reg -= 1
             else:
                 if path.exists(infile + str(i_reg) + '.fit'):
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(infile + str(i_reg) + '.fit',
-                                                        window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
+                    image_data, actual_file = m_fun.draw_scaled_image(infile + str(i_reg) + '.fit',
+                                                        window['-R_IMAGE-'], opt_dict, contr=contrast)
                     window['-INDEX_R-'].update(mdist + str(i_reg))
                 else:
                     sg.PopupError(f'File {infile + str(i_reg)}.fit not found')
@@ -878,29 +920,31 @@ def main():
             else:
                 logging.info('no fits-header DATE-OBS, M-STATIO')
                 result_text = '\n!!!no fits-header DATE-OBS, M-STATIO!!!\n'
-            result_text += ('Station = ' + sta + '\n'
-                            + 'Time = ' + dat_tim + '\n'
-                            + 'Number Images = ' + str(nim) + '\n')
-            window['-RESULT3-'].update(result_text)
+            # result_text += ('Station = ' + sta + '\n'
+            #                 + 'Time = ' + dat_tim + '\n'
+            #                 + 'Number Images = ' + str(nim) + '\n')
+            # window['-RESULT3-'].update(result_text)
         # image contrast--------------------------------------------------------
         elif event in ('-LOW_C-', '-HIGH_C-'):
             contrast = 0.5 * contrast if event == '-LOW_C-' else 2.0 * contrast
-            if last_file_sum:
-                image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, idg, contr=contrast)
-            else:
-                if values['-SHOW_REG-']:
-                    if path.exists(out_fil + str(i_reg) + '.fit'):
-                        image_data, idg, actual_file = m_fun.draw_scaled_image(out_fil + str(i_reg) + '.fit',
-                                                            window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
+            try:
+                if last_file_sum:
+                    image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                           opt_dict, contr=contrast)
                 else:
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(infile + str(i_reg) + '.fit',
-                                                            window['-R_IMAGE-'], opt_dict, idg, contr=contrast)
-
+                    if values['-SHOW_REG-']:
+                        if path.exists(out_fil + str(i_reg) + '.fit'):
+                            image_data, actual_file = m_fun.draw_scaled_image(out_fil + str(i_reg) + '.fit',
+                                                                window['-R_IMAGE-'], opt_dict, contr=contrast)
+                    else:
+                        image_data, actual_file = m_fun.draw_scaled_image(infile + str(i_reg) + '.fit',
+                                                                window['-R_IMAGE-'], opt_dict, contr=contrast)
+            except Exception as e:
+                print(f'{e}')
         # image selection-------------------------------------------------------
         elif event == '-SHOW_SUM_R-':
-            image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                   opt_dict, idg, contr=contrast)
+            image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                   opt_dict, contr=contrast)
             last_file_sum = True
 
         elif event == '-SEL_START-':
@@ -931,15 +975,18 @@ def main():
             out_fil = m_fun.m_join(outpath, reg_file)
             im, header = m_fun.get_fits_image(infile + str(start))
             # 'tmp.png' needed for select_rectangle:
-            image_data, idg, actual_file = m_fun.draw_scaled_image(infile + str(start) + '.fit', window['-R_IMAGE-'],
-                                                                   opt_dict, idg, contr=contrast, tmp_image=True)
+            image_data, actual_file = m_fun.draw_scaled_image(infile + str(start) + '.fit', window['-R_IMAGE-'],
+                                                                   opt_dict, contr=contrast, tmp_image=True)
             if not sta:
                 sta = header['M_STATIO']
                 dat_tim = header['DATE-OBS']
             # ===================================================================
             # select rectangle for registration
+            window.Disable()
             select_event, x0, y0, dx, dy = m_fun.select_rectangle(infile, start, res_dict, fits_dict,
                                                                   (wlocx, wlocy), out_fil, maxim)
+            window.Enable()
+            window.bring_to_front()
             if select_event == 'Ok':
                 nsel = start + nim - 1  # nsel index of last selected image, nim number of images
                 if nsel > nmp:
@@ -947,18 +994,20 @@ def main():
                     window['-N_REG-'].update(nim)
                 t0 = time.time()
                 fits_dict['M_STARTI'] = start
+                reg_type = 'Gaussian' if values['-GAUSSIAN-'] else 'cross-correlation'
                 index, sum_image, reg_text, dist, outfile, fits_dict = m_fun.register_images(start, nim, x0,
-                            y0, dx, dy, infile, out_fil, window, fits_dict, contrast, idg, values['-SHOW_REG-'])
+                            y0, dx, dy, infile, out_fil, window, fits_dict, contrast,
+                                               values['-GAUSSIAN-'], values['-SHOW_REG-'], debug)
                 t3 = time.time() - t0
                 nim = index - start + 1
                 if nim > 1:
-                    logging.info(f'time for register one image : {t3 / nim:6.2f} sec')
+                    logging.info(f'time for register one image : {t3 / nim:6.2f} sec, {reg_type} ')
                     result_text += (f'Station = {sta}\nTime = {dat_tim}\n'
-                                    + f'\nStart image = {str(start)}\n'
+                                    + f'\nStart image = {str(start)} register {reg_type}\n'
                                     + f'Number registered images: {nim}\nof total images: {nmp}\n'
                                     + f'time for register one image: {t3 / nim:6.2f} sec\n')
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                           opt_dict, idg, contr=contrast)
+                    image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                           opt_dict, contr=contrast)
                     window['-SHOW_REG-'].update(True)
                     window['-RADD-'].update(outfile)
                     window['-SHOW_SUM_R-'].update(disabled=False, button_color=bc_enabled)
@@ -966,17 +1015,16 @@ def main():
                 else:
                     result_text = (f'Number registered images: {nim}\n'
                                    + f'of total images: {nmp}\nnot enough images\n')
-                    info = 'register did not work with last image, try again!'
+                    info = f'{reg_type} register did not work with last image, try again!'
                     sg.PopupError(info)
                     logging.error(info)
                 window['-RESULT3-'].update(reg_text + result_text)
-
         # =======================================================================
         # convert 2-D spectrum to 1-D spectrum
         elif event == '-ADD_ROWS-':
             if outfile:
-                image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, idg, contr=contrast, tmp_image=True)
+                image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                       opt_dict, contr=contrast, tmp_image=True)
                 wloc_image = (opt_dict['win_x'] + opt_dict['calc_off_x'], opt_dict['win_y'] + opt_dict['calc_off_y'])
                 window.Disable()
                 ev, tilt, slant, wloc_image = m_fun.add_rows_apply_tilt_slant(outfile, par_dict,
@@ -985,8 +1033,8 @@ def main():
                 opt_dict['calc_off_y'] = wloc_image[1] - opt_dict['win_y']
                 window.Enable()
                 window.BringToFront()
-                image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + 'st.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, idg, contr=contrast)
+                image_data, actual_file = m_fun.draw_scaled_image(outfile + 'st.fit', window['-R_IMAGE-'],
+                                                                       opt_dict, contr=contrast)
                 window['-RADD-'].update(outfile)
 
         # =======================================================================
@@ -1007,8 +1055,8 @@ def main():
                 window['-RADD-'].update(outfile)
                 last_file_sum = True
                 im, header = m_fun.get_fits_image(outfile)
-                image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, idg, contr=contrast, tmp_image=True)
+                image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                       opt_dict, contr=contrast, tmp_image=True)
                 dist = True if 'D_X00' in header.keys() else False
                 fits_dict = m_fun.get_fits_keys(header, fits_dict, res_dict, keyprint=debug)
                 window['-RADD-'].update(outfile)
@@ -1043,8 +1091,8 @@ def main():
                 outfile, ext = path.splitext(new_outfile)
                 window['-RADD-'].update(outfile)
                 m_fun.write_fits_image(imtilt, outfile + '.fit', fits_dict, dist=dist)
-                image_data, idg, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, idg, contr=contrast)
+                image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                       opt_dict, contr=contrast)
                 np.savetxt(outfile + '.dat', np.transpose([lcal, ical]), fmt='%6i %8.5f')
                 result_text += 'File saved as :' + outfile + '.dat (.fit)\n'
                 window['-RESULT3-'].update(reg_text + result_text)
@@ -1212,7 +1260,7 @@ def main():
                 video_list = m_fun.read_video_list('videolist.txt')
                 video_list.insert(0, spec_file)
                 video_list.insert(0, ' ')
-                window['-PLOT_TITLE-'].update(values=video_list)
+                window['-PLOT_TITLE-'].update(values=video_list, value='')
 
         # ==============================================================================
         # load (un)calibrated spectrum
@@ -1234,7 +1282,7 @@ def main():
                 video_list.insert(0, spec_file)
                 video_list.insert(0, ' ')
                 window['-PLOT_SPEC-'].update(spec_file)
-                window['-PLOT_TITLE-'].update(values=video_list)
+                window['-PLOT_TITLE-'].update(values=video_list, value=spec_file)
                 window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
                 window['-SAVES-'].update(disabled=False, button_color=bc_enabled)
                 window['l_min'].update(str(int(lmin)))
@@ -1265,11 +1313,14 @@ def main():
                 sg.PopupError(f'bad value for plot range or offset, try again\n{e}', title='Plot Graph')
             else:
                 plot_title = values['-PLOT_TITLE-']
+                window.disable()
                 mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(spec_file, line_list,
                                          meteor_lines=meteor_lines, lmin=lmin,
                                          lmax=lmax, imin=i_min, imax=i_max, autoscale=autoscale, gridlines=gridlines,
                                          canvas_size=(plot_w, plot_h), plot_title=plot_title,
                                          multi_plot=multi_plot, offset=offset)
+                window.enable()
+                window.bring_to_front()
                 window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
                 result_text += cal_text_file
                 if mod_file:
@@ -1412,33 +1463,34 @@ def main():
         elif event == '-SEL_RESP_FOLDER-':
             response_folder = values['-RESPONSE_FOLDER-']
             response_folder = sg.PopupGetFolder('', title='Select Response Folder',
-                                        initial_folder=response_folder, no_window=True)
+                                                initial_folder=response_folder, no_window=True)
             window['-RESPONSE_FOLDER-'].update(m_fun.m_join(response_folder))
 
         elif event in ('lmin', 'lmax', 'imin', 'imax', 'response_reset'):
             try:
-                    lmin = float(values['lmin'])
-                    lmax = float(values['lmax'])
-                    i_min = float(values['imin'])
-                    i_max = float(values['imax'])
-                    plot_range = (lmin, lmax, i_min, i_max)
-                    # logging.info('reset response')
+                lmin = float(values['lmin'])
+                lmax = float(values['lmax'])
+                i_min = float(values['imin'])
+                i_max = float(values['imax'])
+                plot_range = (lmin, lmax, i_min, i_max)
+                # logging.info('reset response')
+                graph_ir_enabled = True
+                if flux_flag:
+                    plot_range, lcal, ical = m_plot.plot_raw_spectrum(spectrum_file,
+                                                graph_ir, canvasx, autoscale=autoscale,
+                                                plot_range=plot_range)
+                    m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir,
+                                            canvasx, plot_range=plot_range, plot_style=flux_style)
+                else:
                     graph_ir_enabled = True
-                    if flux_flag:
-                        plot_range, lcal, ical = m_plot.plot_raw_spectrum(spectrum_file,
-                                                    graph_ir, canvasx, autoscale=autoscale,
-                                                    plot_range=plot_range)
-                        idg_flux = m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
-                                                       plot_range=plot_range, plot_style=ref_style)
-                    else:
-                        graph_ir_enabled = True
-                        plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file,
-                                                    graph_ir, canvasx, autoscale=autoscale,
-                                                    plot_range=plot_range)
-                        idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
-                                                       plot_range=plot_range, plot_style=ref_style)
-                        idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
-                                              graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
+                    plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file,
+                                                graph_ir, canvasx, autoscale=autoscale,
+                                                plot_range=plot_range)
+                    idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir,
+                                            canvasx, plot_range=plot_range, plot_style=ref_style)
+                    idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response,
+                                                    i_response, graph_ir, canvasx,
+                                                    plot_range=plot_range, plot_style=raw_style)
             except:
                 pass
 
@@ -1467,7 +1519,7 @@ def main():
                 l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
                 m_plot.delete_curve(idg_smooth, graph_ir)
                 idg_smooth = m_plot.plot_reference_spectrum(response_file, l_smooth, i_smooth, graph_ir, canvasx,
-                                               plot_range=plot_range, plot_style=flux_style)
+                                               plot_range=plot_range, plot_style=response_style)
                 response_ok = True
 
         elif event == '-LOAD_SPECTRUM-':
@@ -1504,8 +1556,8 @@ def main():
             plot_range = (lmin, lmax, i_min, i_max)
             plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(spectrum_file, graph_ir, canvasx,
                                                                   autoscale=False, plot_range=plot_range)
-            idg_flux = m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
-                                           plot_range=plot_range, plot_style=ref_style)
+            m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
+                                           plot_range=plot_range, plot_style=flux_style)
 
         elif event == '-SAVE_FLUX-':
             new_file, info = m_fun.my_get_file(values['-FLUX-'], title='Save flux', save_as=True,
@@ -1547,7 +1599,7 @@ def main():
                 # save average image as png and fit
                 m_fun.save_fit_png('avi.png', imbw, fits_dict)
                 # TODO: use function from m_fun or move save_fit_png
-                image_data, idg, actual_file = m_fun.draw_scaled_image('avi.fit', image_elem_calib, opt_dict,
+                image_data, actual_file = m_fun.draw_scaled_image('avi.fit', image_elem_calib, opt_dict,
                                                                        idg)
 
         if event in ('Save Image', 'Save calibration Image'):
@@ -1578,11 +1630,11 @@ def main():
             new_infile = ''
             if nim == 0:
                 sg.Popup('No file selected, keep last image')
-                image_data, idg, actual_file, imbw = m_fun.draw_scaled_image('tmp.png', image_elem_calib,
-                                                                             opt_dict, idg, get_array=True)
+                image_data, actual_file, imbw = m_fun.draw_scaled_image('tmp.png', image_elem_calib,
+                                                                             opt_dict, get_array=True)
             else:
-                image_data, idg, actual_file, imbw = m_fun.draw_scaled_image(files[0], image_elem_calib, opt_dict,
-                                                                             idg, tmp_image=True, get_array=True)
+                image_data, actual_file, imbw = m_fun.draw_scaled_image(files[0], image_elem_calib, opt_dict,
+                                                                             tmp_image=True, get_array=True)
                 infile = m_fun.m_join(files[0])
                 if nim == 1:
                     if len(imbw):
@@ -1603,8 +1655,8 @@ def main():
                     for file in files:
                         # load images to compare shape
                         # TODO: shorter version of load array only, no need to draw image
-                        image_data, idg, actual_file, imbw = m_fun.draw_scaled_image(file, image_elem_calib,
-                                                                                     opt_dict, idg, get_array=True)
+                        image_data, actual_file, imbw = m_fun.draw_scaled_image(file, image_elem_calib,
+                                                                                     opt_dict, get_array=True)
 
                         if imbw.shape != shape0:
                             sg.PopupError('all files must have the same format, try again!', keep_on_top=True)
@@ -1614,15 +1666,15 @@ def main():
                         for f in range(nim):
                             files[f] = path.relpath(files[f])
                             # TODO: shorter version of load array only, no need to draw image
-                            image_data, idg, actual_file, im = m_fun.draw_scaled_image(files[f], image_elem_calib,
-                                                                                       opt_dict, idg,
+                            image_data, actual_file, im = m_fun.draw_scaled_image(files[f], image_elem_calib,
+                                                                                       opt_dict,
                                                                                        get_array=True)
                             imbw = im if f == 0 else np.maximum(imbw, im)
                         new_infile = m_fun.change_extension(infile, '') + '_peak_' + str(nim)
                         m_fun.save_fit_png(new_infile, imbw, fits_dict)
-                        image_data, idg, actual_file = m_fun.draw_scaled_image(m_fun.change_extension(new_infile,
+                        image_data, actual_file = m_fun.draw_scaled_image(m_fun.change_extension(new_infile,
                                                                                                       '.fit'),
-                                                                               image_elem_calib, opt_dict, idg,
+                                                                               image_elem_calib, opt_dict,
                                                                                tmp_image=True)
                         logging.info(f'image saved as: {new_infile} (.fit, .png)')
                         logtext += 'Load_Images:' + '\n'
@@ -1673,8 +1725,8 @@ def main():
                 if not Path(infile + '.fit').exists():
                     imbw, opt_dict = lfun.load_image(infile, opt_dict)
                 # 'tmp.png' created with tmp_image=True, needed for sel.select_lines
-                image_data, idg, actual_file = m_fun.draw_scaled_image(m_fun.change_extension(infile, '.fit'),
-                                                                       image_elem_calib, opt_dict, idg,
+                image_data, actual_file = m_fun.draw_scaled_image(m_fun.change_extension(infile, '.fit'),
+                                                                       image_elem_calib, opt_dict,
                                                                        tmp_image=True, get_array=False)
                 p = Path(m_fun.change_extension(outfil, '.txt'))
                 if not Path(p).exists():
@@ -1715,7 +1767,7 @@ def main():
                 try:
                     par, result = lfun.lsqf(parv, debug=debug, fit_report=opt_dict['fit-report'])
                     (scalxy, x00, y00, rotdeg, disp0, a3, a5, errorx, errory) = par
-                    image_data, idg, actual_file = m_fun.draw_scaled_image(outfil + '_lsfit.png', image_elem_calib,
+                    image_data, actual_file = m_fun.draw_scaled_image(outfil + '_lsfit.png', image_elem_calib,
                                                                            opt_dict, idg)
                     rot = rotdeg * np.pi / 180
                     resv = np.float32([scalxy, x00, y00, rot, disp0, a3, a5])
@@ -1767,8 +1819,8 @@ def main():
 
             infile = par_dict['s_infile']
             if infile:
-                image_data, idg, actual_file, imbw = m_fun.draw_scaled_image(m_fun.change_extension(infile, '.fit'),
-                                                        image_elem_calib, opt_dict, idg, tmp_image=True, get_array=True)
+                image_data, actual_file, imbw = m_fun.draw_scaled_image(m_fun.change_extension(infile, '.fit'),
+                                                        image_elem_calib, opt_dict, tmp_image=True, get_array=True)
                 if not image_data:
                     imbw = []
             else:
@@ -1776,13 +1828,13 @@ def main():
             if not len(imbw):
                 sg.PopupError(f'Image {infile}.fit not found, load {infile}.png instead:', keep_on_top=True)
                 infile, info = m_fun.my_get_file(infile, title='Load image',
-                                                file_types=(('PNG-File', '*.png'), ('Image Files', '*.fit'),
+                                                 file_types=(('PNG-File', '*.png'), ('Image Files', '*.fit'),
                                                             ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
-                                                default_extension='*.png')
+                                                 default_extension='*.png')
                 if infile:
                     lfun.load_image(infile, opt_dict)  # creates fit image
-                    image_data, idg, actual_file, imbw = m_fun.draw_scaled_image(infile, image_elem_calib,
-                                                                                 opt_dict, idg, get_array=True)
+                    image_data, actual_file, imbw = m_fun.draw_scaled_image(infile, image_elem_calib,
+                                                                                 opt_dict, get_array=True)
                     infile = m_fun.m_join(m_fun.change_extension(infile))
             if len(imbw):
                 window['input_file'].Update(infile)
