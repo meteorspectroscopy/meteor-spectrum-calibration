@@ -1,7 +1,7 @@
 # meteor-spectrum-calibration
 Analysis of meteor spectra with windows GUI.
 
-Newest version with calculation and application of instrument response function.
+Newest version with calculation and application of instrument response function and correction of atmospheric extinction.
 
 The previous calibration of camera, lens and grating combination has been included in the script. Therefore only a single GUI allows this calibration and the subsequent processing of meteor spectra. For details of the calibration, see:
 https://github.com/meteorspectroscopy/calibrate-spectrum
@@ -24,5 +24,7 @@ or the manual in the doc folder.
 For a description on the Instrument response (theory and application) see the response manual in the doc folder: 
 https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/response/doc/instrument%20response.pdf
 
-Further information about the theoretical background can be found at https://meteorspectroscopy.org/
+In this manual is also described the correction of atmospheric extinction to the response function and the meteor spectra.
+
+Further information about the theoretical background of the processing can be found at https://meteorspectroscopy.org/
 
