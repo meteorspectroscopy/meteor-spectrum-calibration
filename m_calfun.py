@@ -17,7 +17,7 @@ from skimage.transform import rescale
 import PySimpleGUI as sg
 import m_specfun as m_fun
 
-version = '0.8.7'
+version = '0.8.8'
 fitsv = ['' for x in range(7)]
 fitskey = ['DATE-OBS', 'OBSERVER', 'VERSION', 'INSTRUME', 'TELESCOP', 'M_STATIO', 'COMMENT']
 fits_dict = dict(list(zip(fitskey, fitsv)))
@@ -135,7 +135,7 @@ def select_lines(xl, yl, wxl, wyl, laml, maxs, maxl):
     k = 0  # index input series
     # convert data from txt file into arrays
     while k < np.shape(xl)[0]:
-        while xl[k] > 0:
+        while xl[k] > 0 and l < sizear[1]:
             x[s, l] = xl[k]
             y[s, l] = yl[k]
             w[s, l] = (wxl[k]+wyl[k])/2
@@ -204,7 +204,7 @@ def load_image(infil, opt_dict, imagesave=True):
             imbw = imbw/np.max(imbw)
             # we do not want tmp.fit, it overwrites tmp.png (default image type)!
             if str(Path(infil).with_suffix('')) != 'tmp':
-                hdu = fits.PrimaryHDU(imbw)
+                hdu = fits.PrimaryHDU(imbw.astype(np.float32))
                 hdu.header['BSCALE'] = 32767
                 hdu.header['BZERO'] = 0
                 hdu.writeto(p, overwrite=True)
@@ -252,7 +252,7 @@ def lsqf(parv, debug=False, fit_report=False):
     # select max size of arrays, to be reduced later, initialize parameters
     #-------------------------------------------------------------------------------
     maxs = 20
-    maxl =10
+    maxl = 20
     # select lines and arrange them in array, each spectrum one row
     (x, y, w, lam, sl, x0, y0, maxs, maxl) = select_lines(xl, yl, wxl, wyl, ll, maxs, maxl)
     if debug: print('l s = ', maxl, maxs, '\nx\n', x, '\ny\n', y)
@@ -384,7 +384,7 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
     input_row = []
     input_elem = []
     info = ''
-    for k in range(15):
+    for k in range(11):
         input_elem.append(sg.Input(parv[k], size=(30, 1)))
         input_row.append([sg.Text(parkey[k], size=(10, 1)), input_elem[k]])
     filename_ini_in_elem = sg.InputText(ini_file, size=(34, 1))
@@ -395,8 +395,7 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
                                           # [[sg.Text(ki[k], size=(5,1)), sg.Input(kval[k])] for k in range(15)],
                                           input_row[0], input_row[1], input_row[2], input_row[3],
                                           input_row[4], input_row[5], input_row[6], input_row[7],
-                                          input_row[8], input_row[9], input_row[10], input_row[11],
-                                          input_row[12], input_row[13], input_row[14],
+                                          input_row[8], input_row[9], input_row[10], # input_row[11],
                                           # [input_row[k] for k in range(15)], does not work
                                           [filename_ini_in_elem],
                                           [sg.Button('SaveC', size=(6, 1)),
@@ -414,7 +413,7 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
             winsetup.Close()
 
         if evsetup in ('Apply', 'SaveC'):
-            for k in range(15):
+            for k in range(11):
                 key = parkey[k]
                 if key[0] == 'b':
                     if valset[k] == '0':
