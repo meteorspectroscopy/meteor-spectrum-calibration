@@ -18,8 +18,7 @@ import m_calfun as lfun
 import m_plot
 import m_specfun as m_fun
 import myselect as sel
-# import register as reg
-# import extinction
+import m_image_tools as m_image
 try:
     from csaps import csaps
     csaps_installed = True
@@ -34,7 +33,8 @@ except Exception as e:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.26'
+    version = '0.9.27'
+    # GUI settings:
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
     sg.SetGlobalIcon('Koji.ico')
@@ -56,8 +56,9 @@ def main():
     fits_v = list(fits_dict.values())
     fits_k = list(fits_dict.keys())
     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc, xoff_setup, yoff_setup,
-        debug, fit_report, win2ima, opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
-        plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines] = list(opt_dict.values())
+        debug, fit_report, win2ima, opt_comment, png_name, outpath, mdist, Fdistortcolorflag,
+        bob_doubler, plot_w, plot_h, i_min, i_max, graph_size,
+        show_images, meteor_lines, flat_flag, flat_file] = list(opt_dict.values())
     if par_text == '':
         sg.PopupError(f'no valid configuration found, default {ini_file} created')
     # default values for video
@@ -69,6 +70,7 @@ def main():
     n_back = 20
     dat_tim = ''
     sta = ''
+    # flat_file = 'flat'
     # default values for registration
     first = 25
     nm = 0
@@ -90,7 +92,7 @@ def main():
     spec_file = ''
     llist = ''
     cal_dat_file = ''
-    cal_text_file = ''
+    # cal_text_file = ''
     c = []
     graph_enabled = False
     line_list = 'm_linelist'
@@ -154,7 +156,7 @@ def main():
         ['&File', ['Save calibration &Image', 'E&xit']],
         ['&View', ['&Fits-Header']],
         ['&Tools', ['!&Offset', 'Edit &Text File', 'Edit &Log File', 'Edit &Spectrum',
-                   '&Add Images', '!&Gaussian, wavelength tools', '!Atmospheric correction']],
+                   '&Add Images', '!&Gaussian, wavelength tools', '!Atmospheric correction', 'Image Tools']],
         ['&Options', ['&Setup Options', '&Meteor lines']],
         ['&Help', '&About...'], ]
 
@@ -225,7 +227,11 @@ def main():
                     [sg.Checkbox('Color processing', default=False,
                                  pad=(10, 0), key='-COLOR-')],
                     [sg.Checkbox('Bob Doubler', default=False, pad=(10, 0), key='-BOB_D-')],
-                    [sg.Text('Number of background images:'),
+                    [sg.Checkbox('Flat corr.', default=flat_flag, pad=(10, 0), key='-FLAT_C-'),
+                     sg.InputText(flat_file, size=(20, 1), key='-FLAT-', enable_events=True,
+                                  tooltip='Filename of flat if Flat corr. checked'),
+                     sg.Button('Sel Flat', key='-SEL_FLAT-', tooltip='select flat file')],
+                     [sg.Text('Number of background images:'),
                      sg.InputText(str(n_back), size=(15, 1), key='-N_BACK-')],
                     [sg.Text('Index of start image:'),
                      sg.InputText(str(first), size=(24, 1), key='-N_START-')],
@@ -525,8 +531,8 @@ def main():
                     window['-RESPONSE2-'].update(response_file)
                     m_plot.delete_curve(idg_resp, graph_ir)
                     l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
-                    idg_resp = m_plot.plot_reference_spectrum(spectrum_am0,l_smooth, i_smooth, graph_ir, canvasx,
-                                               plot_range=plot_range, plot_style=response_style)
+                    idg_resp = m_plot.plot_reference_spectrum(spectrum_am0, l_smooth, i_smooth,
+                                  graph_ir, canvasx, plot_range=plot_range, plot_style=response_style)
                 else:
                     spectrum_file = spectrum_am0
                     window['-SPECTRUM-'].update(spectrum_am0)
@@ -534,7 +540,7 @@ def main():
                     l_spec, i_spec = np.loadtxt(spectrum_am0, unpack=True, ndmin=2)
                     idg_ref = m_plot.plot_reference_spectrum(spectrum_am0, l_spec, i_spec, graph_ir, canvasx,
                                                plot_range=plot_range, plot_style=ref_style)
-                result_text += info +'\n'
+                result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 window.refresh()
                 if trans_flag:
@@ -542,6 +548,10 @@ def main():
                     m_plot.delete_curve(idg_trans, graph_ir)
                     idg_trans = m_plot.plot_reference_spectrum('transmission_atmos.dat', l_trans, i_trans,
                                             graph_ir, canvasx, plot_range=plot_range, plot_style=trans_style)
+
+        if event == 'Image Tools':
+            f_pix = m_fun.par_dict['f_f0'] / m_fun.par_dict['f_pix'] / m_fun.par_dict['i_binning']
+            m_image.image_tools('back', opt_dict, fits_dict, res_dict, f_pix=f_pix)
 
         if event == 'Setup Options':
             opt_dict = m_fun.select_options(opt_dict, )
@@ -551,6 +561,7 @@ def main():
                                              file_types=(('Calibration Files', '*.txt'),),
                                              error_message='no file loaded')
             if not meteor_lines:
+
                 sg.PopupError('no file selected, use default list')
                 meteor_lines = 'meteor_lines'
             opt_dict['meteor_lines'] = m_fun.m_join(meteor_lines)
@@ -612,7 +623,8 @@ def main():
                     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc,
                      xoff_setup, yoff_setup, debug, fit_report, win2ima,
                      opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
-                     plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines] = list(opt_dict.values())
+                     plot_w, plot_h, i_min, i_max, graph_size, show_images,
+                     meteor_lines, flat_flag, flat_file] = list(opt_dict.values())
                 window['-PNG_BASE-'].Update(png_name)
                 window['-PNG_BASED-'].Update(png_name)
                 window['-OUT-'].Update(outpath)
@@ -625,6 +637,8 @@ def main():
                 window['-BOB-'].Update(bob_doubler)
                 window['-BOB_D-'].Update(bob_doubler)
                 window['-SHOW_IM-'].Update(show_images)
+                window['-FLAT_C-'].Update(flat_flag)
+                window['-FLAT-'].Update(flat_file)
                 window.Move(wlocx, wlocy)
 
         elif event in ('-SAVE_SETUP-', '-SAVE_DEFAULT-', 'Exit'):
@@ -661,10 +675,13 @@ def main():
             opt_dict['i_min'] = i_min
             opt_dict['i_max'] = i_max
             opt_dict['show_images'] = values['-SHOW_IM-']
+            opt_dict['flat_flag'] = values['-FLAT_C-']
+            opt_dict['flat_file'] = values['-FLAT-']
             [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc,
                 xoff_setup, yoff_setup, debug, fit_report, win2ima,
                 opt_comment, png_name, outpath, mdist, colorflag, bob_doubler,
-                plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines] = list(opt_dict.values())
+                plot_w, plot_h, i_min, i_max, graph_size, show_images,
+                meteor_lines, flat_flag, flat_file] = list(opt_dict.values())
             if ini_file and event != '-APPLY_OPT-':
                 m_fun.write_configuration(ini_file, par_dict, res_dict, fits_dict, opt_dict)
             try:
@@ -695,10 +712,13 @@ def main():
                 result_text = ''
                 window['-RESULT-'].update(result_text)
                 # check previous PNG images
-                old_files, deleted, answer = m_fun.delete_old_files(png_name, maxim)
+                old_files, deleted, answer = m_fun.delete_old_files(png_name, max(maxim, int(values['-MAXIM-'])))
+                maxim = int(values['-MAXIM-'])
                 if answer != 'Cancel':
+                    result_text = 'Start video conversion\n'
+                    window.refresh()
                     nim, dat_tim, sta, out = m_fun.extract_video_images(avifile, png_name,
-                                    bob_doubler, par_dict['i_binning'], bff, int(values['-MAXIM-']))
+                                    bob_doubler, par_dict['i_binning'], bff, maxim)
                     if nim:
                         window['-PREVIOUS-'].update(disabled=False)
                         window['-NEXT-'].update(disabled=False)
@@ -711,7 +731,7 @@ def main():
                         window[kk].Update(fits_v[k])
                     if nim:
                         image_data, actual_file = m_fun.draw_scaled_image(out + '1.png', window['-V_IMAGE-'],
-                                                                               opt_dict, idg)
+                                                                          opt_dict, idg)
                         # add avifile to video_list
                         m_fun.update_video_list('videolist.txt', avifile)
                     logging.info(f'converted {avifile} {nim} images')
@@ -747,11 +767,11 @@ def main():
             if event == '-PREVIOUS-' and i > 1:
                 i -= 1
             image_data, actual_file = m_fun.draw_scaled_image(out + str(i) + '.png',
-                                                                   window['-V_IMAGE-'], opt_dict, idg)
+                                                              window['-V_IMAGE-'], opt_dict, idg)
 
         if event == '-GOTO_DIST-':
             image_data, actual_file = m_fun.draw_scaled_image(out + str(i) + '.png',
-                                                                   window['-D_IMAGE-'], opt_dict, idg)
+                                                              window['-D_IMAGE-'], opt_dict, idg)
             window['-T_DIST-'].select()  # works
 
         # ==============================================================================
@@ -781,6 +801,14 @@ def main():
             window['-OUT_R-'].update(outpath)
             window['-SPECTRUM-'].update(outpath + '/')
 
+        elif event == '-SEL_FLAT-':
+            flat_file = values['-FLAT-']
+            flat_file, info = m_fun.my_get_file(flat_file, title='Get Flat File',
+                                      file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),),
+                                      default_extension='*.fit')
+            flat_file = m_fun.m_join(flat_file)
+            window['-FLAT-'].update(flat_file)
+
         elif event == '-APPLY_DIST-':
             window['-GOTO_REG-'].update(disabled=False, button_color=bc_disabled)
             png_name = values['-PNG_BASED-']
@@ -791,13 +819,16 @@ def main():
             background = values['-BACK-']
             bob_doubler = values['-BOB_D-']
             colorflag = values['-COLOR-']
+            flat_flag = values['-FLAT_C-']
+            flat_file = values['-FLAT-']
+            flat = flat_file if flat_flag else ''
             n_back = int(values['-N_BACK-'])
             first = int(values['-N_START-'])
             nm = int(values['-N_IMAGE-'])
             show_images = values['-SHOW_IM-']
             inpath = path.normpath(png_name)
             # check number of  tmp\*.png   <--
-            nm_found = m_fun.check_files(inpath, maxim, ext='.png')
+            nm_found = m_fun.check_files(inpath, int(values['-MAXIM-']), ext='.png')
             if nm <= 0 or nm > nm_found - first + 1:
                 sg.PopupError(
                     f'not enough meteor images, check data\n nim = {nm_found}, '
@@ -817,9 +848,7 @@ def main():
                 # check previous images mdist
                 distfile = path.normpath(path.join(outpath, mdist))  # 'D:/Daten/Python/out\\mdist'
                 old_files, deleted, answer = m_fun.delete_old_files(distfile, maxim, ext='.fit')
-                disttext = f' {deleted} files deleted of {old_files}\n' \
-                           f'start background image\nwait for background image\n'
-                # ---------------------------------------------------------------
+                disttext = f' {deleted} files deleted of {old_files}\n'
                 if answer != 'Cancel' and scalxy > 0.0:
                     # make background image
                     t0 = time.time()  # start timer
@@ -828,7 +857,11 @@ def main():
                     # remove unnecessary fits header items before saving fits-images
                     fits_dict.pop('M_NIM', None)
                     fits_dict.pop('M_STARTI', None)
-                    m_fun.save_fit_png(m_fun.m_join(outpath, 'm_back'), back, fits_dict)
+                    temp_dict = {'COMMENT': ''}
+                    disttext += f'start background image\nwait for background image\n'
+                    window['-RESULT2-'].update(value=result_text + disttext, append=True)
+                    window.refresh()
+                    m_fun.save_fit_png(m_fun.m_join(outpath, 'm_back'), back, temp_dict, dist=False)
                     image_data, actual_file = m_fun.draw_scaled_image(m_fun.m_join(outpath, 'm_back.fit'),
                                                         window['-D_IMAGE-'], opt_dict, tmp_image=True)
                     disttext += f'background created of {n_back} images\n'
@@ -843,13 +876,16 @@ def main():
                             logging.info(f'{key} = {res_dict[key]:9.3e}') if key[0] == 'a' \
                                 else logging.info(f'{key} = {res_dict[key]:9.3f}')
                     else:
+                        for key in fits_dict.keys():
+                            if key in ('D_A3', 'D_A5'):
+                                fits_dict[key] = 0.0
                         logging.info('no distortion applied')
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
                                 m_fun.m_join(outpath, 'm_back.fit'), outpath, mdist, first, nm, window,
                                 fits_dict, dist, background, (x00, y00), a3, a5, rot, scalxy,
-                                colorflag, show_images=show_images)
+                                colorflag, show_images=show_images, flat_file=flat)
                     image_data, actual_file = m_fun.draw_scaled_image(infile + '_peak.png',
                                                             window['-D_IMAGE-'], opt_dict, tmp_image=True)
                     window['-RESULT2-'].update(result_text + disttext)
@@ -930,7 +966,7 @@ def main():
             try:
                 if last_file_sum:
                     image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                           opt_dict, contr=contrast)
+                                                                      opt_dict, contr=contrast)
                 else:
                     if values['-SHOW_REG-']:
                         if path.exists(out_fil + str(i_reg) + '.fit'):
@@ -944,7 +980,7 @@ def main():
         # image selection-------------------------------------------------------
         elif event == '-SHOW_SUM_R-':
             image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                   opt_dict, contr=contrast)
+                                                              opt_dict, contr=contrast)
             last_file_sum = True
 
         elif event == '-SEL_START-':
@@ -974,10 +1010,13 @@ def main():
             nmp = int(values['-N_MAX_R-'])
             out_fil = m_fun.m_join(outpath, reg_file)
             im, header = m_fun.get_fits_image(infile + str(start))
+            if 'M_FLAT' in header.keys():
+                fits_dict['M_FLAT'] = header['M_FLAT']
             # 'tmp.png' needed for select_rectangle:
             image_data, actual_file = m_fun.draw_scaled_image(infile + str(start) + '.fit', window['-R_IMAGE-'],
-                                                                   opt_dict, contr=contrast, tmp_image=True)
-            if not sta:
+                                                              opt_dict, contr=contrast, tmp_image=True)
+
+            if not sta and 'M_STATIO' in header.keys():
                 sta = header['M_STATIO']
                 dat_tim = header['DATE-OBS']
             # ===================================================================
@@ -1007,7 +1046,7 @@ def main():
                                     + f'Number registered images: {nim}\nof total images: {nmp}\n'
                                     + f'time for register one image: {t3 / nim:6.2f} sec\n')
                     image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                           opt_dict, contr=contrast)
+                                                                      opt_dict, contr=contrast)
                     window['-SHOW_REG-'].update(True)
                     window['-RADD-'].update(outfile)
                     window['-SHOW_SUM_R-'].update(disabled=False, button_color=bc_enabled)
@@ -1024,7 +1063,7 @@ def main():
         elif event == '-ADD_ROWS-':
             if outfile:
                 image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, contr=contrast, tmp_image=True)
+                                                                  opt_dict, contr=contrast, tmp_image=True)
                 wloc_image = (opt_dict['win_x'] + opt_dict['calc_off_x'], opt_dict['win_y'] + opt_dict['calc_off_y'])
                 window.Disable()
                 ev, tilt, slant, wloc_image = m_fun.add_rows_apply_tilt_slant(outfile, par_dict,
@@ -1034,7 +1073,7 @@ def main():
                 window.Enable()
                 window.BringToFront()
                 image_data, actual_file = m_fun.draw_scaled_image(outfile + 'st.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, contr=contrast)
+                                                                  opt_dict, contr=contrast)
                 window['-RADD-'].update(outfile)
 
         # =======================================================================
@@ -1056,7 +1095,7 @@ def main():
                 last_file_sum = True
                 im, header = m_fun.get_fits_image(outfile)
                 image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, contr=contrast, tmp_image=True)
+                                                                  opt_dict, contr=contrast, tmp_image=True)
                 dist = True if 'D_X00' in header.keys() else False
                 fits_dict = m_fun.get_fits_keys(header, fits_dict, res_dict, keyprint=debug)
                 window['-RADD-'].update(outfile)
@@ -1092,7 +1131,7 @@ def main():
                 window['-RADD-'].update(outfile)
                 m_fun.write_fits_image(imtilt, outfile + '.fit', fits_dict, dist=dist)
                 image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                       opt_dict, contr=contrast)
+                                                                  opt_dict, contr=contrast)
                 np.savetxt(outfile + '.dat', np.transpose([lcal, ical]), fmt='%6i %8.5f')
                 result_text += 'File saved as :' + outfile + '.dat (.fit)\n'
                 window['-RESULT3-'].update(reg_text + result_text)
@@ -1175,13 +1214,20 @@ def main():
             # set focus? to lambda if wavelength entered ok
             window['-S_LINE-'].update(disabled=True, button_color=bc_disabled)
             window['-LAMBDA-'].update(disabled=True)
-            (l0, name) = values['-LAMBDA-'].split(' ', 1)
-            lam = float(l0)
-            abs_sign = -1 if values['-ABSORPTION-'] else 1
-            x0, fwp, cal_text_file = m_fun.select_calibration_line(x0, w, lam, name, lcal, ical,
-                                                                   graph, table, abs_sign=abs_sign)
-            result_text += cal_text_file
-            window['-RESULT4-'].update(result_text, disabled=True)
+            try:
+                (l0, name) = values['-LAMBDA-'].split(' ', 1)
+            except:  # name label missing
+                l0 = values['-LAMBDA-']
+                name = ''
+            try:
+                lam = float(l0)
+                abs_sign = -1 if values['-ABSORPTION-'] else 1
+                x0, fwp, cal_text_file = m_fun.select_calibration_line(x0, w, lam, name, lcal, ical,
+                                                                       graph, table, abs_sign=abs_sign)
+                result_text += cal_text_file
+                window['-RESULT4-'].update(result_text, disabled=True)
+            except Exception as e:
+                sg.PopupError(f'invalid calibration wavelength\n{e}')
 
         # ==============================================================================
         # select calibration wavelength from list
@@ -1458,7 +1504,8 @@ def main():
                                                 graph_ir, canvasx,
                                                 plot_range=plot_range, plot_style=response_style)
                 logging.info(f'smoothing with smooth parameter = {smooth_parameter}')
-            else: sg.PopupError('csaps not installed')
+            else:
+                sg.PopupError('csaps not installed')
 
         elif event == '-SEL_RESP_FOLDER-':
             response_folder = values['-RESPONSE_FOLDER-']
@@ -1597,10 +1644,9 @@ def main():
                 print('nim:', nim, dattim, sta)
                 imbw = m_fun.create_background_image(pngdir, nim)
                 # save average image as png and fit
-                m_fun.save_fit_png('avi.png', imbw, fits_dict)
+                m_fun.save_fit_png('avi.png', imbw, fits_dict, dist=False)
                 # TODO: use function from m_fun or move save_fit_png
-                image_data, actual_file = m_fun.draw_scaled_image('avi.fit', image_elem_calib, opt_dict,
-                                                                       idg)
+                image_data, actual_file = m_fun.draw_scaled_image('avi.fit', image_elem_calib, opt_dict)
 
         if event in ('Save Image', 'Save calibration Image'):
             imfilename, info = m_fun.my_get_file(window['image_file'].Get(), title='Save image',
@@ -1609,7 +1655,7 @@ def main():
             if imfilename:
                 imfilename = m_fun.change_extension(imfilename, '')
                 try:
-                    m_fun.save_fit_png(imfilename, imbw, fits_dict)
+                    m_fun.save_fit_png(imfilename, imbw, fits_dict, dist=False)
                     logtext += info + '\n'
                     window['image_file'].Update(imfilename)
                     window['image_filename'].Update(imfilename)
@@ -1631,10 +1677,10 @@ def main():
             if nim == 0:
                 sg.Popup('No file selected, keep last image')
                 image_data, actual_file, imbw = m_fun.draw_scaled_image('tmp.png', image_elem_calib,
-                                                                             opt_dict, get_array=True)
+                                                                        opt_dict, get_array=True)
             else:
                 image_data, actual_file, imbw = m_fun.draw_scaled_image(files[0], image_elem_calib, opt_dict,
-                                                                             tmp_image=True, get_array=True)
+                                                                        tmp_image=True, get_array=True)
                 infile = m_fun.m_join(files[0])
                 if nim == 1:
                     if len(imbw):
@@ -1656,7 +1702,7 @@ def main():
                         # load images to compare shape
                         # TODO: shorter version of load array only, no need to draw image
                         image_data, actual_file, imbw = m_fun.draw_scaled_image(file, image_elem_calib,
-                                                                                     opt_dict, get_array=True)
+                                                                                opt_dict, get_array=True)
 
                         if imbw.shape != shape0:
                             sg.PopupError('all files must have the same format, try again!', keep_on_top=True)
@@ -1667,15 +1713,14 @@ def main():
                             files[f] = path.relpath(files[f])
                             # TODO: shorter version of load array only, no need to draw image
                             image_data, actual_file, im = m_fun.draw_scaled_image(files[f], image_elem_calib,
-                                                                                       opt_dict,
-                                                                                       get_array=True)
+                                                                                  opt_dict,
+                                                                                  get_array=True)
                             imbw = im if f == 0 else np.maximum(imbw, im)
                         new_infile = m_fun.change_extension(infile, '') + '_peak_' + str(nim)
-                        m_fun.save_fit_png(new_infile, imbw, fits_dict)
+                        m_fun.save_fit_png(new_infile, imbw, fits_dict, dist=False)
                         image_data, actual_file = m_fun.draw_scaled_image(m_fun.change_extension(new_infile,
-                                                                                                      '.fit'),
-                                                                               image_elem_calib, opt_dict,
-                                                                               tmp_image=True)
+                                                                          '.fit'), image_elem_calib, opt_dict,
+                                                                          tmp_image=True)
                         logging.info(f'image saved as: {new_infile} (.fit, .png)')
                         logtext += 'Load_Images:' + '\n'
                         for f in range(nim):
@@ -1726,8 +1771,8 @@ def main():
                     imbw, opt_dict = lfun.load_image(infile, opt_dict)
                 # 'tmp.png' created with tmp_image=True, needed for sel.select_lines
                 image_data, actual_file = m_fun.draw_scaled_image(m_fun.change_extension(infile, '.fit'),
-                                                                       image_elem_calib, opt_dict,
-                                                                       tmp_image=True, get_array=False)
+                                                                  image_elem_calib, opt_dict,
+                                                                  tmp_image=True, get_array=False)
                 p = Path(m_fun.change_extension(outfil, '.txt'))
                 if not Path(p).exists():
                     if not p.parent.exists():
@@ -1768,7 +1813,7 @@ def main():
                     par, result = lfun.lsqf(parv, debug=debug, fit_report=opt_dict['fit-report'])
                     (scalxy, x00, y00, rotdeg, disp0, a3, a5, errorx, errory) = par
                     image_data, actual_file = m_fun.draw_scaled_image(outfil + '_lsfit.png', image_elem_calib,
-                                                                           opt_dict, idg)
+                                                                      opt_dict)
                     rot = rotdeg * np.pi / 180
                     resv = np.float32([scalxy, x00, y00, rot, disp0, a3, a5])
                     reskey = ['scalxy', 'x00', 'y00', 'rot', 'disp0', 'a3', 'a5']
@@ -1834,7 +1879,7 @@ def main():
                 if infile:
                     lfun.load_image(infile, opt_dict)  # creates fit image
                     image_data, actual_file, imbw = m_fun.draw_scaled_image(infile, image_elem_calib,
-                                                                                 opt_dict, get_array=True)
+                                                                            opt_dict, get_array=True)
                     infile = m_fun.m_join(m_fun.change_extension(infile))
             if len(imbw):
                 window['input_file'].Update(infile)

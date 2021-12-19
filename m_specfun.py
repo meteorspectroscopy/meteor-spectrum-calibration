@@ -20,32 +20,24 @@ from PIL import Image
 from astropy.io import fits
 from astropy.time import Time
 from scipy import optimize, interpolate
-# from scipy.ndimage import map_coordinates
 from scipy.ndimage import shift as image_shift
 from skimage import img_as_float
 from skimage import io as ios
 from skimage import transform as tf
 from skimage.feature import register_translation
 from skimage import draw
-
+import matplotlib.pyplot as plt
 import PySimpleGUI as sg
 
-# def fxn():
-#     warnings.warn("deprecated", DeprecationWarning)
-#
-# with warnings.catch_warnings():
-#     warnings.simplefilter("ignore")
-#     fxn()
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
-version = '0.9.26'
-# today = date.today()
+version = '0.9.27'
 logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
-logging.basicConfig(filename=logfile, format='%(asctime)s %(message)s', level=logging.INFO)
+logging.basicConfig(filename=logfile, format='%(asctime)s %(levelno)s %(lineno)d %(message)s', level=logging.INFO)
 # -------------------------------------------------------------------
 # initialize dictionaries for configuration
 parv = ['1' for x in range(10)] + ['' for x in range(10, 15)]
@@ -90,13 +82,17 @@ graph_size = 2000
 show_images = True
 meteor_lines = 'meteor_lines'
 video_list_length = 50
+flat_flag = False
+flat_file = ''
 optkey = ['zoom', 'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x',
           'calc_off_y', 'setup_off_x', 'setup_off_y', 'debug', 'fit-report',
           'scale_win2ima', 'comment', 'png_name', 'outpath', 'mdist', 'colorflag', 'bob',
-          'plot_w', 'plot_h', 'i_min', 'i_max', 'graph_size', 'show_images', 'meteor_lines']
+          'plot_w', 'plot_h', 'i_min', 'i_max', 'graph_size', 'show_images',
+          'meteor_lines', 'flat_flag', 'flat_file']
 optvar = [zoom, wsize[0], wsize[1], wloc[0], wloc[1], xoff_calc, yoff_calc,
           xoff_setup, yoff_setup, debug, fit_report, win2ima, opt_comment, png_name,
-          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max, graph_size, show_images, meteor_lines]
+          outpath, mdist, colorflag, bob_doubler, plot_w, plot_h, i_min, i_max, graph_size,
+          show_images, meteor_lines, flat_flag, flat_file]
 opt_dict = dict(list(zip(optkey, optvar)))
 
 # -------------------------------------------------------------------
@@ -161,7 +157,7 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
                         'setup_off_y', 'graph_size'):
                     opt_dict[key] = int(config['Options'][key])
                 elif key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win',
-                             'colorflag', 'bob', 'show_images'):
+                             'colorflag', 'bob', 'show_images', 'flat_flag'):
                     opt_dict[key] = bool(int(config['Options'][key]))
                 elif key in ('zoom', 'i_min', 'i_max'):
                     opt_dict[key] = float(config['Options'][key])
@@ -218,7 +214,8 @@ def write_configuration(conf, par_dict, res_dict, fits_dict, opt_dict):
     for key in fits_dict.keys():
         config.set('Fits', key.upper(), str(fits_dict[key]))
     for key in opt_dict.keys():
-        if key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win', 'colorflag', 'bob', 'show_images'):
+        if key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win',
+                   'colorflag', 'bob', 'show_images', 'flat_flag'):
             configsetbool('Options', key, opt_dict[key])
         else:
             config.set('Options', key, str(opt_dict[key]))
@@ -344,7 +341,12 @@ def extract_video_images(avifile, pngname, bobdoubler=False, binning=1, bff=True
                             os.rename(f'{pngdir}/top' + str(nfr) + '.png', out + str(n) + '.png')
                             n += 1
                             os.rename(f'{pngdir}/bot' + str(nfr) + '.png', out + str(n) + '.png')
-                    except:
+                    except Exception as e:
+                        # end of file or files not found
+                        if n < 2:
+                            info = 'problem with bobdoubler, use subfolder for PNG base'
+                            sg.PopupError(info + f'\n{e}', title='AVI conversion')
+                            logging.error(info)
                         end = True
                 nim = n - 1
 
@@ -469,7 +471,7 @@ def create_background_image(im, nb, colorflag=False):  # returns background imag
 # -------------------------------------------------------------------
 def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, dist=False,
                           background=False, center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False,
-                          show_images=True, cval=0):
+                          show_images=True, cval=0.001, flat_file=''):
     # subtracts background and transforms images in a single step
     """
     subtracts background image from png images and stores the result
@@ -508,7 +510,8 @@ def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_
     fits_dict: dictionary with fits-header info
     cval : float, optional
         Used in conjunction with mode 'constant', the value outside
-        the image boundaries.
+        the image boundaries. St to nonzero to avoid division by zero
+    flat_file: if !='', apply flat correction to images, image = image/flat
 
     Return:
     actual number of images created
@@ -542,11 +545,16 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         Whether to clip the output to the range of values of the input image.
         This is enabled by default, since higher order interpolation may
         produce values outside the given input range.
-    # preserve_range : bool, optional
-    #     Whether to keep the original range of values. Otherwise, the input
-    #     image is converted according to the conventions of `img_as_float`.
+    preserve_range : bool, optional
+        Whether to keep the original range of values. Otherwise, the input
+        image is converted according to the conventions of `img_as_float`.
         Also see
         http://scikit-image.org/docs/dev/user_guide/data_types.html
+        So, by default, input images will be rescaled to this range.
+        However, in some cases, the image values represent physical measurements,
+        such as temperature or rainfall values, that the user does not want rescaled.
+        With preserve_range=True, the original range of the data will be preserved,
+        even though the output is a float image.
 """
 
     def _distortion_mapping(xy, center, rotation, a3, a5, yscale=1.0):
@@ -602,6 +610,13 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             print('imy imx , x00 y00: ', ima.shape, center)
     else:
         ima = back
+    if flat_file:
+        try:
+            flat, header = get_fits_image(flat_file)
+        except Exception as e:
+            flat_file = ''
+            image_list = []
+            sg.PopupError(f'incorrect Flat file, no distortion applied\n{e}')
     imsum = 0 * ima
     impeak = imsum
     t1 = time.time()
@@ -613,38 +628,57 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             idist = get_png_image(image, colorflag)
             if background:
                 idist = idist - back  # subtract background
+            # apply flat to image before rescaling
+            if flat_file:
+                try:
+                    if multichannel:
+                        for c in [0, 1, 2]:  # separate color planes for faster processing
+                            idist2 = idist[:, :, c] / flat
+                            idist[:, :, c] = idist2
+                    else:
+                        idist = idist / flat
+                    if np.max(idist) > 1.0:
+                        idist = idist / np.max(idist)
+                    idist = np.maximum(idist, -1.0)
+                    fits_dict['M_FLAT'] = change_extension(flat_file, '')
+                except Exception as e:
+                    sg.PopupError(f'incorrect flat image, check shape, no distortion applied\n{e}')
+                    break
             # calculate distortion
-            if dist:
-                if abs(yscale - 1.0) > 1.0e-3:  # scale image if yscale <> 1.0
-                    idist = my_rescale(idist, (yscale, 1), multichannel=multichannel)
-                if len(idist.shape) == 3:
-                    for c in [0, 1, 2]:  # separate color planes for faster processing
-                        idist2 = idist[:, :, c]
-                        # use bi-quadratic interpolation (order = 2) for reduced fringing
-                        idist2 = tf.warp(idist2, _distortion_mapping, map_args=warp_args, order=2,
-                                         mode='constant', cval=cval)
-                        idist[:, :, c] = idist2
-                else:
-                    idist = tf.warp(idist, _distortion_mapping, map_args=warp_args, order=2,
-                                    mode='constant', cval=cval)
-            write_fits_image(idist, fileout + '.fit', fits_dict, dist=dist)
-            if show_images:
-                image_data, actual_file = draw_scaled_image(fileout + '.fit',
-                                    window['-D_IMAGE-'], opt_dict, resize=True)
-            # create sum and peak image
-            imsum = imsum + idist
-            file = path.basename(fileout + '.fit')
-            impeak = np.maximum(impeak, idist)
-            disttext = f'{file} of {nm} done\n'
-            window['-RESULT2-'].update(value=disttext, append=True)
-            window.refresh()
+            if idist != []:
+                if dist:
+                    if abs(yscale - 1.0) > 1.0e-3:  # scale image if yscale <> 1.0
+                        idist = my_rescale(idist, (yscale, 1), multichannel=multichannel)
+                    if len(idist.shape) == 3:
+                        for c in [0, 1, 2]:  # separate color planes for faster processing
+                            idist2 = idist[:, :, c]
+                            # use bi-quadratic interpolation (order = 2) for reduced fringing
+                            idist2 = tf.warp(idist2, _distortion_mapping, map_args=warp_args, order=2,
+                                             mode='constant', cval=cval, preserve_range=False)
+                            idist[:, :, c] = idist2
+                    else:
+                        idist = tf.warp(idist, _distortion_mapping, map_args=warp_args, order=2,
+                                        mode='constant', cval=cval, preserve_range=False)
+
+                write_fits_image(idist, fileout + '.fit', fits_dict, dist=dist)
+                if show_images:
+                    image_data, actual_file = draw_scaled_image(fileout + '.fit',
+                                                    window['-D_IMAGE-'], opt_dict, resize=True)
+                # create sum and peak image
+                imsum = imsum + idist
+                file = path.basename(fileout + '.fit')
+                impeak = np.maximum(impeak, idist)
+                disttext = f'{file} of {nm} done\n'
+                window['-RESULT2-'].update(value=disttext, append=True)
+                window.refresh()
     # write sum and peak fit-file
     write_fits_image(imsum, fullmdist + '_sum.fit', fits_dict, dist=dist)
-    save_fit_png(fullmdist + '_peak', impeak, fits_dict)
+    save_fit_png(fullmdist + '_peak', impeak, fits_dict, dist=dist)
+    fits_dict.pop('M_FLAT', None)
     nmp = a
     # print(nmp, ' images processed of ', nm)
     logging.info(f'{nmp} images processed of {nm}')
-    tdist = (time.time() - t1) / nmp
+    tdist = (time.time() - t1) / max(nmp, 1)
     disttext = f'{nmp} images processed of {nm}\n'
     if dist:
         info = f'process time for single distortion: {tdist:8.2f} sec'
@@ -928,7 +962,7 @@ def get_fits_image(fimage):
     """
     fimage = change_extension(fimage, '.fit')
     im, header = fits.getdata(fimage, header=True)
-    if int(header['BITPIX']) == -32:
+    if abs(int(header['BITPIX'])) == 32:
         im = np.array(im) / 32767
     elif int(header['BITPIX']) == 16:
         im = np.array(im)
@@ -1211,7 +1245,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                                   title='apply_tilt_slant', keep_on_top=True)
                 write_fits_image(imtilt, '_st.fit', fits_dict, dist=dist)
                 image_data, actual_file = draw_scaled_image('_st' + '.fit', window['-R_IMAGE-'],
-                                                                 opt_dict, contr=contr, tmp_image=True)
+                                                            opt_dict, contr=contr, tmp_image=True)
                 graph.draw_image(data=image_data, location=(0, imy))
                 # graph.draw_rectangle((0, ymin), (imx, ymax), line_color='red')
                 for figure in (prior_rect, upper_back, lower_back):
@@ -1222,7 +1256,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
         elif event == 'Ok':
             write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)
             image_data, actual_file = draw_scaled_image(outfile + 'st.fit', window['-R_IMAGE-'],
-                                                             opt_dict, contr=contr, tmp_image=True)
+                                                        opt_dict, contr=contr, tmp_image=True)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 im = imtilt / np.max(imtilt) * 255 * contr
@@ -1612,7 +1646,7 @@ def add_images(graph_size, contrast=1, average=True):
                     write_fits_image(sum_image, '_add.fit', fits_dict, dist=dist)
                     # show_fits_image('tmp', imscale, window['sum_image'], contr=contrast)
                     image_data, actual_file = draw_scaled_image('_add.fit', window['graph'],
-                                                                     opt_dict, contr=contrast)
+                                                                opt_dict, contr=contrast)
                     window['add_images'].update(short_files)
                     window['nim'].update(str(number_images))
                     window.refresh()
@@ -1621,12 +1655,12 @@ def add_images(graph_size, contrast=1, average=True):
         if event == 'Darker':
             contrast = 0.5 * contrast
             image_data, actual_file = draw_scaled_image('_add.fit', window['graph'],
-                                                             opt_dict, contr=contrast)
+                                                        opt_dict, contr=contrast)
             window.refresh()
         if event == 'Brighter':
             contrast = 2.0 * contrast
             image_data, actual_file = draw_scaled_image('_add.fit', window['graph'],
-                                                             opt_dict, contr=contrast)
+                                                        opt_dict, contr=contrast)
         window.refresh()
         if event == 'Save' and files:
             sum_file, info = my_get_file('', title='Save images', save_as=True, default_extension='.fit',
@@ -1685,9 +1719,9 @@ def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=Tr
     if not path.exists(file):
         sg.PopupError(f'file {file} not found', title='draw_scaled_image', keep_on_top=True)
         if get_array:
-            return None, None, file, None
+            return None, file, None
         else:
-            return None, None, file
+            return None, file
     # im_scale = 1.0
     if file.lower().endswith('.fit'):
         image, header = get_fits_image(file)  # get numpy array and fits-header
@@ -1784,14 +1818,14 @@ def my_get_file(file_in, title='', file_types=(('ALL Files', '*.*'),), save_as=F
 
 
 # -------------------------------------------------------------------
-def save_fit_png(imfilename, image, fits_dict):
+def save_fit_png(imfilename, image, fits_dict, dist=True):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ios.imsave(change_extension(imfilename, '.png'), np.flipud(image*255).astype(np.uint8))
-    write_fits_image(image, str(change_extension(imfilename, '.fit')), fits_dict)
+    write_fits_image(image, str(change_extension(imfilename, '.fit')), fits_dict, dist=dist)
 
 
-#-------------------------------------------------------------------
+# -------------------------------------------------------------------
 def select_options(opt_dict, ):
     zoom_elem = sg.Input(opt_dict['zoom'], key='-ZOOM-', size=(7, 1), tooltip='display image scale if scale_win2ima')
     cb_elem_debug = sg.Checkbox('debug', default=opt_dict['debug'], pad=(10, 0), key='-DEBUG-')
@@ -1903,8 +1937,8 @@ def extinction_tool(file, elevation_deg=90.0, h=0.0, aod=0.1, resp_flag=False, t
         if event == 'Load File':
             window.Minimize()
             file, info = my_get_file(file, title='Load uncorrected spectrum',
-                                           file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                           default_extension='*.dat')
+                                     file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
+                                     default_extension='*.dat')
             window['file'].update(file)
             window.Normal()
 
