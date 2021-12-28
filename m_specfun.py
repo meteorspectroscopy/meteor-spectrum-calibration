@@ -14,6 +14,7 @@ import subprocess
 import time
 import warnings
 from datetime import datetime, date
+import threading
 
 import numpy as np
 from PIL import Image
@@ -40,6 +41,8 @@ for handler in logging.root.handlers[:]:
 logging.basicConfig(filename=logfile, format='%(asctime)s %(levelno)s %(lineno)d %(message)s', level=logging.INFO)
 # -------------------------------------------------------------------
 # initialize dictionaries for configuration
+global _go
+# _go = True
 parv = ['1' for x in range(10)] + ['' for x in range(10, 15)]
 parv[14] = 'l'
 parkey = ['f_lam0', 'f_scalxy', 'b_fitxy', 'i_imx', 'i_imy', 'f_f0', 'f_pix', 'f_grat', 'f_rotdeg', 'i_binning',
@@ -469,6 +472,17 @@ def create_background_image(im, nb, colorflag=False):  # returns background imag
 
 
 # -------------------------------------------------------------------
+def distortion_long_function(inpath, outpath, mdist, first, nm, window, dist, background,
+                             center, a3, a5, rot, scalxy, colorflag,
+                             show_images, cval, flat):
+    # used for threading function, see below
+    threading.Thread(target=apply_dark_distortion,
+                     args=(inpath, m_join(outpath, 'm_back.fit'), outpath,
+                           mdist, first, nm, window, fits_dict, dist,
+                           background, center, a3, a5, rot, scalxy,
+                           colorflag, show_images, cval, flat)).start()
+
+# -------------------------------------------------------------------
 def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, dist=False,
                           background=False, center=None, a3=0, a5=0, rotation=0, yscale=1, colorflag=False,
                           show_images=True, cval=0.001, flat_file=''):
@@ -538,6 +552,7 @@ def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_
         # 3: Bi-cubic
         # 4: Bi-quartic
         # 5: Bi-quintic
+        (bicubic selected because of bug, which caused warnings)
 mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         Points outside the boundaries of the input are filled according
         to the given mode, with 'constant' used as the default.
@@ -581,6 +596,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         xy[..., 1] = y0 + r * np.sin(phi)
         return xy
 
+    global _go
     idg = None
     dattim = ''
     sta = ''
@@ -594,9 +610,6 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
                  'a5': a5,
                  'rotation': rotation,
                  'yscale': yscale}
-    # warnings.filterwarnings('ignore') # ignore warnings for cleaner output
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
     # create list of filenames
     image_list = create_file_list(im, nm, start=first)
     a = 0
@@ -653,17 +666,18 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
                         for c in [0, 1, 2]:  # separate color planes for faster processing
                             idist2 = idist[:, :, c]
                             # use bi-quadratic interpolation (order = 2) for reduced fringing
-                            idist2 = tf.warp(idist2, _distortion_mapping, map_args=warp_args, order=2,
+                            # replaced by order = 3 to avoid warnings
+                            idist2 = tf.warp(idist2, _distortion_mapping, map_args=warp_args, order=3,
                                              mode='constant', cval=cval, preserve_range=False)
                             idist[:, :, c] = idist2
                     else:
-                        idist = tf.warp(idist, _distortion_mapping, map_args=warp_args, order=2,
+                        idist = tf.warp(idist, _distortion_mapping, map_args=warp_args, order=3,
                                         mode='constant', cval=cval, preserve_range=False)
 
                 write_fits_image(idist, fileout + '.fit', fits_dict, dist=dist)
-                if show_images:
-                    image_data, actual_file = draw_scaled_image(fileout + '.fit',
-                                                    window['-D_IMAGE-'], opt_dict, resize=True)
+                window.write_event_value('-THREAD PROGRESS-', fileout)
+                window.write_event_value('-THREAD GO-', _go)
+                # if show_images: used here, it flickers, moved to main thread
                 # create sum and peak image
                 imsum = imsum + idist
                 file = path.basename(fileout + '.fit')
@@ -671,12 +685,16 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
                 disttext = f'{file} of {nm} done\n'
                 window['-RESULT2-'].update(value=disttext, append=True)
                 window.refresh()
+            if not _go:
+                # user stop, finish long function with sum and peak files
+                disttext = f'user stop at nmp = {a}\nfinish with impeak\n'
+                window['-RESULT2-'].update(value=disttext, append=True)
+                break
     # write sum and peak fit-file
     write_fits_image(imsum, fullmdist + '_sum.fit', fits_dict, dist=dist)
     save_fit_png(fullmdist + '_peak', impeak, fits_dict, dist=dist)
     fits_dict.pop('M_FLAT', None)
     nmp = a
-    # print(nmp, ' images processed of ', nm)
     logging.info(f'{nmp} images processed of {nm}')
     tdist = (time.time() - t1) / max(nmp, 1)
     disttext = f'{nmp} images processed of {nm}\n'
@@ -684,15 +702,20 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         info = f'process time for single distortion: {tdist:8.2f} sec'
         logging.info(info)
         disttext += info + '\n'
-        # print(f'process time background, dark and dist {t2:8.2f} sec')
         if 'DATE-OBS' in fits_dict.keys():
             dattim = fits_dict['DATE-OBS']
             sta = fits_dict['M_STATIO']
         else:
             logging.info('no fits-header DATE-OBS, M-STATIO')
             disttext += '\n!!!no fits-header DATE-OBS, M-STATIO!!!\n'
-        logging.info(f"'DATE-OBS' = {dattim}")
-        logging.info(f"'M-STATIO' = {sta}")
+        info = f"'DATE-OBS' = {dattim}"
+        logging.info(info)
+        disttext += info + '\n'
+        info = f"'M-STATIO' = {sta}"
+        logging.info(info)
+        disttext += info + '\n'
+        window['-RESULT2-'].update(value=disttext, append=False)
+        window.refresh()
         if not background:
             logging.info('no background applied')
         info = f'Bobdoubler, start image = {im}{first}'
@@ -700,7 +723,8 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             logging.info(f'with ' + info)
         else:
             logging.info('without ' + info)
-    return a, imsum, impeak, disttext
+    window.write_event_value('-THREAD DONE-', (a, disttext))
+    # main thread waits for '-THREAD DONE-'
 
 
 # -------------------------------------------------------------------
@@ -1132,6 +1156,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
 
     tilt = 0.0
     slant = 0.0
+    dt = .005
+    ds = .1
     ymin = 0
     ymax = 0
     idg = None
@@ -1162,13 +1188,18 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
         key='-GRAPH-',
         change_submits=True,  # mouse click events
         drag_submits=True)]
-    layout_select = [[sg.Text('Start File: ' + outfile, size=(40, 1)),
+    layout_select = [[sg.Text('Start File: ' + outfile, size=(32, 1)),
                       sg.Checkbox('correct background', key='-BACK-'),
                       sg.Text('Tilt'), sg.InputText(tilt, size=(6, 1), key='-TILT-'),
+                      sg.B('+', pad=(0, 0), key='+t'),
+                      sg.B('-', pad=(0, 0), key='-t'),
                       sg.Text('Slant'), sg.InputText(slant, size=(6, 1), key='-SLANT-'),
+                      sg.B('+', pad=(0, 0), key='+s'),
+                      sg.B('-', pad=(0, 0), key='-s'),
                       sg.Button('Apply', key='-APPLY_TS-', bind_return_key=True),
+                      sg.Button('Auto', key='-AUTO_TS-'),
                       sg.Ok(), sg.Cancel()],
-                     image_elem_sel, [sg.Text(key='info', size=(60, 1))]]
+                      image_elem_sel, [sg.Text(key='info', size=(60, 1))]]
     # ---------------------------------------------------------------------------
     winselect_active = True
     winselect = sg.Window(f'select rows for 1-D sum spectrum, apply tilt and slant',
@@ -1210,7 +1241,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                                                   (imx, ymax), line_color='red')
         elif event is not None and event.endswith('+UP'):
             # The drawing has ended because mouse up
-            y0 = int(0.5 * (start_point[1] + end_point[1]))
+            y0 = int(0.5 * (ymin + ymax))
             info = f"selected lines from {ymin} to {ymax}"
             winselect["info"].update(value=info)
             start_point, end_point = None, None  # enable grabbing a new rect
@@ -1218,13 +1249,25 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             restext += info + '\n'
             window['-RESULT3-'].update(regtext + restext)
 
-        elif event == '-APPLY_TS-':
+        elif event in ('-APPLY_TS-', '+t', '-t', '+s', '-s'):
+            try:
+                tilt = float(values['-TILT-'])
+                slant = float(values['-SLANT-'])
+            except Exception as e:
+                sg.PopupError(f'bad values for tilt or slant, try again\n{e}',
+                              title='apply_tilt_slant', keep_on_top=True)
             if ymax == 0:
                 sg.PopupError('select rows first', keep_on_top=True)
             else:
+                if event in ('+t', '-t'):
+                    tilt = tilt + dt  if event == '+t' else tilt - dt
+                    winselect['-TILT-'].update(f'{tilt:5.3f}')
+                elif event in ('+s', '-s'):
+                    slant = slant + ds if event == '+s' else slant - ds
+                    winselect['-SLANT-'].update(f'{slant:5.3f}')
                 try:
-                    tilt = float(values['-TILT-'])
-                    slant = float(values['-SLANT-'])
+                    # tilt = float(values['-TILT-'])
+                    # slant = float(values['-SLANT-'])
                     image = im
                     center = (image.shape[1] / 2, y0)
                     warp_args = {'center': center,
@@ -1252,6 +1295,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                     if figure:
                         graph.BringFigureToFront(figure)
                 graph.update()
+                window.refresh()
 
         elif event == 'Ok':
             write_fits_image(imtilt, outfile + 'st.fit', fits_dict, dist=dist)

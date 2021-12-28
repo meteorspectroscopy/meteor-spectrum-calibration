@@ -70,7 +70,6 @@ def main():
     n_back = 20
     dat_tim = ''
     sta = ''
-    # flat_file = 'flat'
     # default values for registration
     first = 25
     nm = 0
@@ -92,7 +91,6 @@ def main():
     spec_file = ''
     llist = ''
     cal_dat_file = ''
-    # cal_text_file = ''
     c = []
     graph_enabled = False
     line_list = 'm_linelist'
@@ -123,7 +121,7 @@ def main():
     smooth_parameter = 0.01
     response_ok = False
     response_folder = 'response'
-    # plot_style=(color, circle_size, line_size, offset)
+    # plot_style=(color, circle_size, line_size, offset):
     star_style = ('red', 1, 1, -0.05)
     ref_style = ('blue', 0, 2, -.1)
     raw_style = ('green', 2, 0, -.15)
@@ -141,7 +139,6 @@ def main():
     elevation_deg = 90.0
     h = 0.0
     aod = 0.1
-    # spectrum_am0 = ''
     trans_flag = True
     resp_flag = False
     # -------------------------------------------------------------------
@@ -156,7 +153,7 @@ def main():
         ['&File', ['Save calibration &Image', 'E&xit']],
         ['&View', ['&Fits-Header']],
         ['&Tools', ['!&Offset', 'Edit &Text File', 'Edit &Log File', 'Edit &Spectrum',
-                   '&Add Images', '!&Gaussian, wavelength tools', '!Atmospheric correction', 'Image Tools']],
+         '&Add Images', '!&Gaussian, wavelength tools', '!Atmospheric correction', 'Image Tools']],
         ['&Options', ['&Setup Options', '&Meteor lines']],
         ['&Help', '&About...'], ]
 
@@ -237,7 +234,8 @@ def main():
                      sg.InputText(str(first), size=(24, 1), key='-N_START-')],
                     [sg.Text('Number of distorted images:'),
                      sg.InputText(str(nm), size=(17, 1), key='-N_IMAGE-')], [sg.Text('_' * 34)],
-                    [sg.Button('Apply Distortion', key='-APPLY_DIST-', tooltip='background subtraction and distortion'),
+                    [sg.Button('Apply Dist.', key='-APPLY_DIST-', tooltip='background subtraction and distortion'),
+                     sg.Button('Stop', key='-STOP-', tooltip= 'finish processing', button_color=('white', 'red')),
                      sg.Checkbox('Show Images', default=show_images, key='-SHOW_IM-'),
                      sg.Button('Continue', key='-GOTO_REG-', disabled=True,
                                tooltip='go to registration tab for next processing step')],
@@ -261,28 +259,28 @@ def main():
                       'if register fails, limit is set automatically'),
          sg.Button('Darker', key='-LOW_C-'), sg.Button('Brighter', key='-HIGH_C-')]])],
         [sg.Frame('Parameters', [[sg.Text('Distorted Image Base:'),
-                    sg.InputText('mdist', size=(24, 1), key='-M_DIST_R-', enable_events=True)],
+                     sg.InputText('mdist', size=(24, 1), key='-M_DIST_R-', enable_events=True)],
                     [sg.Text('Registered Image Base:'),
-                    sg.InputText(reg_file, size=(22, 1), key='-REG_BASE-')],
+                     sg.InputText(reg_file, size=(22, 1), key='-REG_BASE-')],
                     [sg.Text('Index of start image:'),
-                    sg.InputText('1', size=(25, 1), key='-N_START_R-')],
+                     sg.InputText('1', size=(25, 1), key='-N_START_R-')],
                     [sg.Text('Number of registered images:'),
-                    sg.InputText(str(nm), size=(18, 1), key='-N_REG-',
-                                tooltip='Limit number of images to register, \n' +
-                                'if register fails, limit is set automatically')],
+                     sg.InputText(str(nm), size=(18, 1), key='-N_REG-',
+                                  tooltip='Limit number of images to register, \n' +
+                                  'if register fails, limit is set automatically')],
                     [sg.Text('_' * 44)],
                     [sg.Button('Sel Start', key='-SEL_START-', tooltip='set actual image as start image'),
-                    sg.Button('Sel Last', key='-SEL_LAST-', tooltip='set actual image as last image', size=(12, 1)),
+                     sg.Button('Sel Last', key='-SEL_LAST-', tooltip='set actual image as last image', size=(12, 1)),
                      sg.Checkbox('Gaussian', default=False, pad=(10, 0), key='-GAUSSIAN-',
                                  tooltip='use Gaussian fit, default is cross correlation method')],
                     [sg.Button('Register', key='-REGISTER-'),
-                    sg.Button('Show Sum', key='-SHOW_SUM_R-', disabled=True, size=(12, 1)),
-                    sg.Checkbox('show registered', default=False, pad=(10, 0), key='-SHOW_REG-'),],
+                     sg.Button('Show Sum', key='-SHOW_SUM_R-', disabled=True, size=(12, 1)),
+                     sg.Checkbox('show registered', default=False, pad=(10, 0), key='-SHOW_REG-')],
                     [sg.InputText('r_add', size=(32, 1), key='-RADD-', tooltip='File for spectrum extraction'),
-                    sg.Button('Load Radd', key='-LOAD_R-', tooltip='Load file for spectrum extraction')],
+                     sg.Button('Load Radd', key='-LOAD_R-', tooltip='Load file for spectrum extraction')],
                     [sg.Button('Add Rows', disabled=True, key='-ADD_ROWS-', tooltip='Convert to 1d spectrum *.dat'),
-                    sg.Button('Save raw spectrum', disabled=True, key='-SAVE_RAW-'),
-                    sg.Button('Calibrate', disabled=True, key='-CAL_R-', tooltip='Continue with calibration')],
+                     sg.Button('Save raw spectrum', disabled=True, key='-SAVE_RAW-'),
+                     sg.Button('Calibrate', disabled=True, key='-CAL_R-', tooltip='Continue with calibration')],
                     [sg.Text('Results')],
                     [sg.Multiline('Result', size=(42, 15), disabled=True, key='-RESULT3-',
                                   autoscroll=True)]]), image_element_registration]]
@@ -298,7 +296,7 @@ def main():
                             sg.Button('Plot Spectrum', key='-PLOTS-', disabled=True,
                                       button_color=bc_disabled, tooltip='Plot calibrated spectrum'),
                             sg.Button('Save Spectrum', key='-SAVES-', disabled=True,
-                                button_color=bc_disabled, tooltip='Plot calibrated spectrum')],
+                                      button_color=bc_disabled, tooltip='Plot calibrated spectrum')],
                            [sg.Checkbox('Grid lines', default=True, key='-GRID-'),
                             sg.Checkbox('Auto scale', default=False, key='-AUTO_SCALE-'),
                             sg.Checkbox('Norm scale', default=False, key='-NORM_SCALE-')],
@@ -430,7 +428,7 @@ def main():
                        [tabs_element]], location=(wlocx, wlocy), size=(wsx, wsy), resizable=True)
     window.read()
     image_data, actual_file = m_fun.draw_scaled_image('tmp.png', window['-V_IMAGE-'],
-                                                            opt_dict, resize=False)
+                                                      opt_dict, resize=False)
     graph_ir = window['graph_ir']
 
     # ==============================================================================
@@ -556,18 +554,20 @@ def main():
         if event == 'Setup Options':
             opt_dict = m_fun.select_options(opt_dict, )
             debug = opt_dict['debug']
+
         if event == 'Meteor lines':
-            meteor_lines, info = m_fun.my_get_file(meteor_lines, title='Meteor line catalog', default_extension='.txt',
+            meteor_lines, info = m_fun.my_get_file(meteor_lines, title='Meteor line catalog',
+                                             default_extension='.txt',
                                              file_types=(('Calibration Files', '*.txt'),),
                                              error_message='no file loaded')
             if not meteor_lines:
-
                 sg.PopupError('no file selected, use default list')
                 meteor_lines = 'meteor_lines'
             opt_dict['meteor_lines'] = m_fun.m_join(meteor_lines)
 
         if event == 'About...':
             m_fun.about(version)
+
         if event == 'Offset':
             if infile:
                 if Path(m_fun.change_extension(infile, '.fit')).exists():
@@ -644,8 +644,8 @@ def main():
         elif event in ('-SAVE_SETUP-', '-SAVE_DEFAULT-', 'Exit'):
             if event == '-SAVE_SETUP-':
                 ini_file, info = m_fun.my_get_file(setup_file_display_elem.Get(), save_as=True,
-                               file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
-                               title='Save Setup File', default_extension='*.ini', )
+                                    file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
+                                    title='Save Setup File', default_extension='*.ini', )
             else:
                 ini_file = 'm_set.ini'
             setup_file_display_elem.update(ini_file)
@@ -718,7 +718,7 @@ def main():
                     result_text = 'Start video conversion\n'
                     window.refresh()
                     nim, dat_tim, sta, out = m_fun.extract_video_images(avifile, png_name,
-                                    bob_doubler, par_dict['i_binning'], bff, maxim)
+                                                bob_doubler, par_dict['i_binning'], bff, maxim)
                     if nim:
                         window['-PREVIOUS-'].update(disabled=False)
                         window['-NEXT-'].update(disabled=False)
@@ -810,6 +810,7 @@ def main():
             window['-FLAT-'].update(flat_file)
 
         elif event == '-APPLY_DIST-':
+            m_fun._go = True
             window['-GOTO_REG-'].update(disabled=False, button_color=bc_disabled)
             png_name = values['-PNG_BASED-']
             outpath = values['-OUT-']
@@ -880,23 +881,36 @@ def main():
                             if key in ('D_A3', 'D_A5'):
                                 fits_dict[key] = 0.0
                         logging.info('no distortion applied')
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
-                                m_fun.m_join(outpath, 'm_back.fit'), outpath, mdist, first, nm, window,
-                                fits_dict, dist, background, (x00, y00), a3, a5, rot, scalxy,
-                                colorflag, show_images=show_images, flat_file=flat)
-                    image_data, actual_file = m_fun.draw_scaled_image(infile + '_peak.png',
-                                                            window['-D_IMAGE-'], opt_dict, tmp_image=True)
-                    window['-RESULT2-'].update(result_text + disttext)
-                    window['-GOTO_REG-'].update(disabled=False, button_color=bc_enabled)
-                    last_file_sum = False
+                    cval = 0.001
+                    center = (x00, y00)
+                    m_fun.distortion_long_function(inpath, outpath, mdist, first,
+                                                    nm, window, dist, background,
+                                                    center, a3, a5, rot, scalxy, colorflag,
+                                                    show_images, cval, flat)
+                    # (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
+                    #         m_fun.m_join(outpath, 'm_back.fit'), outpath, mdist, first, nm, window,
+                    #         fits_dict, dist, background, (x00, y00), a3, a5, rot, scalxy,
+                    #         colorflag, show_images=show_images, flat_file=flat)
+                    while True:
+                        event, values = window.read()
+                        if event == '-STOP-':
+                            m_fun._go = False
+                        elif event == '-THREAD PROGRESS-':
+                            fileout = values['-THREAD PROGRESS-']
+                            if show_images:
+                                image_data, actual_file = m_fun.draw_scaled_image(fileout +
+                                            '.fit', window['-D_IMAGE-'], opt_dict, resize=True)
+                        elif event == '-THREAD DONE-':
+                            (a, disttext) = (values['-THREAD DONE-'])
+                            break
+                    m_fun.draw_scaled_image(outpath + '/' + mdist + '_peak' + '.fit',
+                                                window['-D_IMAGE-'], opt_dict, resize=True)
+                    # window.refresh()
                 elif abs(scalxy) < 1.e-3:
                     sg.PopupError('Load valid calibration parameters before applying distortion',)
                 else:
                     disttext = 'no files deleted'
                 window['-RESULT2-'].update(result_text + disttext)
-                window['-M_DIST_R-'].update(mdist)
                 window.refresh()
 
         if event == '-GOTO_REG-':
@@ -956,10 +970,6 @@ def main():
             else:
                 logging.info('no fits-header DATE-OBS, M-STATIO')
                 result_text = '\n!!!no fits-header DATE-OBS, M-STATIO!!!\n'
-            # result_text += ('Station = ' + sta + '\n'
-            #                 + 'Time = ' + dat_tim + '\n'
-            #                 + 'Number Images = ' + str(nim) + '\n')
-            # window['-RESULT3-'].update(result_text)
         # image contrast--------------------------------------------------------
         elif event in ('-LOW_C-', '-HIGH_C-'):
             contrast = 0.5 * contrast if event == '-LOW_C-' else 2.0 * contrast
@@ -1035,8 +1045,8 @@ def main():
                 fits_dict['M_STARTI'] = start
                 reg_type = 'Gaussian' if values['-GAUSSIAN-'] else 'cross-correlation'
                 index, sum_image, reg_text, dist, outfile, fits_dict = m_fun.register_images(start, nim, x0,
-                            y0, dx, dy, infile, out_fil, window, fits_dict, contrast,
-                                               values['-GAUSSIAN-'], values['-SHOW_REG-'], debug)
+                                                y0, dx, dy, infile, out_fil, window, fits_dict, contrast,
+                                                values['-GAUSSIAN-'], values['-SHOW_REG-'], debug)
                 t3 = time.time() - t0
                 nim = index - start + 1
                 if nim > 1:
@@ -1067,7 +1077,7 @@ def main():
                 wloc_image = (opt_dict['win_x'] + opt_dict['calc_off_x'], opt_dict['win_y'] + opt_dict['calc_off_y'])
                 window.Disable()
                 ev, tilt, slant, wloc_image = m_fun.add_rows_apply_tilt_slant(outfile, par_dict,
-                    res_dict, fits_dict, opt_dict, contrast, wloc_image, result_text, reg_text, window)
+                        res_dict, fits_dict, opt_dict, contrast, wloc_image, result_text, reg_text, window)
                 opt_dict['calc_off_x'] = wloc_image[0] - opt_dict['win_x']
                 opt_dict['calc_off_y'] = wloc_image[1] - opt_dict['win_y']
                 window.Enable()
@@ -1392,7 +1402,7 @@ def main():
             response_ok = False
             star_file, info = m_fun.my_get_file(values['-STAR-'], title='Load star spectrum',
                                   file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                 default_extension='*.dat')
+                                  default_extension='*.dat')
             if star_file:
                 window['-STAR-'].update(star_file)
                 result_text = info + '\n'
@@ -1427,7 +1437,7 @@ def main():
                     lref, iref = np.loadtxt(reference_file, unpack=True, ndmin=2)
                     m_plot.delete_curve(idg_ref, graph_ir)
                     idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
-                                                   plot_range=plot_range, plot_style=ref_style)
+                                                             plot_range=plot_range, plot_style=ref_style)
 
         elif event == 'raw_response' and len(lcal) and len(lref):
             l_response = []
@@ -1449,7 +1459,7 @@ def main():
             window['-RESULT5-'].update(result_text)
             m_plot.delete_curve(idg_resp, graph_ir)
             idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
-                            graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
+                                graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
             graph_ir_enabled = True
             select_line_enabled = True
             dragging = False
@@ -1534,7 +1544,7 @@ def main():
                                                 graph_ir, canvasx, autoscale=autoscale,
                                                 plot_range=plot_range)
                     idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir,
-                                            canvasx, plot_range=plot_range, plot_style=ref_style)
+                                                canvasx, plot_range=plot_range, plot_style=ref_style)
                     idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response,
                                                     i_response, graph_ir, canvasx,
                                                     plot_range=plot_range, plot_style=raw_style)
