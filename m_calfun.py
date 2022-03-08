@@ -78,7 +78,7 @@ def errorsum(params, maxs, maxl, x, y, lam):
     xf = xf - x
     yf = yf - y
     return np.ravel(xf), np.ravel(yf), np.ravel(lf)
-
+    # TODO: is np.ravel(lf) needed
 
 #-------------------------------------------------------------------------------
 def get_param(params, maxs):  # from least square fit

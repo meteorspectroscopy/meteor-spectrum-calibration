@@ -6,11 +6,11 @@ import logging
 import os
 import os.path as path
 import time
-import warnings
 from pathlib import Path
 
 import numpy as np
 from skimage import io as ios
+from skimage.filters import gaussian
 from scipy import interpolate
 
 import PySimpleGUI as sg
@@ -19,12 +19,13 @@ import m_plot
 import m_specfun as m_fun
 import myselect as sel
 import m_image_tools as m_image
+import nist
 try:
     from csaps import csaps
     csaps_installed = True
-except Exception as e:
+except Exception as ex:
     sg.PopupError(f'missing module\ninstall csaps, if you want to use response function\n'
-                  f'or continue without response\n{e}', no_titlebar=True, keep_on_top=True)
+                  f'or continue without response\n{ex}', no_titlebar=True, keep_on_top=True)
     csaps_installed = False
 
 
@@ -33,7 +34,7 @@ except Exception as e:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.27'
+    version = '0.9.28'
     # GUI settings:
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
@@ -56,7 +57,7 @@ def main():
     fits_v = list(fits_dict.values())
     fits_k = list(fits_dict.keys())
     [zoom, wsx, wsy, wlocx, wlocy, xoff_calc, yoff_calc, xoff_setup, yoff_setup,
-        debug, fit_report, win2ima, opt_comment, png_name, outpath, mdist, Fdistortcolorflag,
+        debug, fit_report, win2ima, opt_comment, png_name, outpath, mdist, colorflag,
         bob_doubler, plot_w, plot_h, i_min, i_max, graph_size,
         show_images, meteor_lines, flat_flag, flat_file] = list(opt_dict.values())
     if par_text == '':
@@ -82,6 +83,7 @@ def main():
     out_fil = ''
     outfile = ''
     last_file_sum = False
+    spectrum_files = (('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),)
     # default values for calibration
     _image = np.flipud(ios.imread('tmp.png'))  # get shape of screen image
     (canvasy, canvasx) = _image.shape[:2]
@@ -114,7 +116,6 @@ def main():
     lmax = 1000
     i_min = -.1
     i_max = 2
-    plot_range = (lmin, lmax, i_min, i_max)
     graph_ir_enabled = False
     autoscale = True
     l_spec = l_smooth = l_resp = []
@@ -141,6 +142,74 @@ def main():
     aod = 0.1
     trans_flag = True
     resp_flag = False
+    # spectrum_analysis, initial and default values
+    spec_file_analysis = 'analysis/'
+    resp_file_analysis = 'response/'
+    graph_analysis_enabled = False
+    idg_spec = []
+    idg_resp_a = []
+    idg_lines = []
+    idg_res = []
+    idg_fit = []
+    lresp = []
+    iresp = []
+    iclip = []
+    i_fit = []
+    i_residue = []
+    t_cont = 3000
+    t_el = 3000
+    threshold = 1.0e-4
+    sigma_nist = 1
+    sigma0 = 0.7
+    sigma_fit = 0
+    delta = 1
+    dragging = False
+    start_point = end_point = prior_rect = None
+    zoom_window = []
+    t_n2i = 'NIST/N2I4000'
+    sel_elements = []
+    show_residuals = False
+    residual_offset = 0.3
+    p0 = (0, 0)  # used for padding
+    p2 = (2, 0)
+    # result_a = ''
+    fit_enabled = False
+    result_fit = ''
+    # -------------------------------------------------------------------
+    element_names = ['Cont', 'FeI', 'MgI', 'NaI', 'CaI', 'CaII', 'CrI', 'MnI', 'OI', 'NI', 'N2I']
+    elements = []
+    for ele in element_names:
+        # needed, because config uses all lower case variables
+        elements.append(ele.lower())
+    elements_dict = dict(list(zip(elements, element_names)))
+    ele_color = {'cont': 'Purple', 'fei': 'red', 'mgi': 'green', 'nai': 'orange',
+                 'cai': 'Chartreuse', 'caii': 'purple', 'cri': 'yellow', 'mni': 'magenta',
+                 'oi': 'red', 'ni': 'cyan', 'n2i': 'magenta'}
+    # "white", "black", "red", "green", "blue", "cyan", "yellow", and "magenta" 'Purple', 'Chartreuse'
+    # -------------------------------------------------------------------
+    # introduce class nist.Element
+    all_ele = []
+    for ele in elements:
+        all_ele.append(nist.Element(ele, 1.0, 1.0, 0, False, color=ele_color[ele]))
+    for ele in all_ele:
+        print(ele.name, ele.mult, ele.scale, ele.color, ele.index, ele.fit)
+        if ele.name == 'fei':
+            ele.range_low = 523.0
+            ele.range_high = 550.0
+        elif ele.name == 'mgi':
+            ele.range_low = 512.0
+            ele.range_high = 523.0
+        elif ele.name == 'nai':
+            ele.range_low = 584.0
+            ele.range_high = 594.0
+
+    # initialize configuration for spectrum fit
+    lmin_a = 350
+    lmax_a = 900
+    lsqf_keys = ['spectrum', 'response', 'lmin', 'lmax', 'sigma', 'sigma0', 't_cont', 't_el', 'threshold', 't_n2i']
+    lsqf_var = ['', '', lmin, lmax, sigma_nist, sigma0, t_cont, t_el, threshold, t_n2i]
+    lsqf_dict = dict(list(zip(lsqf_keys, lsqf_var)))
+    rms = ''
     # -------------------------------------------------------------------
     # definition of GUI
     # -------------------------------------------------------------------
@@ -235,7 +304,7 @@ def main():
                     [sg.Text('Number of distorted images:'),
                      sg.InputText(str(nm), size=(17, 1), key='-N_IMAGE-')], [sg.Text('_' * 34)],
                     [sg.Button('Apply Dist.', key='-APPLY_DIST-', tooltip='background subtraction and distortion'),
-                     sg.Button('Stop', key='-STOP-', tooltip= 'finish processing', button_color=('white', 'red')),
+                     sg.Button('Stop', key='-STOP-', tooltip='finish processing', button_color=('white', 'red')),
                      sg.Checkbox('Show Images', default=show_images, key='-SHOW_IM-'),
                      sg.Button('Continue', key='-GOTO_REG-', disabled=True,
                                tooltip='go to registration tab for next processing step')],
@@ -249,7 +318,7 @@ def main():
                                           graph_top_right=graph_s2, key='-R_IMAGE-')
     register_elem = [[sg.Frame('Registration', [
         [sg.Text('Process folder'),
-         sg.InputText(outpath, size=(30, 1), key='-OUT_R-', disabled=True),
+         sg.InputText(outpath, size=(30, 1), key='-OUT_R-', disabled=False),
          sg.Button('Select', key='-SEL_OUT_R-', tooltip='Select process folder'),
          sg.Button('Previous', key='-PREV_R-'),
          sg.Button('Next', key='-NEXT_R-'), sg.Text('Current Image:'),
@@ -332,7 +401,7 @@ def main():
         [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT4-', autoscroll=True)]]),
                    sg.Frame('Raw spectrum', column, key='-COLUMN-')]]
 
-    # Instrument response tab
+    # Instrument response tab--------------------------------------------------------------------
     column = [[sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
                         graph_top_right=(1.0, 1.0), background_color='white', key='graph_ir',
                         enable_events=True, drag_submits=True, float_values=True,
@@ -367,8 +436,7 @@ def main():
         [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT5-', autoscroll=True)]]),
                    sg.Frame('Instrument response', column, key='-COLUMN_IR-')], ]
 
-    # ==============================================================================
-    # laser calibration tab
+    # laser calibration tab--------------------------------------------------------------------
     image_elem_calib = sg.Graph(canvas_size=graph_s2, graph_bottom_left=(0, 0),
                                 graph_top_right=graph_s2, key='calib_image')
     log_elem = sg.Multiline('Log', size=(38, 12), autoscroll=True)
@@ -404,6 +472,53 @@ def main():
                          sg.Column([[sg.Text(infile, size=(100, 1), key='image_filename')],
                                    [image_elem_calib]])]]
 
+    # Spectral analysis tab--------------------------------------------------------------------
+    element_layout = [[]]
+    for ele in elements:
+        element_layout += [sg.Checkbox(elements_dict[ele], enable_events=True, key=ele, size=(5, 1), pad=p0),
+                         sg.T('Scale', key=ele + '_scale', size=(8, 1), pad=p0),
+                         sg.I('1.0', key=ele + '_mult', size=(8, 1), enable_events=True, pad=p0),
+                         sg.Checkbox('', enable_events=True, key=ele + '_fit', size=(0, 1), pad=p0)],
+    element_layout += [sg.InputText(t_n2i, size=(20, 1), key='-N2I-FILE-', pad=p0),
+                            sg.Button('Sel N2I', key='-SEL_N2I-', tooltip='Select N2I spectrum', pad=p0)],
+    element_layout += [sg.B('NIST', tooltip='calculate NIST spectrum', pad=p2),
+                       sg.B('Fit', key='-LSQF_SPEC-', disabled=True, button_color=bc_disabled, pad=p2),
+                       sg.B('Load Fit', key='-LOAD_FIT-', pad=p2),
+                       sg.B('Save Fit', key='-SAVE_FIT-', disabled=True, button_color=bc_disabled, pad=p2)],
+    element_layout += [sg.Multiline('Result', size=(30, 10), disabled=True, key='-RESULT_A-',
+                                    autoscroll=True, font='Fixedsys 8')],
+    spectrum_element = [[sg.Frame('', [[sg.Frame('Spectrum', [[sg.InputText(spec_file_analysis,
+                                                               size=(30, 1), key='-SPECTRUM_A-', pad=p0),
+                            sg.Button('Select', key='-SEL_SPECTRUM-', tooltip='Select spectrum', pad=p0)],
+                            [sg.T('Response', pad=p0),
+                             sg.InputText(resp_file_analysis, size=(20, 1), key='-RESPONSE_A-', pad=p0),
+                             sg.Button('Select', key='-SEL_RESPONSE_A-', tooltip='Select response', pad=p0)]])],
+                             [sg.Frame('Parameters', [[sg.T('Wavelength range', pad=p2),
+                             sg.I(lmin_a, size=(6, 1), key='-LMIN_A-', enable_events=True, pad=p2),
+                             sg.I(lmax_a, size=(6, 1), key='-LMAX_A-', enable_events=True, pad=p2)],
+                            [sg.T('Sigma', pad=p2), sg.I(sigma_nist, size=(6, 1), key='-SIGMA_NIST-',
+                                                         enable_events=True, pad=p2),
+                             sg.Checkbox('fit', enable_events=True, key='-SIGMA_FIT-', size=(0, 1), pad=p2),
+                             sg.T('Sigma0', pad=p2),
+                             sg.I(sigma0, size=(6, 1), key='-SIGMA0-', enable_events=True, pad=p2)],
+                            [sg.T('Continuum Temp.', pad=p2), sg.I('3000', size=(6, 1), key='-T_CONT-',
+                                                                    enable_events=True, pad=p2),
+                             sg.Checkbox('fit', enable_events=True, key='-T_CONT_FIT-', size=(0, 1), pad=p2)],
+                            [sg.T('Plasma Temp.', pad=p2), sg.I('3000', size=(6, 1), key='-T_ELECTRON-',
+                                                          enable_events=True, pad=p0),
+                             sg.Checkbox('fit', enable_events=True, key='-T_EL_FIT-', size=(0, 1), pad=p0),
+                             sg.Checkbox('Show sum', enable_events=True, key='-SUM-', pad=p0)],
+                            [sg.T('Threshold', pad=p2), sg.I(f'{threshold:5.1e}', size=(6, 1),
+                                                     key='-THRESHOLD-', enable_events=True, pad=p2),
+                             sg.Checkbox('Show residual', default=show_residuals,
+                                         enable_events=True, key='-RESIDUALS-', pad=p2)]], pad=p0)],
+                            [sg.Frame('Elements' + 24*' ' + 'factor' + 4*' ' + 'fit', element_layout, pad=p0)]],
+                             pad=p0),
+                         sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
+                                 graph_top_right=(1.0, 1.0), background_color='white', key='graph_analysis',
+                                 enable_events=True, drag_submits=True, float_values=True,
+                                 tooltip='Uncalibrated (raw) spectrum, select calibration lines with mouse draw')]]
+
     # ==============================================================================
     # Tabs and window
     setup_tab_element = sg.Tab('Setup', layout_setup, key='-T_SETUP-',
@@ -418,10 +533,13 @@ def main():
     cal_tab_element = sg.Tab('Calibration', calibrate_elem, key='-T_CAL-',
                              tooltip='Calibrate wavelength scale')
     ir_tab_element = sg.Tab('Instrument Response', ir_elem, key='-T_IR-')
-    laser_tab_element = sg.Tab('Laser Calibration', laser_calib_elem, key='T_LASER_CAL-')
+    laser_tab_element = sg.Tab('Laser Calibration', laser_calib_elem, key='-T_LASER_CAL-')
+    analysis_tab_element = sg.Tab('Spectral analysis', spectrum_element, key='-T_ANALYSIS-')
+
     tabs_element = sg.TabGroup([[setup_tab_element], [video_tab_element],
                                 [dist_tab_element], [reg_tab_element], [cal_tab_element],
-                                [ir_tab_element], [laser_tab_element]], enable_events=True)
+                                [ir_tab_element], [laser_tab_element],
+                                [analysis_tab_element]], enable_events=True)
     current_dir = path.abspath('')
     window_title = f'M_SPEC, Version: {version}, {current_dir} , Image: '
     window = sg.Window(window_title, [[sg.Menu(menu_def, tearoff=True, key='menu')],
@@ -430,6 +548,8 @@ def main():
     image_data, actual_file = m_fun.draw_scaled_image('tmp.png', window['-V_IMAGE-'],
                                                       opt_dict, resize=False)
     graph_ir = window['graph_ir']
+    graph_an = window['graph_analysis']
+    window['-T_ANALYSIS-'].select()
 
     # ==============================================================================
     # Main loop
@@ -442,11 +562,13 @@ def main():
         # TODO: why event = 2? noname elements numbered
         # adjust image size if window size, position changed
         if (wsx, wsy) != window.Size or (wlocx, wlocy) != window.current_location():
+            if tabs_element.get() != '-T_ANALYSIS-':
+                graph_analysis_enabled = False
             if tabs_element.get() == '-T_VIDEO-':
                 actual_image = window['-V_IMAGE-']
             elif tabs_element.get() == '-T_DIST-':
                 actual_image = window['-D_IMAGE-']
-            elif tabs_element.get() == 'T_LASER_CAL-':
+            elif tabs_element.get() == '-T_LASER_CAL-':
                 actual_image = window['calib_image']
             else:
                 actual_image = window['-R_IMAGE-']
@@ -458,8 +580,9 @@ def main():
             opt_dict['win_y'] = wlocy
             image_data, actual_file = m_fun.draw_scaled_image(actual_file, actual_image,
                                                     opt_dict, resize=True, tmp_image=True)
-        window.set_title(window_title + str(actual_file))
-        if tabs_element.get() == 'T_LASER_CAL-':
+        if not graph_analysis_enabled:
+            window.set_title(window_title + str(actual_file))
+        if tabs_element.get() == '-T_LASER_CAL-':
             log_elem.Update(logtext)
             cal_tab = True
         elif tabs_element.get() == '-T_IR-':
@@ -468,7 +591,7 @@ def main():
             cal_tab = False
             ir_tab = False
 
-        # enable, disable 'Offset', only if tab 'T_LASER_CAL-' switched
+        # enable, disable 'Offset', only if tab '-T_LASER_CAL-' switched
         if cal_tab != old_cal_tab:
             menu_def[2][1][0] = '&Offset' if cal_tab else '!%Offset'
             window['menu'].update(menu_def)
@@ -505,16 +628,16 @@ def main():
                 if tool_type == 'reference':
                     reference_file = new_file  # use as new reference
                     plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(file, graph_ir, canvasx,
-                                             autoscale=values['autoscale'], plot_range=plot_range)
+                                             autoscale=values['autoscale'])
                     if reference_file:
                         idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
-                                                       plot_range=plot_range, plot_style=ref_style)
+                                                                 plot_style=ref_style)
                     window['-REF_I-'].update(reference_file)
                 else:
                     if new_file:  # order conversion, leave filename as is for new order conversion
                         plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(new_file, graph_ir, canvasx,
                                                             autoscale=values['autoscale'],
-                                                            plot_range=plot_range, plot_style=ref_style)
+                                                            plot_style=ref_style)
                     result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 window.refresh()
@@ -530,22 +653,21 @@ def main():
                     m_plot.delete_curve(idg_resp, graph_ir)
                     l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
                     idg_resp = m_plot.plot_reference_spectrum(spectrum_am0, l_smooth, i_smooth,
-                                  graph_ir, canvasx, plot_range=plot_range, plot_style=response_style)
+                                  graph_ir, canvasx, plot_style=response_style)
                 else:
                     spectrum_file = spectrum_am0
                     window['-SPECTRUM-'].update(spectrum_am0)
                     m_plot.delete_curve(idg_ref, graph_ir)
                     l_spec, i_spec = np.loadtxt(spectrum_am0, unpack=True, ndmin=2)
                     idg_ref = m_plot.plot_reference_spectrum(spectrum_am0, l_spec, i_spec, graph_ir, canvasx,
-                                               plot_range=plot_range, plot_style=ref_style)
+                                                             plot_style=ref_style)
                 result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 window.refresh()
                 if trans_flag:
                     l_trans, i_trans = np.loadtxt('transmission_atmos.dat', unpack=True, ndmin=2)
-                    m_plot.delete_curve(idg_trans, graph_ir)
                     idg_trans = m_plot.plot_reference_spectrum('transmission_atmos.dat', l_trans, i_trans,
-                                            graph_ir, canvasx, plot_range=plot_range, plot_style=trans_style)
+                                                               graph_ir, canvasx, idg_trans, plot_style=trans_style)
 
         if event == 'Image Tools':
             f_pix = m_fun.par_dict['f_f0'] / m_fun.par_dict['f_pix'] / m_fun.par_dict['i_binning']
@@ -600,9 +722,9 @@ def main():
         # ==============================================================================
         elif event == '-LOAD_SETUP-':
             ini_file, info = m_fun.my_get_file(setup_file_display_elem.Get(),
-                                   title='Get Setup File',
-                                   file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
-                                   default_extension='*.ini')
+                                               title='Get Setup File',
+                                               file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
+                                               default_extension='*.ini')
             if ini_file:
                 setup_file_display_elem.update(ini_file)
                 par_text, par_dict, res_dict, fits_dict, opt_dict = m_fun.read_configuration(ini_file,
@@ -644,8 +766,8 @@ def main():
         elif event in ('-SAVE_SETUP-', '-SAVE_DEFAULT-', 'Exit'):
             if event == '-SAVE_SETUP-':
                 ini_file, info = m_fun.my_get_file(setup_file_display_elem.Get(), save_as=True,
-                                    file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
-                                    title='Save Setup File', default_extension='*.ini', )
+                                                   file_types=(('Setup Files', '*.ini'), ('ALL Files', '*.*')),
+                                                   title='Save Setup File', default_extension='*.ini', )
             else:
                 ini_file = 'm_set.ini'
             setup_file_display_elem.update(ini_file)
@@ -709,13 +831,11 @@ def main():
                 bob_doubler = values['-BOB-']
                 par_dict['i_binning'] = int(values['-BIN-'])
                 bff = values['-BFF-']
-                result_text = ''
-                window['-RESULT-'].update(result_text)
                 # check previous PNG images
                 old_files, deleted, answer = m_fun.delete_old_files(png_name, max(maxim, int(values['-MAXIM-'])))
                 maxim = int(values['-MAXIM-'])
                 if answer != 'Cancel':
-                    result_text = 'Start video conversion\n'
+                    window['-RESULT-'].update('Start video conversion\n')
                     window.refresh()
                     nim, dat_tim, sta, out = m_fun.extract_video_images(avifile, png_name,
                                                 bob_doubler, par_dict['i_binning'], bff, maxim)
@@ -804,8 +924,8 @@ def main():
         elif event == '-SEL_FLAT-':
             flat_file = values['-FLAT-']
             flat_file, info = m_fun.my_get_file(flat_file, title='Get Flat File',
-                                      file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),),
-                                      default_extension='*.fit')
+                                                file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),),
+                                                default_extension='*.fit')
             flat_file = m_fun.m_join(flat_file)
             window['-FLAT-'].update(flat_file)
 
@@ -883,14 +1003,8 @@ def main():
                         logging.info('no distortion applied')
                     cval = 0.001
                     center = (x00, y00)
-                    m_fun.distortion_long_function(inpath, outpath, mdist, first,
-                                                    nm, window, dist, background,
-                                                    center, a3, a5, rot, scalxy, colorflag,
-                                                    show_images, cval, flat)
-                    # (nmp, sum_image, peak_image, disttext) = m_fun.apply_dark_distortion(inpath,
-                    #         m_fun.m_join(outpath, 'm_back.fit'), outpath, mdist, first, nm, window,
-                    #         fits_dict, dist, background, (x00, y00), a3, a5, rot, scalxy,
-                    #         colorflag, show_images=show_images, flat_file=flat)
+                    m_fun.distortion_long_function(inpath, outpath, mdist, first, nm, window, dist, background,
+                                                   center, a3, a5, rot, scalxy, colorflag, show_images, cval, flat)
                     while True:
                         event, values = window.read()
                         if event == '-STOP-':
@@ -904,7 +1018,7 @@ def main():
                             (a, disttext) = (values['-THREAD DONE-'])
                             break
                     m_fun.draw_scaled_image(outpath + '/' + mdist + '_peak' + '.fit',
-                                                window['-D_IMAGE-'], opt_dict, resize=True)
+                                            window['-D_IMAGE-'], opt_dict, resize=True)
                     # window.refresh()
                 elif abs(scalxy) < 1.e-3:
                     sg.PopupError('Load valid calibration parameters before applying distortion',)
@@ -1094,8 +1208,8 @@ def main():
             window['-SAVE_RAW-'].update(disabled=True, button_color=bc_disabled)
             window['-CAL_R-'].update(disabled=True, button_color=bc_disabled)
             outfile, info = m_fun.my_get_file(outfile, title='Get Registered File',
-                                      file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),),
-                                      default_extension='*.fit')
+                                              file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),),
+                                              default_extension='*.fit')
             if outfile:
                 # remove fits header items not present in mdist files, load actual values below
                 fits_dict['M_NIM'] = '1'
@@ -1134,8 +1248,8 @@ def main():
             fits_dict['M_ROWMAX'] = 0
             # update fits_dict
             m_fun.get_fits_keys(header, fits_dict, res_dict, keyprint=debug)
-            new_outfile, info = m_fun.my_get_file(outfile, title='Save image and raw spectrum as', save_as=True,
-                                        file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+            new_outfile, info = m_fun.my_get_file(outfile, title='Save image and raw spectrum as',
+                                                  save_as=True, file_types=spectrum_files)
             if new_outfile:
                 outfile, ext = path.splitext(new_outfile)
                 window['-RADD-'].update(outfile)
@@ -1157,8 +1271,7 @@ def main():
                 window['-T_CAL-'].select()
             else:
                 raw_spec_file, info = m_fun.my_get_file(raw_spec_file, title='Load raw spectrum',
-                                        file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                        default_extension='*.dat')
+                                        file_types=spectrum_files, default_extension='*.dat')
             window['-S_LINES-'].update(disabled=True, button_color=bc_disabled)
             if raw_spec_file:
                 m_fun.create_line_list_combo(line_list, window)
@@ -1173,7 +1286,7 @@ def main():
                     result_text += f'File saved as :{raw_spec_file}\n'
                     window['-RESULT4-'].update(reg_text + result_text)
                 window['-SPEC_R-'].update(raw_spec_file)
-                lmin, lmax, i_min, i_max = plot_range
+                ((lmin, i_min), (lmax, i_max)) = plot_range
                 window['-S_LINES-'].update(disabled=False, button_color=bc_enabled)
                 window['-LOAD_TABLE-'].update(disabled=False, button_color=bc_enabled)
                 llist = m_fun.change_extension(raw_spec_file, '.txt')
@@ -1271,8 +1384,8 @@ def main():
         # load table, enable editing table
         elif event == '-LOAD_TABLE-':
             llist, info = m_fun.my_get_file(llist, title='Load calibration table',
-                                    file_types=(('Calibration Files', '*.txt'), ('ALL Files', '*.*'),),
-                                    default_extension='*.txt')
+                                            file_types=(('Calibration Files', '*.txt'), ('ALL Files', '*.*'),),
+                                            default_extension='*.txt')
             if llist:
                 window['-CALI-'].update(disabled=False, button_color=bc_enabled)
                 llist = m_fun.change_extension(llist, '.txt')
@@ -1323,27 +1436,30 @@ def main():
         if event == '-LOADS-':
             window['-S_LINES-'].update(disabled=True, button_color=bc_disabled)
             spec_file, info = m_fun.my_get_file(spec_file, title='Load spectrum', save_as=False,
-                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                                file_types=spectrum_files)
             if spec_file:
-                lspec, ispec = np.loadtxt(spec_file, unpack=True, ndmin=2)
-                base, ext = path.splitext(spec_file)
-                if ext != '.dat':  # .dat files uploaded to github as .txt, .dat not allowed, converted here
-                    spec_file = m_fun.change_extension(base, '.dat')
-                    np.savetxt(spec_file, np.transpose([lspec, ispec]), fmt='%8.3f %8.5f')
-                    result_text += f'File saved as :{spec_file}\n'
-                    window['-RESULT4-'].update(reg_text + result_text)
-                lmin = lspec[0]
-                lmax = lspec[len(lspec) - 1]
-                video_list = m_fun.read_video_list('videolist.txt')
-                video_list.insert(0, spec_file)
-                video_list.insert(0, ' ')
-                window['-PLOT_SPEC-'].update(spec_file)
-                window['-PLOT_TITLE-'].update(values=video_list, value=spec_file)
-                window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
-                window['-SAVES-'].update(disabled=False, button_color=bc_enabled)
-                window['l_min'].update(str(int(lmin)))
-                window['l_max'].update(str(int(lmax)))
-                window['-RESULT4-'].update(result_text)
+                try:
+                    lspec, ispec = np.loadtxt(spec_file, unpack=True, ndmin=2)
+                    base, ext = path.splitext(spec_file)
+                    if ext != '.dat':  # .dat files uploaded to github as .txt, .dat not allowed, converted here
+                        spec_file = m_fun.change_extension(base, '.dat')
+                        np.savetxt(spec_file, np.transpose([lspec, ispec]), fmt='%8.3f %8.5f')
+                        result_text += f'File saved as :{spec_file}\n'
+                        window['-RESULT4-'].update(reg_text + result_text)
+                    lmin = lspec[0]
+                    lmax = lspec[len(lspec) - 1]
+                    video_list = m_fun.read_video_list('videolist.txt')
+                    video_list.insert(0, spec_file)
+                    video_list.insert(0, ' ')
+                    window['-PLOT_SPEC-'].update(spec_file)
+                    window['-PLOT_TITLE-'].update(values=video_list, value=spec_file)
+                    window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
+                    window['-SAVES-'].update(disabled=False, button_color=bc_enabled)
+                    window['l_min'].update(str(int(lmin)))
+                    window['l_max'].update(str(int(lmax)))
+                    window['-RESULT4-'].update(result_text)
+                except Exception as e:
+                    sg.PopupError(f'Cannot read file\n{e}')
 
         # ==============================================================================
         # plot spectrum
@@ -1386,7 +1502,7 @@ def main():
 
         if event == '-SAVES-':
             new_file, info = m_fun.my_get_file(spec_file, title='Save spectrum', save_as=True,
-                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                               file_types=spectrum_files)
             if new_file:
                 lam, ical = np.loadtxt(spec_file, unpack=True, ndmin=2)
                 np.savetxt(new_file, np.transpose([lam, ical]), fmt='%8.3f %8.5f')
@@ -1401,8 +1517,7 @@ def main():
             flux_flag = False
             response_ok = False
             star_file, info = m_fun.my_get_file(values['-STAR-'], title='Load star spectrum',
-                                  file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                  default_extension='*.dat')
+                                                file_types=spectrum_files, default_extension='*.dat')
             if star_file:
                 window['-STAR-'].update(star_file)
                 result_text = info + '\n'
@@ -1414,11 +1529,11 @@ def main():
                     lmax = float(values['lmax'])
                     i_min = float(values['imin'])
                     i_max = float(values['imax'])
-                    plot_range = (lmin, lmax, i_min, i_max)
+                    graph_ir.change_coordinates((lmin, i_min), (lmax, i_max))
                 except Exception as e:
                     sg.PopupError(f'bad value for plot range or offset, try again\n{e}', title='Plot Graph')
-                plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file, graph_ir, canvasx,
-                                                    autoscale=autoscale, plot_range=plot_range)
+                (graph_ir_ll, graph_ir_ur), lcal, ical = m_plot.plot_raw_spectrum(star_file, graph_ir, canvasx,
+                                                    autoscale=autoscale)
 
         elif event == '-LOAD_REF-':
             if not Path(response_folder).exists():
@@ -1426,8 +1541,7 @@ def main():
             else:
                 reference_file = m_fun.m_join(response_folder, path.basename(values['-REF_I-']))
                 reference_file, info = m_fun.my_get_file(reference_file, title='Load reference spectrum',
-                                      file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                      default_extension='*.dat')
+                                      file_types=spectrum_files, default_extension='*.dat')
                 if reference_file:
                     window['-REF_I-'].update(reference_file)
                     result_text += info + '\n'
@@ -1435,9 +1549,8 @@ def main():
                     graph_ir = window['graph_ir']
                     # plot raw spectrum
                     lref, iref = np.loadtxt(reference_file, unpack=True, ndmin=2)
-                    m_plot.delete_curve(idg_ref, graph_ir)
-                    idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
-                                                             plot_range=plot_range, plot_style=ref_style)
+                    idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx, idg_ref,
+                                                             plot_style=ref_style)
 
         elif event == 'raw_response' and len(lcal) and len(lref):
             l_response = []
@@ -1448,7 +1561,7 @@ def main():
             iref2 = interpolate.interp1d(lref, iref, kind='quadratic')(l_response)
             ical2 = interpolate.interp1d(lcal, ical, kind='quadratic')(l_response)
             i_response = np.zeros([len(iref2)])
-            for k in range(0, len(iref2)):
+            for k in range(len(iref2)):
                 if iref2[k] > 0.0 and ical2[k] > 0.0:
                     i_response[k] = (ical2[k]/iref2[k])
             np.savetxt(f'{response_folder}/raw_response.txt', np.transpose([l_response, i_response]),
@@ -1457,9 +1570,8 @@ def main():
             result_text += info + '\n'
             logging.info(info)
             window['-RESULT5-'].update(result_text)
-            m_plot.delete_curve(idg_resp, graph_ir)
             idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
-                                graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
+                                                      graph_ir, canvasx, idg_resp, plot_style=raw_style)
             graph_ir_enabled = True
             select_line_enabled = True
             dragging = False
@@ -1493,11 +1605,9 @@ def main():
                     if xmin < l_resp[k] < xmax:
                         l_resp.pop(k)
                         i_resp.pop(k)
-                # graph_ir.erase()
-                m_plot.delete_curve(idg_resp, graph_ir)
                 logging.info(f'points in [{xmin:6.1f}, {xmax:6.1f}] deleted from raw_response')
                 idg_resp = m_plot.plot_reference_spectrum('filter_response', l_resp, i_resp,
-                                graph_ir, canvasx, plot_range=plot_range, plot_style=raw_style)
+                                                          graph_ir, canvasx, idg_resp, plot_style=raw_style)
 
         elif event == 'smooth_response' and len(l_resp) > 1:
             flux_flag = False
@@ -1506,13 +1616,8 @@ def main():
             if csaps_installed:
                 i_smooth = csaps(l_resp, i_resp, l_smooth, smooth=smooth_parameter)
                 response_ok = True
-                # graph_ir.erase()
-                # m_plot.plot_reference_spectrum('filter_response.txt', l_resp, i_resp, graph_ir, canvasx,
-                #                                plot_range=plot_range, plot_style=raw_style)
-                m_plot.delete_curve(idg_smooth, graph_ir)
                 idg_smooth = m_plot.plot_reference_spectrum('smooth_response.txt', l_smooth, i_smooth,
-                                                graph_ir, canvasx,
-                                                plot_range=plot_range, plot_style=response_style)
+                                                            graph_ir, canvasx, idg_smooth, plot_style=response_style)
                 logging.info(f'smoothing with smooth parameter = {smooth_parameter}')
             else:
                 sg.PopupError('csaps not installed')
@@ -1529,32 +1634,29 @@ def main():
                 lmax = float(values['lmax'])
                 i_min = float(values['imin'])
                 i_max = float(values['imax'])
-                plot_range = (lmin, lmax, i_min, i_max)
+                graph_ir.change_coordinates((lmin, i_min), (lmax, i_max))
+                graph_ir.erase()
                 # logging.info('reset response')
                 graph_ir_enabled = True
                 if flux_flag:
-                    plot_range, lcal, ical = m_plot.plot_raw_spectrum(spectrum_file,
-                                                graph_ir, canvasx, autoscale=autoscale,
-                                                plot_range=plot_range)
+                    (graph_ir_ll, graph_ir_ur), lcal, ical = m_plot.plot_raw_spectrum(spectrum_file,
+                                                graph_ir, canvasx, autoscale=autoscale)
                     m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir,
-                                            canvasx, plot_range=plot_range, plot_style=flux_style)
+                                                   canvasx, plot_style=flux_style)
                 else:
-                    graph_ir_enabled = True
-                    plot_range, lcal, ical = m_plot.plot_raw_spectrum(star_file,
-                                                graph_ir, canvasx, autoscale=autoscale,
-                                                plot_range=plot_range)
+                    (graph_ir_ll, graph_ir_ur), lcal, ical = m_plot.plot_raw_spectrum(star_file,
+                                                graph_ir, canvasx, autoscale=autoscale)
                     idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir,
-                                                canvasx, plot_range=plot_range, plot_style=ref_style)
-                    idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response,
-                                                    i_response, graph_ir, canvasx,
-                                                    plot_range=plot_range, plot_style=raw_style)
+                                                             canvasx, plot_style=ref_style)
+                    idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
+                                                              graph_ir, canvasx, plot_style=raw_style)
             except:
                 pass
 
         elif event == '-SAVE_RESPONSE-':
             response_file = m_fun.m_join(response_folder, path.basename(values['-RESPONSE-']))
             new_file, info = m_fun.my_get_file(response_file, title='Save response', save_as=True,
-                                file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                               file_types=spectrum_files)
             if new_file:
                 if response_ok:
                     np.savetxt(new_file, np.transpose([l_smooth, i_smooth]), fmt='%8.3f %8.5f')
@@ -1567,30 +1669,27 @@ def main():
         #  Response correction
         elif event == '-LOAD_RESPONSE-':
             response_file, info = m_fun.my_get_file(values['-RESPONSE2-'], title='Load response',
-                                    file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                    default_extension='*.dat')
+                                                    file_types=spectrum_files, default_extension='*.dat')
             if response_file:
                 window['-RESPONSE2-'].update(response_file)
                 result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
-                m_plot.delete_curve(idg_smooth, graph_ir)
-                idg_smooth = m_plot.plot_reference_spectrum(response_file, l_smooth, i_smooth, graph_ir, canvasx,
-                                               plot_range=plot_range, plot_style=response_style)
+                idg_smooth = m_plot.plot_reference_spectrum(response_file, l_smooth, i_smooth, graph_ir,
+                                                            canvasx, idg_smooth, plot_style=response_style)
                 response_ok = True
 
         elif event == '-LOAD_SPECTRUM-':
             spectrum_file, info = m_fun.my_get_file(values['-SPECTRUM-'], title='Load spectrum',
-                                    file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),),
-                                    default_extension='*.dat')
+                                                    file_types=spectrum_files, default_extension='*.dat')
             if spectrum_file:
                 window['-SPECTRUM-'].update(spectrum_file)
                 result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
-                autoscale = values['autoscale']
-                plot_range = (lmin, lmax, i_min, i_max)
-                plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(spectrum_file, graph_ir, canvasx,
-                                         autoscale=False, plot_range=plot_range)
+                # autoscale = values['autoscale']
+                graph_ir.change_coordinates((lmin, i_min), (lmax, i_max))
+                plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(spectrum_file, graph_ir,
+                                                                      canvasx, autoscale=False)
 
         elif event == 'apply_response' and len(l_smooth) and len(l_spec):
             flux_flag = True
@@ -1601,7 +1700,7 @@ def main():
             iresp2 = interpolate.interp1d(l_smooth, i_smooth, kind='quadratic')(l_flux)
             ispec2 = interpolate.interp1d(l_spec, i_spec, kind='quadratic')(l_flux)
             i_flux = np.zeros([len(iresp2)])
-            for k in range(0, len(iresp2)):
+            for k in range(len(iresp2)):
                 if iresp2[k] > 0.0:
                     i_flux[k] = (ispec2[k]/iresp2[k])
             flux_file = m_fun.change_extension(spectrum_file, '_F.dat')
@@ -1610,15 +1709,14 @@ def main():
             logging.info(f'{flux_file} saved')
             window['-RESULT5-'].update(result_text)
             window['-FLUX-'].update(flux_file)
-            plot_range = (lmin, lmax, i_min, i_max)
+            # graph_ir.change_coordinates((lmin, i_min), (lmax, i_max))
             plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(spectrum_file, graph_ir, canvasx,
-                                                                  autoscale=False, plot_range=plot_range)
-            m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx,
-                                           plot_range=plot_range, plot_style=flux_style)
+                                                                  autoscale=False)
+            m_plot.plot_reference_spectrum(flux_file, l_flux, i_flux, graph_ir, canvasx, plot_style=flux_style)
 
         elif event == '-SAVE_FLUX-':
             new_file, info = m_fun.my_get_file(values['-FLUX-'], title='Save flux', save_as=True,
-                                    file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*'),))
+                                               file_types=spectrum_files)
             if new_file:
                 np.savetxt(new_file, np.transpose([l_flux, i_flux]), fmt='%8.3f %8.5f')
                 result_text += info + '\n'
@@ -1655,7 +1753,6 @@ def main():
                 imbw = m_fun.create_background_image(pngdir, nim)
                 # save average image as png and fit
                 m_fun.save_fit_png('avi.png', imbw, fits_dict, dist=False)
-                # TODO: use function from m_fun or move save_fit_png
                 image_data, actual_file = m_fun.draw_scaled_image('avi.fit', image_elem_calib, opt_dict)
 
         if event in ('Save Image', 'Save calibration Image'):
@@ -1850,7 +1947,6 @@ def main():
         #       Setup
         # ------------------------------------------------------------------------------
         if event in ('Load Setup', 'Edit Setup'):
-            print(event)
             if event == 'Load Setup':
                 ini_file, info = m_fun.my_get_file(window['setup_file'].Get(),
                                      title='Get Configuration File',
@@ -1884,7 +1980,7 @@ def main():
                 sg.PopupError(f'Image {infile}.fit not found, load {infile}.png instead:', keep_on_top=True)
                 infile, info = m_fun.my_get_file(infile, title='Load image',
                                                  file_types=(('PNG-File', '*.png'), ('Image Files', '*.fit'),
-                                                            ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
+                                                 ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
                                                  default_extension='*.png')
                 if infile:
                     lfun.load_image(infile, opt_dict)  # creates fit image
@@ -1906,6 +2002,297 @@ def main():
         if event == 'Edit File':
             outfil = window['output_file'].Get()
             m_fun.edit_text_window(outfil, size=(50, 30))
+
+        # ------------------------------------------------------------------------------
+        #       Spectrum analysis
+        # ------------------------------------------------------------------------------
+        if event == '-SEL_SPECTRUM-':
+            i_residue = []
+            sel_ele = []
+            m_plot.delete_curve(idg_spec, graph_an)
+            spec_file_analysis, info = m_fun.my_get_file(spec_file_analysis, title='Load spectrum',
+                                                         save_as=False, file_types=spectrum_files)
+            if spec_file_analysis:
+                fit_enabled = nist.lsqf_fit_disable(window, disabled=True)
+                delta, lclip, iclip, idg_spec = nist.load_spectrum_analysis(spec_file_analysis, lmin_a, lmax_a,
+                                                                            graph_an, canvasx, ref_style)
+                graph_analysis_enabled = True  # used for switching title, show image or coordinates
+            window['-SPECTRUM_A-'].update(spec_file_analysis)
+            window.set_title(window_title + str(spec_file_analysis))
+            result_fit = rms = ''  # reset lsqf results with new file
+            logging.info(f'{spec_file_analysis} loaded for analysis')
+
+        if event == '-SEL_RESPONSE_A-':
+            resp_file_analysis, info = m_fun.my_get_file(resp_file_analysis, title='Load response',
+                                                         save_as=False, file_types=spectrum_files)
+            fit_enabled = nist.lsqf_fit_disable(window, disabled=True)
+            m_plot.delete_curve(idg_resp_a, graph_an)
+            if resp_file_analysis:
+                lresp, iresp, idg_resp_a = nist.load_response_analysis(resp_file_analysis,
+                                                                       graph_an, canvasx, response_style)
+            else:
+                lresp = []
+            window['-RESPONSE_A-'].update(resp_file_analysis)
+            logging.info(f'{resp_file_analysis} loaded as response')
+
+        if event == '-SEL_N2I-':
+            t_n2i, info = m_fun.my_get_file(t_n2i, title='Load N2I spectrum', save_as=False,
+                                            file_types=spectrum_files)
+            if path.exists(t_n2i):
+                t_n2i = m_fun.change_extension(t_n2i, '')
+            fit_enabled = nist.lsqf_fit_disable(window, disabled=True)
+            window['-N2I-FILE-'].update(t_n2i)
+
+        if event == 'NIST':
+            t0 = time.time()
+            i_residue = []
+            try:
+                # load actual parameters for fit
+                lmin_a, lmax_a, t_el, t_cont, threshold, sigma_nist, sigma0 = nist.get_fit_parameters(window)
+                t_n2i = window['-N2I-FILE-'].get()
+                n_gauss = int(3 * sigma0 / delta)
+                if n_gauss < 3:
+                    sigma0 = delta
+                    n_gauss = 3
+                    window['-SIGMA0-'].update(sigma0)
+                if sigma0 > sigma_nist:
+                    sg.popup_error('sigma_nist >= sigma0 required, changed value')
+                    sigma_nist = sigma0
+                    window['-SIGMA_NIST-'].update(f'{sigma_nist:6.3f}')
+                # fit t_cont, sigma, used for calculate_spectrum:
+                sigma_fit = np.sqrt(sigma_nist ** 2 - sigma0 ** 2)
+                par_ele = nist.par_ele_create(sigma_fit, t_cont, t_el, window)
+                # replot actual spectrum and response
+                graph_an.erase()
+                idg_spec = m_plot.plot_reference_spectrum(spec_file_analysis, lclip, iclip, graph_an, canvasx,
+                                                          plot_style=ref_style)
+                if len(lresp):
+                    idg_resp_a = m_plot.plot_reference_spectrum(resp_file_analysis, lresp, iresp, graph_an,
+                                                                canvasx, plot_style=response_style)
+                sel_ele = []
+                for ele in all_ele:  # update element list
+                    # name = ele.name
+                    # print('ele.name', name)
+                    if window[ele.name].Get():
+                        sel_ele.append(ele)
+                    else:
+                        window[ele.name + '_scale'].update('')
+                element_index = 0
+                t1 = time.time() - t0
+                for ele in sel_ele:
+                    # load elements with parameters and calculate gaussian smoothed spectrum, plot
+                    ok = nist.get_element(ele, lmin_a, lmax_a, t_el, t_cont, t_n2i, threshold,
+                                                     sigma0, n_gauss, lresp, iresp, lclip, debug=debug)
+                    if ok:
+                        ele.mult = float(window[ele.name + '_mult'].Get())
+                        ele.fit = window[ele.name + '_fit'].Get()
+                        window[ele.name + '_scale'].update(f'{ele.scale:8.2e}')
+                        ele.index = element_index
+                        if ele.scale > 0.0:
+                            ele.gspec = gaussian(ele.ele_spec, sigma=sigma_fit / delta) * ele.mult
+                            idg_lines = m_plot.plot_reference_spectrum(ele.name, lclip, ele.gspec,
+                                                                       graph_an, canvasx,
+                                                plot_style=(ele.color, 0, 1, -0.23 - 0.03 * element_index))
+                        element_index += 1
+                    window.refresh()
+                # calculate sum_spectrum
+                t2 = time.time() - t0
+                if element_index:
+                    fit_enabled = nist.lsqf_fit_disable(window, disabled=False)
+                    i_fit, i_residue, rms_error, result_fit = nist.calculate_spectrum(sel_ele, par_ele, iclip,
+                                                        result_fit, lclip, lresp, iresp, sigma0, n_gauss)
+                    if window['-SUM-'].Get():
+                        idg_fit = m_plot.plot_reference_spectrum('Sum', lclip, i_fit, graph_an, canvasx, idg_fit,
+                                                                 plot_style=('black', 0, 2, -0.15))
+                    if window['-RESIDUALS-'].Get() and len(i_residue):
+                        idg_res = m_plot.plot_reference_spectrum('', lclip, i_residue - residual_offset,
+                                                                 graph_an, canvasx, idg_res,
+                                                                 plot_style=('green', 0, 2, -0.15))
+                    window['-RESULT_A-'].update(result_fit)
+                t3 = time.time() - t0
+                print(f'({t1:5.3f}, {t2:5.3f}, {t3:5.3f})')
+            except Exception as e:
+                sg.PopupError(f'Load spectrum first or other error\n{e}')
+
+        if event in ('-LMIN_A-', '-LMAX_A-', '-SIGMA0-', '-T_ELECTRON-', '-THRESHOLD-'):
+            graph_an.erase()  # new graph required, with new wavelength scale or pre-calculated parameters
+            fit_enabled = nist.lsqf_fit_disable(window, disabled=True)
+            lmin_a = float(window['-LMIN_A-'].Get())
+            lmax_a = float(window['-LMAX_A-'].Get())
+            off = -2 * residual_offset if window['-RESIDUALS-'].get() else -.1
+            graph_an.change_coordinates((lmin_a, off), (lmax_a, 1.2))
+
+        if event[: -5] in elements and event[-5:] == '_mult':
+            try:
+                mult = float(window[event].Get())
+                element = event[: -5]  # ele_mult.key = (ele) + '_mult'
+                nist.set_ele(element, all_ele, mult=mult)
+                ele = nist.get_ele(element, all_ele)
+                delta_spec = (lclip[-1] - lclip[0]) / (len(lclip) - 1)
+                ele.gspec = gaussian(ele.ele_spec * ele.mult, sigma=sigma_fit / delta_spec)
+                if fit_enabled:
+                    i_fit, i_residue, rms_error, result_fit = nist.calculate_spectrum(sel_ele, par_ele, iclip,
+                                                    result_fit, lclip, lresp, iresp, sigma0, n_gauss)
+                    window['-RESULT_A-'].update(result_fit)
+                    if ele in sel_ele:
+                        nist.plot_analysis(window, i_residue, lclip, iclip, i_fit,
+                                           spec_file_analysis, lmin_a, lmax_a, residual_offset, graph_an, canvasx,
+                                           ref_style, sel_ele, zoom_window=zoom_window)
+            except:
+                pass
+
+        if event in elements:
+            ele = event
+            fit_enabled = nist.lsqf_fit_disable(window, disabled=True)
+            try:
+                nist.set_ele(ele, sel_ele, mult=float(window[ele + '_mult'].Get()))
+            except Exception as e:
+                sg.PopupError(f'bad input value\n{e}')
+
+        if event == 'graph_analysis':  # if there's a "graph_analysis" event, then it's a mouse
+            x, y = (values['graph_analysis'])
+            window.set_title(window_title[: -7] + str(spec_file_analysis) + f'  x: {x:8.1f}, y: {y:6.3f}')
+            if not dragging:
+                start_point = (x, y)
+                dragging = True
+            else:
+                end_point = (x, y)
+            if prior_rect:
+                graph_an.delete_figure(prior_rect)
+            if None not in (start_point, end_point):
+                prior_rect = graph_an.draw_rectangle(start_point, end_point, line_color='red')
+
+        if event.endswith('+UP') and graph_analysis_enabled:  # The drawing has ended because mouse up
+            if None not in (start_point, end_point):
+                list_end = list(end_point)
+                list_start = list(start_point)
+                size = np.array(list_end) - np.array(list_start)
+                if abs(size[0]) >= 2.0 or abs(size[1]) >= 0.2:  # ignore small cursor movements
+                    if size[0] < 0.0:  # dragging left resets zoom
+                        zoom_window = []
+                    else:  # zoom window
+                        if size[1] < 0.0:
+                            list_end[1], list_start[1] = list_start[1], list_end[1]
+                        zoom_window = np.array([list_start, list_end])
+                    nist.plot_analysis(window, i_residue, lclip, iclip, i_fit,
+                                       spec_file_analysis, lmin_a, lmax_a, residual_offset, graph_an, canvasx,
+                                       ref_style, sel_ele, zoom_window=zoom_window)
+            start_point, end_point = None, None  # enable grabbing a new rect
+            dragging = False
+
+        if event == '-LSQF_SPEC-':
+            # update latest values for new fit
+            lmin, lmax, t_el, t_cont, threshold, sigma_nist, sigma0 = nist.get_fit_parameters(window)
+            t_cont = float(window['-T_CONT-'].get())
+            sigma_fit = np.sqrt(sigma_nist ** 2 - sigma0 ** 2)
+            par_ele = nist.par_ele_create(sigma_fit, t_cont, t_el, window)
+            for ele in sel_ele:
+                try:  # check fit variables and initial values
+                    fit = True if window[ele.name + '_fit'].Get() else False
+                    mult = float(window[ele.name + '_mult'].Get())
+                    ele.mult = mult
+                    ele.fit = fit
+                except Exception as e:
+                    sg.PopupError(f'bad input value\n{e}')
+            # least square fit
+            i_fit, i_residue, sel_ele, par_ele, time_fit, result = nist.lsq_fit(iclip, sel_ele, par_ele, lclip,
+                                                                        lresp, iresp, sigma0, n_gauss, debug=debug)
+            for ele in sel_ele:
+                window[ele.name + '_mult'].update(f"{ele.mult:8.3e}")
+                window[ele.name + '_scale'].update(f'{ele.scale:8.2e}')
+            t_cont = nist.get_ele('t_cont', par_ele).mult
+            window['-T_CONT-'].update(f'{t_cont:6.0f}')
+            t_el = nist.get_ele('t_el', par_ele).mult
+            window['-T_ELECTRON-'].update(f'{t_el:6.0f}')
+            sigma_fit = nist.get_ele('sigma_fit', par_ele).mult
+            sigma_nist = np.sqrt(sigma_fit ** 2 + sigma0 ** 2)
+            window['-SIGMA_NIST-'].update(f'{sigma_nist:6.3f}')
+            rms_error = np.std(i_residue)
+            m_plot.delete_curve(idg_lines, graph_an)
+            rms = f'#  rms: {rms_error:8.6f}, t:{time_fit:6.2f}sec'
+            if debug:
+                print(f't_el, t_cont, t_fit: {t_el:6.0f}, {t_cont:6.0f} {rms}')  # no C/R needed
+            logging.info('LSQF error: ' + rms)
+            result_fit += result + rms + '\n'
+            window['-RESULT_A-'].update(result_fit)
+            window['-SUM-'].update(True)
+            nist.plot_analysis(window, i_residue, lclip, iclip, i_fit, spec_file_analysis,
+                               lmin_a, lmax_a, residual_offset, graph_an, canvasx,
+                               ref_style, sel_ele, zoom_window=zoom_window)
+
+        if event == '-SAVE_FIT-':
+            new_file, info = m_fun.my_get_file(m_fun.change_extension(spec_file_analysis, '_fit.dat'),
+                                    title='Save calculated spectrum', save_as=True, file_types=spectrum_files)
+            if new_file:
+                lmin_a, lmax_a, _el, t_cont, threshold, sigma_nist, sigma0 = nist.get_fit_parameters(window)
+                lsqf_var = [m_fun.change_extension(spec_file_analysis, ''),
+                            m_fun.change_extension(resp_file_analysis, ''),
+                            lmin_a, lmax_a, sigma_nist, sigma0, t_cont, t_el, threshold, t_n2i]
+                lsqf_dict = dict(list(zip(lsqf_keys, lsqf_var)))
+                np.savetxt(new_file, np.transpose([lclip, i_fit]), fmt='%8.3f %8.5f')
+                if rms:
+                    logging.info(new_file + rms)
+                with open(new_file, 'a') as f:
+                    f.write(result_fit)
+                result_text += info + '\n'
+                for ele in sel_ele:
+                    ele.fit = window[ele.name + '_fit'].Get()
+                if nist.line_strength(all_ele, lclip, lresp, iresp):
+                    sg.popup_error('incorrect or missing instrument response')
+                    logging.info('incorrect or missing instrument response')
+                fei_strength = nist.get_ele("fei", all_ele).strength
+                mgi_strength = nist.get_ele("mgi", all_ele).strength
+                nai_strength = nist.get_ele("nai", all_ele).strength
+                info = f'fei:{fei_strength:8.3f}, mgi:{mgi_strength:8.3f}, nai:{nai_strength:8.3f}, ' \
+                       f'{spec_file_analysis}, {new_file}'
+                logging.info(info)
+                print(info + '\n')
+                window.set_title(window_title[: -7] + str(m_fun.change_extension(new_file, '.inf')))
+                nist.write_config_fit(m_fun.change_extension(new_file, '.inf'), sel_ele, lsqf_dict)
+
+        if event == '-LOAD_FIT-':
+            i_residue = []
+            result_fit = ''
+            conf, info = m_fun.my_get_file('', title='Load fit configuration', save_as=False,
+                                           file_types=(('Fit configuration files', '*.inf'), ('ALL Files', '*.*'),))
+            if conf:
+                for element in elements:
+                    window[element].update(value=False)
+                lsqf_var, sel_ele = nist.read_configuration(conf, lsqf_dict, all_ele)
+                nist.set_fit_parameters(window, lsqf_var)
+                window['-RESIDUALS-'].update(value=False)
+                [lmin_a, lmax_a] = lsqf_var[2:4]
+                graph_an.change_coordinates((lmin_a, -.1), (lmax_a, 1.2))
+                for ele in sel_ele:
+                    window[ele.name].update(value=True)
+                    window[ele.name + '_mult'].update(ele.mult)
+                    window[ele.name + '_fit'].update(value=ele.fit)
+                graph_an.erase()
+                spec_file_analysis = m_fun.change_extension(lsqf_var[0], '.dat')
+                if path.exists(spec_file_analysis):
+                    delta, lclip, iclip, idg_spec = nist.load_spectrum_analysis(spec_file_analysis, lmin_a, lmax_a,
+                                                                                graph_an, canvasx, ref_style)
+                    graph_analysis_enabled = True
+                    window.set_title(window_title[: -7] + str(spec_file_analysis) + ', ' + str(conf))
+                    logging.info(f'{spec_file_analysis} loaded for analysis')
+                else:
+                    spec_file_analysis = ''
+                window['-SPECTRUM_A-'].update(spec_file_analysis)
+                resp_file_analysis = m_fun.change_extension(lsqf_var[1], '.dat')
+                if path.exists(resp_file_analysis):
+                    lresp, iresp, idg_resp_a = nist.load_response_analysis(resp_file_analysis,
+                                                                           graph_an, canvasx, response_style)
+                    logging.info(f'{resp_file_analysis} loaded as response')
+                else:
+                    resp_file_analysis = ''
+                window['-RESPONSE_A-'].update(resp_file_analysis)
+
+        if event in ('-SUM-', '-RESIDUALS-') and graph_analysis_enabled:
+            nist.plot_analysis(window, i_residue, lclip, iclip, i_fit,
+                               spec_file_analysis, lmin_a, lmax_a, residual_offset, graph_an, canvasx,
+                               ref_style, sel_ele, zoom_window=zoom_window)
+
+        window.refresh()
 
         # other stuff, open issues ---------------------------------------------
         # tabs_element.set_focus('Tab 1') #does not work
