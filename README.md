@@ -1,7 +1,13 @@
-# meteor-spectrum-calibration
+# meteor-spectrum-calibration with synthetic spectra
 Analysis of meteor spectra with windows GUI.
 
-Newest version with calculation and application of instrument response function and correction of atmospheric extinction. In addition, the creation and use of a flat field for quantitative analysis of meteor spectra has been added as well.
+New
+Creation of synthetic spectra of typical meteor elements such as Fe, Mg, Na, Ca etc. plus atomic O and N of atmospheric origin as well as molecular nitrogen has been added. The intensities of the lines, spectral width and an additional continuum radiation and plasma temperature can be fitted by a Levenberg-Marquardt least square fit. Before fit:
+<img src= https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/synthetic_spectra/doc/synthetic%20spectra%20before%20fit.png>
+after fit:
+<img src= https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/synthetic_spectra/doc/synthetic%20spectra%20after%20fit.png>
+
+Also with calculation and application of instrument response function and correction of atmospheric extinction. In addition, the creation and use of a flat field for quantitative analysis of meteor spectra has been added as well.
 
 The previous calibration of camera, lens and grating combination has been included in the script. Therefore only a single GUI allows this calibration and the subsequent processing of meteor spectra. For details of the calibration, see:
 https://github.com/meteorspectroscopy/calibrate-spectrum
