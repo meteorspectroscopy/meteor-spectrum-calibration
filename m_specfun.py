@@ -25,7 +25,13 @@ from scipy.ndimage import shift as image_shift
 from skimage import img_as_float
 from skimage import io as ios
 from skimage import transform as tf
-from skimage.feature import register_translation
+from skimage import __version__ as skimage_ver
+if float(skimage_ver[0:4]) < 0.17:
+    # feature.register_translation is replaced in skimage 0.19.2 by
+    # registration.phase_cross_correlation
+    from skimage.feature import register_translation
+else:
+    from skimage.registration import phase_cross_correlation as register_translation
 from skimage import draw
 import matplotlib.pyplot as plt
 import PySimpleGUI as sg
