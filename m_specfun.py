@@ -25,7 +25,13 @@ from scipy.ndimage import shift as image_shift
 from skimage import img_as_float
 from skimage import io as ios
 from skimage import transform as tf
-from skimage.feature import register_translation
+from skimage import __version__ as skimage_ver
+if float(skimage_ver[0:4]) < 0.17:
+    # feature.register_translation is replaced in skimage 0.19.2 by
+    # registration.phase_cross_correlation
+    from skimage.feature import register_translation
+else:
+    from skimage.registration import phase_cross_correlation as register_translation
 from skimage import draw
 import matplotlib.pyplot as plt
 import PySimpleGUI as sg
@@ -33,7 +39,7 @@ import PySimpleGUI as sg
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
-version = '0.9.27'
+version = '0.9.28'
 logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
 for handler in logging.root.handlers[:]:
@@ -157,7 +163,7 @@ def read_configuration(conf, par_dict, res_dict, opt_dict):
             for key in config['Options'].keys():
                 if key in (
                         'win_width', 'win_height', 'win_x', 'win_y', 'calc_off_x', 'calc_off_y', 'setup_off_x',
-                        'setup_off_y', 'graph_size'):
+                        'setup_off_y', 'graph_size', 'plot_w', 'plot_h'):
                     opt_dict[key] = int(config['Options'][key])
                 elif key in ('debug', 'fit-report', 'scale_win2ima', 'scale_ima2win',
                              'colorflag', 'bob', 'show_images', 'flat_flag'):
@@ -1197,7 +1203,6 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                       sg.B('+', pad=(0, 0), key='+s'),
                       sg.B('-', pad=(0, 0), key='-s'),
                       sg.Button('Apply', key='-APPLY_TS-', bind_return_key=True),
-                      sg.Button('Auto', key='-AUTO_TS-'),
                       sg.Ok(), sg.Cancel()],
                       image_elem_sel, [sg.Text(key='info', size=(60, 1))]]
     # ---------------------------------------------------------------------------
@@ -1739,7 +1744,7 @@ def set_image_scale(imx, imy, opt_dict):
     else:  # fit image size to window
         max_width = opt_dict['win_width'] - 390
         max_height = opt_dict['win_height'] - 111
-        imscale = min(max_width / imx, max_height / imy)
+        imscale = max(min(max_width / imx, max_height / imy), 0.01)
     return imscale
 
 
@@ -1785,6 +1790,7 @@ def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=Tr
         cur_width, cur_height = imag.size  # size of image
         im_scale = set_image_scale(cur_width, cur_height, opt_dict)
         imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), Image.ANTIALIAS)
+
     bio = io.BytesIO()
     imag.save(bio, format="PNG")
     if tmp_image:

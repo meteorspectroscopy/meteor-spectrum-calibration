@@ -15,7 +15,7 @@ from scipy import optimize
 
 import m_specfun as m_fun
 
-version = '0.9.25'
+version = '0.9.28'
 
 
 def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines', lmin=0, lmax=720,
@@ -146,7 +146,7 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                                    '&Normalize to peak value', 'Clip wavelength range',
                                    '&Compare with spectrum', '&Label calibration lines',
                                    'Label meteor lines', '&Remove label', 'Line&width tool']]
-    layout = [[sg.Menu([right_click_menu])],[sg.Graph(canvas_size=canvas_size, drag_submits=True,
+    layout = [[sg.Menu([right_click_menu])], [sg.Graph(canvas_size=canvas_size, drag_submits=True,
                         graph_bottom_left=(lmin - 40 / lscale, imin - 40 / iscale),
                         graph_top_right=(lmax + 10 / lscale, imax + 30 / iscale),
                         enable_events=True, float_values=True, background_color='white', key='graph')],
@@ -158,7 +158,6 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                sg.InputText(text_cursor_position, size=(30, 1), key='cursor', disabled=True),
                sg.Button('FWHM', disabled=True),
                sg.Text('Scale Factor'), sg.InputText('1.0', key='factor', size=(8, 1))]]
-
 
     window = sg.Window(spec_file, layout, keep_on_top=True, right_click_menu=right_click_menu).Finalize()
     graph = window['graph']
@@ -314,8 +313,11 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                    f'                               saved as {mod_file}'
             caltext += info
             logging.info(info)
-            delete_curve(id_list, graph)
-            id_list = draw_spectrum(lcal, ical, lmin, lmax, color='red')
+            # make new graph
+            window.close()
+            graph_calibrated_spectrum(spec_file, line_list, meteor_lines=meteor_lines, lmin=lmin, lmax=lmax,
+                              imin=imin, imax=imax, autoscale=autoscale, gridlines=True,
+                              canvas_size=canvas_size, plot_title=plot_title, multi_plot=multi_plot, offset=offset)
         elif event == 'Clip wavelength range':
             lclip = []
             iclip = []
@@ -358,7 +360,7 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
             offset_calibration = 1000
             lam_peak = 0.0
             if calib_lines:
-                for k in range(len(lam_calib)-1):
+                for k in range(len(lam_calib)):
                     new_offset = abs(label_str[k][0] - x)
                     if new_offset < offset_calibration:
                         offset_calibration = new_offset
@@ -404,18 +406,18 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                                               title='Input Error', keep_on_top=True)
                         if y > i_peak:
                             id_line = graph.DrawLine((lam_peak, i_peak + 20 / iscale),
-                                                      (lam_peak, y - 20 / iscale), 'black', 2)
+                                                     (lam_peak, y - 20 / iscale), 'black', 2)
                         else:
                             id_line = graph.DrawLine((lam_peak, i_peak - 20 / iscale),
                                                      (lam_peak, y + 20 / iscale), 'black', 2)
                         id_label = graph.DrawText(new_label, location=(lam_peak, y),
-                                       text_location=sg.TEXT_LOCATION_CENTER,
-                                       font='Arial 12', color='black')
+                                                  text_location=sg.TEXT_LOCATION_CENTER,
+                                                  font='Arial 12', color='black')
                     else:
                         id_line = graph.DrawLine((lam_peak, y - 20 / iscale), (lam_peak, imin), 'green', 1)
                         id_label = graph.DrawText(new_label, location=(lam_peak, y),
-                                       text_location=sg.TEXT_LOCATION_CENTER,
-                                       font='Arial 12', color='green')
+                                                  text_location=sg.TEXT_LOCATION_CENTER,
+                                                  font='Arial 12', color='green')
                 if event in ('Cancel', None):
                     pass
                 window_label.close()
@@ -438,7 +440,7 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
             else:
                 window.Disable()
                 linewidth_tool_enabled, result = linewidth_results((lmin_lw, imin_lw),
-                                                           (lmax_lw, imax_lw), coeffgauss, fwg, result)
+                                                                   (lmax_lw, imax_lw), coeffgauss, fwg, result)
                 window.Enable()
                 graph.delete_figure(prior_rect)
                 delete_curve(prior_gauss, graph)
@@ -488,7 +490,8 @@ def graph_calibrated_spectrum(spec_file, line_list, meteor_lines='meteor_lines',
                 # Gauss fit
                 peak_int = np.max(ical_lw)
                 for i in range(0, len(lcal_lw)):
-                    if (ical_lw[i] - peak_int + 1.e-5) > 0: m = i
+                    if (ical_lw[i] - peak_int + 1.e-5) > 0:
+                        m = i
                 peak0 = lcal_lw[m]
                 coeff = [peak_int, peak0, (lmax_lw - lmin_lw) / 4]    # peak height, wavelength, sigma
                 try:
@@ -530,15 +533,13 @@ def save_element_as_file(element, filename):
 # -------------------------------------------------------------------
 
 
-def plot_raw_spectrum(rawspec, graph, canvasx, autoscale=True, plot_range=(0, 1000, -.2, 1),
-                      plot_style=('red', 1, 1, -0.05)):
+def plot_raw_spectrum(rawspec, graph, canvasx, autoscale=True, plot_style=('red', 1, 1, -0.05)):
     """
     plots  a raw (uncalibrated)spectrum for selection of calibration lines
     :param rawspec: filename of uncalibrated spectrum with extension .dat
     :param graph: window to display spectrum
     :param canvasx: width of graph (needed to size points in graph)
     :param autoscale: if True fit scale to spectrum
-    :param plot_range: lmin, lmax, imin, imax
     :param plot_style: defined in main: star_style, ref_style, raw_style, response_style
                         (color, circle_size, line_size, offset)
     :return:
@@ -546,7 +547,7 @@ def plot_raw_spectrum(rawspec, graph, canvasx, autoscale=True, plot_range=(0, 10
     imin, imax: intensity range
     lcal, ical: pixel, intensity array
     """
-    lmin, lmax, imin, imax = plot_range
+    (lmin, imin), (lmax, imax) = graph.BottomLeft, graph.TopRight
     color, circle_size, line_size, offset = plot_style
     lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
     if autoscale:
@@ -568,20 +569,19 @@ def plot_raw_spectrum(rawspec, graph, canvasx, autoscale=True, plot_range=(0, 10
     # draw graph
     plot_curve(points, graph, radius=circle_size*(lmax-lmin)/canvasx, line_color=color,
                fill_color=color, width=line_size)
-    return (lmin, lmax, imin, imax), lcal, ical
+    return ((lmin, imin), (lmax, imax)), lcal, ical
 
 
 # -------------------------------------------------------------------
-def plot_reference_spectrum(rawspec, lcal, ical, graph, canvasx, plot_range=(0, 1000, -.1, 2),
-                            plot_style=('blue', 0, 2, -.1)):
+def plot_reference_spectrum(rawspec, lcal, ical, graph, canvasx, old_id_list=[], plot_style=('blue', 0, 2, -.1)):
     """
     plots  a raw (uncalibrated)spectrum for selection of calibration lines
-    :param rawspec: filename of reference spectrum
+    :param rawspec: filename of reference spectrum, used for label
     :param lcal: wavelength array of spectrum
     :param ical: intensity array of spectrum
     :param graph: window to display spectrum
     :param canvasx: width of graph (needed to size points in graph)
-    :param plot_range: lmin, lmax, imin, imax
+    :param old_id_list: list of previous graph elements to be deleted
     :param plot_style: defined in main: star_style, ref_style, raw_style, response_style
                         (color, circle_size, line_size, offset)
     :return id_list: list of graph elements
@@ -589,18 +589,17 @@ def plot_reference_spectrum(rawspec, lcal, ical, graph, canvasx, plot_range=(0, 
     # lcal, ical = np.loadtxt(rawspec, unpack=True, ndmin=2)
     color, circle_size, line_size, offset = plot_style
     points = []
-    lmin, lmax, imin, imax = plot_range
-    for l0 in range(len(lcal)):
+    delete_curve(old_id_list, graph)
+    (lmin, imin), (lmax, imax) = graph.BottomLeft, graph.TopRight
+    assert len(lcal) == len(ical)
+    for l0 in range(len(lcal) - 1):
         if (lmin <= lcal[l0] <= lmax) or (lmin >= lcal[l0] >= lmax):
             points.append((lcal[l0], ical[l0]))
-    graph.change_coordinates((lmin, imin), (lmax, imax))
     # draw graph
     id_list = plot_curve(points, graph, radius=circle_size*(lmax-lmin)/canvasx, line_color=color,
                          fill_color=color, width=line_size)
-    id = graph.DrawText(rawspec, (0.5 * (lmax + lmin), imax + offset * (imax - imin)), color=color)
-    id_list.append(id)
-    id = graph.DrawLine((lmin, 0), (lmax, 0), 'grey', 1)
-    id_list.append(id)
+    id_list.append(graph.DrawText(rawspec, (0.5 * (lmax + lmin), imax + offset * (imax - imin)), color=color))
+    id_list.append(graph.DrawLine((lmin, 0), (lmax, 0), 'grey', 1))
     return id_list
 
 
@@ -634,6 +633,7 @@ def delete_curve(id_list, graph):
     """
     for idg in id_list:
         graph.delete_figure(idg)
+        id_list.remove(idg)
 
 
 def wavelength_tools(sigma_nm, file='', _type='reference'):
@@ -673,8 +673,8 @@ def wavelength_tools(sigma_nm, file='', _type='reference'):
         elif event == 'Load File':
             window.Minimize()
             file, info = m_fun.my_get_file(values['file'], title='Spectrum file',
-                                     file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*')),
-                                     default_extension='*.dat')
+                                           file_types=(('Spectrum Files', '*.dat'), ('ALL Files', '*.*')),
+                                           default_extension='*.dat')
             if file:
                 window.Normal()
                 window['file'].update(file)
