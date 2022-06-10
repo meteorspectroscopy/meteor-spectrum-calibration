@@ -167,7 +167,7 @@ def main():
     start_point = end_point = prior_rect = None
     zoom_window = []
     t_n2i = 'NIST/N2I4000'
-    sel_elements = []
+    # sel_elements = []
     show_residuals = False
     residual_offset = 0.3
     p0 = (0, 0)  # used for padding
@@ -549,7 +549,7 @@ def main():
                                                       opt_dict, resize=False)
     graph_ir = window['graph_ir']
     graph_an = window['graph_analysis']
-    window['-T_ANALYSIS-'].select()
+    # window['-T_ANALYSIS-'].select()
 
     # ==============================================================================
     # Main loop
@@ -979,7 +979,7 @@ def main():
                     fits_dict.pop('M_NIM', None)
                     fits_dict.pop('M_STARTI', None)
                     temp_dict = {'COMMENT': ''}
-                    disttext += f'start background image\nwait for background image\n'
+                    disttext += 'start background image\nwait for background image\n'
                     window['-RESULT2-'].update(value=result_text + disttext, append=True)
                     window.refresh()
                     m_fun.save_fit_png(m_fun.m_join(outpath, 'm_back'), back, temp_dict, dist=False)
