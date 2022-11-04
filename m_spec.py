@@ -493,7 +493,7 @@ def main():
                             [sg.T('Response', pad=p0),
                              sg.InputText(resp_file_analysis, size=(20, 1), key='-RESPONSE_A-', pad=p0),
                              sg.Button('Select', key='-SEL_RESPONSE_A-', tooltip='Select response', pad=p0)]])],
-                             [sg.Frame('Parameters', [[sg.T('Wavelength range', pad=p2),
+                            [sg.Frame('Parameters', [[sg.T('Wavelength range', pad=p2),
                              sg.I(lmin_a, size=(6, 1), key='-LMIN_A-', enable_events=True, pad=p2),
                              sg.I(lmax_a, size=(6, 1), key='-LMAX_A-', enable_events=True, pad=p2)],
                             [sg.T('Sigma', pad=p2), sg.I(sigma_nist, size=(6, 1), key='-SIGMA_NIST-',
@@ -502,22 +502,22 @@ def main():
                              sg.T('Sigma0', pad=p2),
                              sg.I(sigma0, size=(6, 1), key='-SIGMA0-', enable_events=True, pad=p2)],
                             [sg.T('Continuum Temp.', pad=p2), sg.I('3000', size=(6, 1), key='-T_CONT-',
-                                                                    enable_events=True, pad=p2),
+                                                                   enable_events=True, pad=p2),
                              sg.Checkbox('fit', enable_events=True, key='-T_CONT_FIT-', size=(0, 1), pad=p2)],
                             [sg.T('Plasma Temp.', pad=p2), sg.I('3000', size=(6, 1), key='-T_ELECTRON-',
-                                                          enable_events=True, pad=p0),
+                                                                enable_events=True, pad=p0),
                              sg.Checkbox('fit', enable_events=True, key='-T_EL_FIT-', size=(0, 1), pad=p0),
                              sg.Checkbox('Show sum', enable_events=True, key='-SUM-', pad=p0)],
                             [sg.T('Threshold', pad=p2), sg.I(f'{threshold:5.1e}', size=(6, 1),
-                                                     key='-THRESHOLD-', enable_events=True, pad=p2),
+                                                             key='-THRESHOLD-', enable_events=True, pad=p2),
                              sg.Checkbox('Show residual', default=show_residuals,
                                          enable_events=True, key='-RESIDUALS-', pad=p2)]], pad=p0)],
                             [sg.Frame('Elements' + 24*' ' + 'factor' + 4*' ' + 'fit', element_layout, pad=p0)]],
                              pad=p0),
                          sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
-                                 graph_top_right=(1.0, 1.0), background_color='white', key='graph_analysis',
-                                 enable_events=True, drag_submits=True, float_values=True,
-                                 tooltip='Uncalibrated (raw) spectrum, select calibration lines with mouse draw')]]
+                                  graph_top_right=(1.0, 1.0), background_color='white', key='graph_analysis',
+                                  enable_events=True, drag_submits=True, float_values=True,
+                                  tooltip='Uncalibrated (raw) spectrum, select calibration lines with mouse draw')]]
 
     # ==============================================================================
     # Tabs and window
@@ -579,7 +579,7 @@ def main():
             opt_dict['win_x'] = wlocx
             opt_dict['win_y'] = wlocy
             image_data, actual_file = m_fun.draw_scaled_image(actual_file, actual_image,
-                                                    opt_dict, resize=True, tmp_image=True)
+                                                        opt_dict, resize=True, tmp_image=True)
         if not graph_analysis_enabled:
             window.set_title(window_title + str(actual_file))
         if tabs_element.get() == '-T_LASER_CAL-':
@@ -628,7 +628,7 @@ def main():
                 if tool_type == 'reference':
                     reference_file = new_file  # use as new reference
                     plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(file, graph_ir, canvasx,
-                                             autoscale=values['autoscale'])
+                                                                    autoscale=values['autoscale'])
                     if reference_file:
                         idg_ref = m_plot.plot_reference_spectrum(reference_file, lref, iref, graph_ir, canvasx,
                                                                  plot_style=ref_style)
@@ -636,8 +636,8 @@ def main():
                 else:
                     if new_file:  # order conversion, leave filename as is for new order conversion
                         plot_range, l_spec, i_spec = m_plot.plot_raw_spectrum(new_file, graph_ir, canvasx,
-                                                            autoscale=values['autoscale'],
-                                                            plot_style=ref_style)
+                                                                            autoscale=values['autoscale'],
+                                                                            plot_style=ref_style)
                     result_text += info + '\n'
                 window['-RESULT5-'].update(result_text)
                 window.refresh()
@@ -653,7 +653,7 @@ def main():
                     m_plot.delete_curve(idg_resp, graph_ir)
                     l_smooth, i_smooth = np.loadtxt(response_file, unpack=True, ndmin=2)
                     idg_resp = m_plot.plot_reference_spectrum(spectrum_am0, l_smooth, i_smooth,
-                                  graph_ir, canvasx, plot_style=response_style)
+                                                graph_ir, canvasx, plot_style=response_style)
                 else:
                     spectrum_file = spectrum_am0
                     window['-SPECTRUM-'].update(spectrum_am0)
@@ -1133,55 +1133,57 @@ def main():
             nim = int(values['-N_REG-'])
             nmp = int(values['-N_MAX_R-'])
             out_fil = m_fun.m_join(outpath, reg_file)
-            im, header = m_fun.get_fits_image(infile + str(start))
-            if 'M_FLAT' in header.keys():
-                fits_dict['M_FLAT'] = header['M_FLAT']
-            # 'tmp.png' needed for select_rectangle:
-            image_data, actual_file = m_fun.draw_scaled_image(infile + str(start) + '.fit', window['-R_IMAGE-'],
-                                                              opt_dict, contr=contrast, tmp_image=True)
-
-            if not sta and 'M_STATIO' in header.keys():
-                sta = header['M_STATIO']
-                dat_tim = header['DATE-OBS']
-            # ===================================================================
-            # select rectangle for registration
-            window.Disable()
-            select_event, x0, y0, dx, dy = m_fun.select_rectangle(infile, start, res_dict, fits_dict,
-                                                                  (wlocx, wlocy), out_fil, maxim)
-            window.Enable()
-            window.bring_to_front()
-            if select_event == 'Ok':
-                nsel = start + nim - 1  # nsel index of last selected image, nim number of images
-                if nsel > nmp:
-                    nim = max(nmp - start + 1, 0)
-                    window['-N_REG-'].update(nim)
-                t0 = time.time()
-                fits_dict['M_STARTI'] = start
-                reg_type = 'Gaussian' if values['-GAUSSIAN-'] else 'cross-correlation'
-                index, sum_image, reg_text, dist, outfile, fits_dict = m_fun.register_images(start, nim, x0,
-                                                y0, dx, dy, infile, out_fil, window, fits_dict, contrast,
-                                                values['-GAUSSIAN-'], values['-SHOW_REG-'], debug)
-                t3 = time.time() - t0
-                nim = index - start + 1
-                if nim > 1:
-                    logging.info(f'time for register one image : {t3 / nim:6.2f} sec, {reg_type} ')
-                    result_text += (f'Station = {sta}\nTime = {dat_tim}\n'
-                                    + f'\nStart image = {str(start)} register {reg_type}\n'
-                                    + f'Number registered images: {nim}\nof total images: {nmp}\n'
-                                    + f'time for register one image: {t3 / nim:6.2f} sec\n')
-                    image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
-                                                                      opt_dict, contr=contrast)
-                    window['-SHOW_REG-'].update(True)
-                    window['-RADD-'].update(outfile)
-                    window['-SHOW_SUM_R-'].update(disabled=False, button_color=bc_enabled)
-                    window['-ADD_ROWS-'].update(disabled=False, button_color=bc_enabled)
-                else:
-                    result_text = (f'Number registered images: {nim}\n'
-                                   + f'of total images: {nmp}\nnot enough images\n')
-                    info = f'{reg_type} register did not work with last image, try again!'
-                    sg.PopupError(info)
-                    logging.error(info)
-                window['-RESULT3-'].update(reg_text + result_text)
+            if start > nmp:
+                sg.PopupError('check image folder and number of distorted images')
+            else:
+                im, header = m_fun.get_fits_image(infile + str(start))
+                if 'M_FLAT' in header.keys():
+                    fits_dict['M_FLAT'] = header['M_FLAT']
+                # 'tmp.png' needed for select_rectangle:
+                image_data, actual_file = m_fun.draw_scaled_image(infile + str(start) + '.fit', window['-R_IMAGE-'],
+                                                                  opt_dict, contr=contrast, tmp_image=True)
+                if not sta and 'M_STATIO' in header.keys():
+                    sta = header['M_STATIO']
+                    dat_tim = header['DATE-OBS']
+                # ===================================================================
+                # select rectangle for registration
+                window.Disable()
+                select_event, x0, y0, dx, dy = m_fun.select_rectangle(infile, start, res_dict, fits_dict,
+                                                                      (wlocx, wlocy), out_fil, maxim)
+                window.Enable()
+                window.bring_to_front()
+                if select_event == 'Ok':
+                    nsel = start + nim - 1  # nsel index of last selected image, nim number of images
+                    if nsel > nmp:
+                        nim = max(nmp - start + 1, 0)
+                        window['-N_REG-'].update(nim)
+                    t0 = time.time()
+                    fits_dict['M_STARTI'] = start
+                    reg_type = 'Gaussian' if values['-GAUSSIAN-'] else 'cross-correlation'
+                    index, sum_image, reg_text, dist, outfile, fits_dict = m_fun.register_images(start, nim, x0,
+                                                    y0, dx, dy, infile, out_fil, window, fits_dict, contrast,
+                                                    values['-GAUSSIAN-'], values['-SHOW_REG-'], debug)
+                    t3 = time.time() - t0
+                    nim = index - start + 1
+                    if nim > 1:
+                        logging.info(f'time for register one image : {t3 / nim:6.2f} sec, {reg_type} ')
+                        result_text += (f'Station = {sta}\nTime = {dat_tim}\n'
+                                        + f'\nStart image = {str(start)} register {reg_type}\n'
+                                        + f'Number registered images: {nim}\nof total images: {nmp}\n'
+                                        + f'time for register one image: {t3 / nim:6.2f} sec\n')
+                        image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
+                                                                          opt_dict, contr=contrast)
+                        window['-SHOW_REG-'].update(True)
+                        window['-RADD-'].update(outfile)
+                        window['-SHOW_SUM_R-'].update(disabled=False, button_color=bc_enabled)
+                        window['-ADD_ROWS-'].update(disabled=False, button_color=bc_enabled)
+                    else:
+                        result_text = (f'Number registered images: {nim}\n'
+                                       + f'of total images: {nmp}\nnot enough images\n')
+                        info = f'{reg_type} register did not work with last image, try again!'
+                        sg.PopupError(info)
+                        logging.error(info)
+                    window['-RESULT3-'].update(reg_text + result_text)
         # =======================================================================
         # convert 2-D spectrum to 1-D spectrum
         elif event == '-ADD_ROWS-':
@@ -1980,8 +1982,8 @@ def main():
                 sg.PopupError(f'Image {infile}.fit not found, load {infile}.png instead:', keep_on_top=True)
                 infile, info = m_fun.my_get_file(infile, title='Load image',
                                                  file_types=(('PNG-File', '*.png'), ('Image Files', '*.fit'),
-                                                 ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
-                                                 default_extension='*.png')
+                                                             ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
+                                                            default_extension='*.png')
                 if infile:
                     lfun.load_image(infile, opt_dict)  # creates fit image
                     image_data, actual_file, imbw = m_fun.draw_scaled_image(infile, image_elem_calib,
@@ -2082,7 +2084,7 @@ def main():
                 for ele in sel_ele:
                     # load elements with parameters and calculate gaussian smoothed spectrum, plot
                     ok = nist.get_element(ele, lmin_a, lmax_a, t_el, t_cont, t_n2i, threshold,
-                                                     sigma0, n_gauss, lresp, iresp, lclip, debug=debug)
+                                          sigma0, n_gauss, lresp, iresp, lclip, debug=debug)
                     if ok:
                         ele.mult = float(window[ele.name + '_mult'].Get())
                         ele.fit = window[ele.name + '_fit'].Get()
@@ -2183,7 +2185,6 @@ def main():
         if event == '-LSQF_SPEC-':
             # update latest values for new fit
             lmin, lmax, t_el, t_cont, threshold, sigma_nist, sigma0 = nist.get_fit_parameters(window)
-            t_cont = float(window['-T_CONT-'].get())
             sigma_fit = np.sqrt(sigma_nist ** 2 - sigma0 ** 2)
             par_ele = nist.par_ele_create(sigma_fit, t_cont, t_el, window)
             for ele in sel_ele:

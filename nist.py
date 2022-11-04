@@ -386,11 +386,11 @@ def errorsum(params, sel_ele, i_clip, lclip, lresp, iresp, sigma0, n_gauss):
     delta_spec = (lclip[-1] - lclip[0]) / (len(lclip) - 1)
     for ele in sel_ele:
         par.append(params[ele.name].value)
-    if params['t_cont'].vary:
-        t_cont = params['t_cont'].value
-        if t_cont != t_cont_old:
-            get_ele('cont', sel_ele).ele_spec = planck(t_cont, lclip, lresp, iresp)
-            t_cont_old = t_cont
+    # if params['t_cont'].vary:
+    t_cont = params['t_cont'].value
+    if t_cont != t_cont_old:
+        get_ele('cont', sel_ele).ele_spec = planck(t_cont, lclip, lresp, iresp)
+        t_cont_old = t_cont
     if params['t_el'].vary:
         t_el = params['t_el'].value
         if t_el != t_el_old:
