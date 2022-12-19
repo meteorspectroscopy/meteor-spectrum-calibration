@@ -9,7 +9,7 @@ from lmfit import minimize, Parameters, report_fit
 import m_specfun as m_fun
 import m_plot
 
-version = '0.9.28'
+version = '0.9.29'
 
 
 class Element:
@@ -231,10 +231,9 @@ def set_fit_parameters(window, lsqf_var, bc_disabled=(None, 'darkblue')):
 
 
 def par_ele_create(sigma_fit, t_cont, t_el, window):
-    par_ele = []
-    par_ele.append(Element('sigma_fit', sigma_fit, 1, 0, window['-SIGMA_FIT-'].get()))
-    par_ele.append(Element('t_cont', t_cont, 1, 0, window['-T_CONT_FIT-'].get()))
-    par_ele.append(Element('t_el', t_el, 1, 0, window['-T_EL_FIT-'].get()))
+    par_ele = [Element('sigma_fit', sigma_fit, 1, 0, window['-SIGMA_FIT-'].get()),
+               Element('t_cont', t_cont, 1, 0, window['-T_CONT_FIT-'].get()),
+               Element('t_el', t_el, 1, 0, window['-T_EL_FIT-'].get())]
     return par_ele
 
 
@@ -317,7 +316,7 @@ def read_configuration(conf, lsqf_dict, all_ele):
                     index = int(config['Elements'][key])
             for key in config['Elements']:
                 if key == str(ele + '_fit'):
-                    fit = config['Elements'][key]
+                    fit = True if config['Elements'][key] else False
             color = get_ele(ele, all_ele).color
             sel_ele.append(Element(ele, mult, scale, index, fit, color=color))
         logging.info(f'configuration {conf} loaded')
@@ -437,16 +436,14 @@ def lsq_fit(iclip, sel_ele, par_ele, lclip, lresp, iresp, sigma0, n_gauss,
     params = Parameters()
     n_fit = 0
     for ele in sel_ele:
-        fit = True if ele.fit else False
-        params.add(ele.name, value=ele.mult, vary=fit)
+        params.add(ele.name, value=ele.mult, vary=ele.fit, min=0.0)
         if ele.fit:
             n_fit += 1
     for ele in par_ele:
-        fit = True if ele.fit else False
         if ele.name == 'sigma_fit':
-            params.add(ele.name, value=ele.mult, vary=fit, min=0.0)
+            params.add(ele.name, value=ele.mult, vary=ele.fit, min=0.0)
         else:
-            params.add(ele.name, value=ele.mult, vary=fit, min=1000, max=10000)
+            params.add(ele.name, value=ele.mult, vary=ele.fit, min=1000, max=10000)
     # ------------------------------------------------------------------------------
     # LEAST SQUARE FIT
     # ------------------------------------------------------------------------------
@@ -455,7 +452,7 @@ def lsq_fit(iclip, sel_ele, par_ele, lclip, lresp, iresp, sigma0, n_gauss,
         result_fit = ''
     else:
         max_nfev = 10 * n_fit
-        out = minimize(errorsum, params, args=args, max_nfev= max_nfev)
+        out = minimize(errorsum, params, args=args, max_nfev=max_nfev)
         if debug:
             report_fit(out)
         result_fit = '#Parameter Value Stderr  %\n'
@@ -524,6 +521,7 @@ def plot_analysis(window, i_residue, lclip, iclip, i_fit, spec_file_analysis, lm
     except Exception as e:
         print(f'error in plot_analysis: {e}')
     return
+
 
 def line_strength(all_ele, lclip, lresp, iresp):
     for ele in all_ele:
