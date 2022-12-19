@@ -1,0 +1,36 @@
+2022-12-19 10:50:52,188 20 47 M_SPEC START +++++++++++++++++++++++++++++++++++++++++++++
+2022-12-19 10:50:52,188 20 50 M_SPEC version 0.9.28, lfun version 0.8.8, m_fun.version 0.9.28, PySimpleGUI 4.29.0
+2022-12-19 10:50:52,188 20 179 configuration m_set.ini loaded
+2022-12-19 10:51:20,105 20 1866 Load fit configuration: D:\DatenD\meteor-synthetic_spectra\221218\S20221218_035025_MAI_2_fit.inf
+2022-12-19 10:51:20,152 20 322 configuration D:\DatenD\meteor-synthetic_spectra\221218\S20221218_035025_MAI_2_fit.inf loaded
+2022-12-19 10:51:20,324 20 2281 D:\DatenD\meteor-synthetic_spectra\221218\r_add9cal2CN.dat loaded for analysis
+2022-12-19 10:51:20,370 20 2289 response\response_ex.dat loaded as response
+2022-12-19 10:52:31,124 20 2219 LSQF error: #  rms: 0.022942, t:  0.84sec
+2022-12-19 10:53:29,267 20 2219 LSQF error: #  rms: 0.022072, t:  1.52sec
+2022-12-19 10:54:16,287 20 1866 Save calculated spectrum: D:\DatenD\meteor-synthetic_spectra\221218\S20221218_035025_MAI_2_fit2.dat
+2022-12-19 10:54:16,709 20 2238 D:\DatenD\meteor-synthetic_spectra\221218\S20221218_035025_MAI_2_fit2.dat#  rms: 0.022072, t:  1.52sec
+2022-12-19 10:54:16,709 20 2252 fei:   4.206, mgi:  15.545, nai:   0.372, D:\DatenD\meteor-synthetic_spectra\221218\r_add9cal2CN.dat, D:\DatenD\meteor-synthetic_spectra\221218\S20221218_035025_MAI_2_fit2.dat
+2022-12-19 10:54:16,725 20 270  configuration saved as D:\DatenD\meteor-synthetic_spectra\221218\S20221218_035025_MAI_2_fit2.inf
+2022-12-19 10:54:29,300 20 1866 Load fit configuration: D:\DatenD\meteor-synthetic_spectra\221218\r_add9cal2CN_fit2.inf
+2022-12-19 10:54:29,331 20 322 configuration D:\DatenD\meteor-synthetic_spectra\221218\r_add9cal2CN_fit2.inf loaded
+2022-12-19 10:54:29,425 20 2281 D:\DatenD\meteor-synthetic_spectra\221218\r_add9cal2CN.dat loaded for analysis
+2022-12-19 10:54:29,456 20 2289 response\response_ex.dat loaded as response
+2022-12-19 10:55:09,848 20 2219 LSQF error: #  rms: 0.022057, t:  0.86sec
+2022-12-19 10:55:36,702 20 2219 LSQF error: #  rms: 0.022072, t:  1.19sec
+2022-12-19 11:12:32,003 20 47 M_SPEC START +++++++++++++++++++++++++++++++++++++++++++++
+2022-12-19 11:12:32,003 20 50 M_SPEC version 0.9.29, lfun version 0.8.8, m_fun.version 0.9.28, PySimpleGUI 4.29.0
+2022-12-19 11:12:32,003 20 179 configuration m_set.ini loaded
+2022-12-19 11:12:48,472 20 1866 Load fit configuration: D:\DatenD\meteor-synthetic_spectra\analysis\M20220101_045057_MAI_2_fit.inf
+2022-12-19 11:12:48,503 20 322 configuration D:\DatenD\meteor-synthetic_spectra\analysis\M20220101_045057_MAI_2_fit.inf loaded
+2022-12-19 11:12:48,572 20 2281 analysis\M20220101_045057_MAI_2.dat loaded for analysis
+2022-12-19 11:12:48,603 20 2289 response\response_ex.dat loaded as response
+2022-12-19 11:24:03,550 20 47 M_SPEC START +++++++++++++++++++++++++++++++++++++++++++++
+2022-12-19 11:24:03,550 20 50 M_SPEC version 0.9.29, lfun version 0.8.8, m_fun.version 0.9.28, PySimpleGUI 4.29.0
+2022-12-19 11:24:03,550 20 179 configuration m_set.ini loaded
+2022-12-19 11:24:12,361 20 1866 Load fit configuration: D:\DatenD\meteor-synthetic_spectra\analysis\M20220101_045057_MAI_2_fit.inf
+2022-12-19 11:24:12,361 20 322 configuration D:\DatenD\meteor-synthetic_spectra\analysis\M20220101_045057_MAI_2_fit.inf loaded
+2022-12-19 11:24:12,415 20 2281 analysis\M20220101_045057_MAI_2.dat loaded for analysis
+2022-12-19 11:24:12,430 20 2289 response\response_ex.dat loaded as response
+2022-12-19 11:31:23,750 20 47 M_SPEC START +++++++++++++++++++++++++++++++++++++++++++++
+2022-12-19 11:31:23,750 20 50 M_SPEC version 0.9.29, lfun version 0.8.8, m_fun.version 0.9.28, PySimpleGUI 4.29.0
+2022-12-19 11:31:23,758 20 179 configuration m_set.ini loaded

@@ -34,7 +34,7 @@ except Exception as ex:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.28'
+    version = '0.9.29'
     # GUI settings:
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
@@ -190,7 +190,7 @@ def main():
     # introduce class nist.Element
     all_ele = []
     for ele in elements:
-        all_ele.append(nist.Element(ele, 1.0, 1.0, 0, False, color=ele_color[ele]))
+        all_ele.append(nist.Element(ele, 1.0, 1.0, 0, True, color=ele_color[ele]))
     for ele in all_ele:
         print(ele.name, ele.mult, ele.scale, ele.color, ele.index, ele.fit)
         if ele.name == 'fei':
@@ -475,10 +475,12 @@ def main():
     # Spectral analysis tab--------------------------------------------------------------------
     element_layout = [[]]
     for ele in elements:
-        element_layout += [sg.Checkbox(elements_dict[ele], enable_events=True, key=ele, size=(5, 1), pad=p0),
+        element_layout += [sg.Checkbox(elements_dict[ele], enable_events=True, key=ele,
+                                       default=True, size=(5, 1), pad=p0),
                          sg.T('Scale', key=ele + '_scale', size=(8, 1), pad=p0),
                          sg.I('1.0', key=ele + '_mult', size=(8, 1), enable_events=True, pad=p0),
-                         sg.Checkbox('', enable_events=True, key=ele + '_fit', size=(0, 1), pad=p0)],
+                         sg.Checkbox('', enable_events=True, key=ele + '_fit', default=True,
+                                     size=(0, 1), pad=p0)],
     element_layout += [sg.InputText(t_n2i, size=(20, 1), key='-N2I-FILE-', pad=p0),
                             sg.Button('Sel N2I', key='-SEL_N2I-', tooltip='Select N2I spectrum', pad=p0)],
     element_layout += [sg.B('NIST', tooltip='calculate NIST spectrum', pad=p2),
@@ -498,12 +500,14 @@ def main():
                              sg.I(lmax_a, size=(6, 1), key='-LMAX_A-', enable_events=True, pad=p2)],
                             [sg.T('Sigma', pad=p2), sg.I(sigma_nist, size=(6, 1), key='-SIGMA_NIST-',
                                                          enable_events=True, pad=p2),
-                             sg.Checkbox('fit', enable_events=True, key='-SIGMA_FIT-', size=(0, 1), pad=p2),
+                             sg.Checkbox('fit', enable_events=True, key='-SIGMA_FIT-',
+                                         default=True, size=(0, 1), pad=p2),
                              sg.T('Sigma0', pad=p2),
                              sg.I(sigma0, size=(6, 1), key='-SIGMA0-', enable_events=True, pad=p2)],
                             [sg.T('Continuum Temp.', pad=p2), sg.I('3000', size=(6, 1), key='-T_CONT-',
                                                                    enable_events=True, pad=p2),
-                             sg.Checkbox('fit', enable_events=True, key='-T_CONT_FIT-', size=(0, 1), pad=p2)],
+                             sg.Checkbox('fit', enable_events=True, key='-T_CONT_FIT-',
+                                         default=True, size=(0, 1), pad=p2)],
                             [sg.T('Plasma Temp.', pad=p2), sg.I('3000', size=(6, 1), key='-T_ELECTRON-',
                                                                 enable_events=True, pad=p0),
                              sg.Checkbox('fit', enable_events=True, key='-T_EL_FIT-', size=(0, 1), pad=p0),
@@ -1030,7 +1034,7 @@ def main():
         if event == '-GOTO_REG-':
             window['-T_REG-'].select()
             window['-M_DIST_R-'].update(mdist)
-            window['-N_MAX_R-'].update(nmp)
+            window['-N_MAX_R-'].update(m_fun.check_files(infile, maxim, ext='.fit'))
             m_fun.refresh_image(image_data, window['-R_IMAGE-'], opt_dict, idg)
             window['-SHOW_SUM_R-'].update(disabled=True, button_color=bc_disabled)
             window['-SHOW_REG-'].update(False)
@@ -2153,7 +2157,7 @@ def main():
 
         if event == 'graph_analysis':  # if there's a "graph_analysis" event, then it's a mouse
             x, y = (values['graph_analysis'])
-            window.set_title(window_title[: -7] + str(spec_file_analysis) + f'  x: {x:8.1f}, y: {y:6.3f}')
+            window.set_title(window_title[: -7] + str(spec_file_analysis) + f'  lambda: {x:8.1f}, Int: {y:6.3f}')
             if not dragging:
                 start_point = (x, y)
                 dragging = True
@@ -2189,10 +2193,9 @@ def main():
             par_ele = nist.par_ele_create(sigma_fit, t_cont, t_el, window)
             for ele in sel_ele:
                 try:  # check fit variables and initial values
-                    fit = True if window[ele.name + '_fit'].Get() else False
                     mult = float(window[ele.name + '_mult'].Get())
                     ele.mult = mult
-                    ele.fit = fit
+                    ele.fit = window[ele.name + '_fit'].Get()
                 except Exception as e:
                     sg.PopupError(f'bad input value\n{e}')
             # least square fit
