@@ -39,6 +39,8 @@ def main():
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
     sg.SetGlobalIcon('Koji.ico')
+    sg.DEFAULT_TOOLTIP_OFFSET = (0, -50)     
+    # Default offset (dx, dy) relative to the position when mouse enter the element
     sg_ver = sg.version.split(' ')[0]
     print('PySimpleGUI', sg_ver)
     if int(sg_ver.split('.')[0]) >= 4 and int(sg_ver.split('.')[1]) >= 9:
@@ -559,7 +561,7 @@ def main():
     # Main loop
     # ==============================================================================
     while True:
-        event, values = window.read(timeout=100)
+        event, values = window.read(timeout=10)
         if event is None:  # always give a way out!
             break
         event = str(event)  # to catch integer events from ?
@@ -1011,6 +1013,7 @@ def main():
                                                    center, a3, a5, rot, scalxy, colorflag, show_images, cval, flat)
                     while True:
                         event, values = window.read()
+                        # print(event)
                         if event == '-STOP-':
                             m_fun._go = False
                         elif event == '-THREAD PROGRESS-':
