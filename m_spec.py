@@ -561,7 +561,7 @@ def main():
     # Main loop
     # ==============================================================================
     while True:
-        event, values = window.read(timeout=10)
+        event, values = window.read(timeout=100)
         if event is None:  # always give a way out!
             break
         event = str(event)  # to catch integer events from ?
@@ -1013,7 +1013,6 @@ def main():
                                                    center, a3, a5, rot, scalxy, colorflag, show_images, cval, flat)
                     while True:
                         event, values = window.read()
-                        # print(event)
                         if event == '-STOP-':
                             m_fun._go = False
                         elif event == '-THREAD PROGRESS-':
