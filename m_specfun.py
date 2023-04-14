@@ -104,18 +104,20 @@ optvar = [zoom, wsize[0], wsize[1], wloc[0], wloc[1], xoff_calc, yoff_calc,
           show_images, meteor_lines, flat_flag, flat_file]
 opt_dict = dict(list(zip(optkey, optvar)))
 
+
 # -------------------------------------------------------------------
 def my_rescale(im, imscale, multichannel=False):
     try:
         if float(skimage_ver[0:4]) < 0.19:        # for skimage version < 0.19
             ima = tf.rescale(im, imscale, multichannel=multichannel)
         else:
-            channel_axis=2 if multichannel else None
+            channel_axis = 2 if multichannel else None
             ima = tf.rescale(im, imscale, channel_axis=channel_axis)
     except:
         # for older versions of skimage version <= 0.13
         ima = tf.rescale(im, imscale)
     return ima
+
 
 # -------------------------------------------------------------------
 def read_configuration(conf, par_dict, res_dict, opt_dict):
@@ -439,7 +441,7 @@ def delete_old_files(file, n, ext='.png'):
     deleted = 0
     answer = ''
     if oldfiles:
-        answer = sg.PopupOKCancel(f'delete {oldfiles} existing files {file}, \nARE YOU SURE?', 
+        answer = sg.PopupOKCancel(f'delete {oldfiles} existing files {file}, \nARE YOU SURE?',
                                   title='Delete old Files', icon='Koji.ico')
         if answer == 'OK':
             for index in range(oldfiles):
@@ -492,6 +494,7 @@ def distortion_long_function(inpath, outpath, mdist, first, nm, window, dist, ba
                            mdist, first, nm, window, fits_dict, dist,
                            background, center, a3, a5, rot, scalxy,
                            colorflag, show_images, cval, flat)).start()
+
 
 # -------------------------------------------------------------------
 def apply_dark_distortion(im, backfile, outpath, mdist, first, nm, window, fits_dict, dist=False,
@@ -608,7 +611,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
         return xy
 
     global _go
-    idg = None
+    # idg = None
     dattim = ''
     sta = ''
     # scale image
@@ -731,7 +734,7 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
             logging.info('no background applied')
         info = f'Bobdoubler, start image = {im}{first}'
         if int(fits_dict['M_BOB']):
-            logging.info(f'with ' + info)
+            logging.info('with ' + info)
         else:
             logging.info('without ' + info)
     window.write_event_value('-THREAD DONE-', (a, disttext))
@@ -776,9 +779,9 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
     logging.info(info)
     image_list = create_file_list(infile, nim, ext='', start=start)
     if gauss:
-        info = f'file          peak    x         y    wx   wy'
+        info = 'file          peak    x         y    wx   wy'
     else:
-        info = f'file      x        y          dx        dy'
+        info = 'file      x        y          dx        dy'
     regtext += '        ' + info + '\n'
     logging.info(info)
     shift = [0.0, 0.0]
@@ -837,7 +840,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
                 if index == start:
                     masked_image = imbw * mask1
                     reference_image = masked_image[bc:tc, lc:rc]  # clipped to double size rectangle
-                    ref_mask = masked_image[bm:tm, lm:rm]  # used for debug
+                    # ref_mask = masked_image[bm:tm, lm:rm]  # used for debug
                     sum_image = im - im  # empty image, added at end of loop
                     info = f'{registered_short:12s} {shift[0]:6.1f} {shift[1]:6.1f} '
                 else:
@@ -845,7 +848,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
                     offset_shifted = image_shift(imbw, list(reversed(ishift)), order=0)
                     offset_image_full = (offset_shifted * mask1)
                     offset_image = offset_image_full[bc:tc, lc:rc]
-                    offset_mask = offset_image_full[bm:tm, lm:rm]
+                    # offset_mask = offset_image_full[bm:tm, lm:rm]
                     shift_old = shift
                     shift_cc, error, diffphase = register_translation(reference_image, offset_image,
                                                                       upsample_factor=100)
@@ -858,7 +861,7 @@ def register_images(start, nim, x0, y0, dx, dy, infile, outfil, window, fits_dic
                     if debug:
                         print('clipped image bc, lc, tc, rc', bc, lc, tc, rc)
                         print(f"Detected pixel offset unmasked (x, y): {shift}, {error}")
-                        fig = plt.figure(figsize=(12, 4))
+                        plt.figure(figsize=(12, 4))
                         ax1 = plt.subplot(1, 2, 1)
                         ax2 = plt.subplot(1, 2, 2)
                         ax1.imshow(reference_image, cmap='gray')
@@ -1080,7 +1083,7 @@ def select_rectangle(infile, start, res_dict, fits_dict, wloc, outfil, maxim):
                      image_elem_sel]
     # ---------------------------------------------------------------------------
     winselect_active = True
-    winselect = sg.Window(f'select zero order or spectral line',
+    winselect = sg.Window('select zero order or spectral line',
                           layout_select, finalize=True, location=wlocw,
                           keep_on_top=True, no_titlebar=False,
                           disable_close=False, disable_minimize=True)
@@ -1209,10 +1212,10 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                       sg.B('-', pad=(0, 0), key='-s'),
                       sg.Button('Apply', key='-APPLY_TS-', bind_return_key=True),
                       sg.Ok(), sg.Cancel()],
-                      image_elem_sel, [sg.Text(key='info', size=(60, 1))]]
+                     image_elem_sel, [sg.Text(key='info', size=(60, 1))]]
     # ---------------------------------------------------------------------------
     winselect_active = True
-    winselect = sg.Window(f'select rows for 1-D sum spectrum, apply tilt and slant',
+    winselect = sg.Window('select rows for 1-D sum spectrum, apply tilt and slant',
                           layout_select, finalize=True, location=wlocw,
                           keep_on_top=True, no_titlebar=False,
                           disable_close=False, disable_minimize=True)
@@ -1270,7 +1273,7 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
                 sg.PopupError('select rows first', keep_on_top=True)
             else:
                 if event in ('+t', '-t'):
-                    tilt = tilt + dt  if event == '+t' else tilt - dt
+                    tilt = tilt + dt if event == '+t' else tilt - dt
                     winselect['-TILT-'].update(f'{tilt:5.3f}')
                 elif event in ('+s', '-s'):
                     slant = slant + ds if event == '+s' else slant - ds
@@ -1329,8 +1332,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             np.savetxt(outfile + '.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
             # background correction for reference star images
             if background:
-                row_sum -= 0.5*np.sum(imbw[ymax + width // 2:ymax + 3 * width // 2, :], axis=0)
-                row_sum -= 0.5*np.sum(imbw[ymin - 3 * width // 2:ymin - width // 2, :], axis=0)
+                row_sum -= 0.5 * np.sum(imbw[ymax + width // 2:ymax + 3 * width // 2, :], axis=0)
+                row_sum -= 0.5 * np.sum(imbw[ymin - 3 * width // 2:ymin - width // 2, :], axis=0)
                 np.savetxt(outfile + '_bg.dat', np.transpose([i, row_sum]), fmt='%6i %8.5f')
             fits_dict.pop('M_TILT', None)
             fits_dict.pop('M_SLANT', None)
@@ -1391,7 +1394,7 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, abs_sign
                       line_width=60)
     else:
         try:
-            lcr0 = abs_sign*lc[icleft:icright]
+            lcr0 = abs_sign * lc[icleft:icright]
             lmax0 = np.max(lcr0)
             lmin0 = (lcr0[0] + lcr0[icright - icleft - 1]) / 2
             for i in range(icright - icleft):
@@ -1399,7 +1402,7 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, abs_sign
                     m = i
             peak0 = icleft + m  # index of max value, center for parabolic fit
             icr = ic[peak0 - 2:peak0 + 3]
-            lcr = abs_sign*lc[peak0 - 2:peak0 + 3]
+            lcr = abs_sign * lc[peak0 - 2:peak0 + 3]
             coeff[0] = lmax0
             coeff[1] = peak0
             coeff[2] = 1 / (w + 1)
@@ -1408,14 +1411,14 @@ def select_calibration_line(x0, w, lam, name, lcal, ical, graph, table, abs_sign
             x0p = coeff[1]
             fwp = np.sqrt(1.5 / abs(coeff[2]))
             if abs_sign < 0:  # Absorption line, correct peak height
-                fwp *= np.sqrt(abs((coeff[0]-lmin0) / coeff[0]))
+                fwp *= np.sqrt(abs((coeff[0] - lmin0) / coeff[0]))
             # parabolic fit
             if debug:
                 print(f'x0p ={x0p:8.2f} FWHMP={fwp:8.3f}')
             points = []
             l0: int
             for l0 in range(peak0 - 2, peak0 + 3):
-                points.append((lcal[l0], abs_sign*parab(lcal[l0], *coeff)))
+                points.append((lcal[l0], abs_sign * parab(lcal[l0], *coeff)))
             for l0 in range(1, 5):
                 graph.DrawLine(points[l0 - 1], points[l0], 'blue', 1)
             table.append((coeff[1], lam))
@@ -1666,9 +1669,9 @@ def add_images(graph_size, contrast=1, average=True):
         key='graph', change_submits=True, drag_submits=True)
     window = sg.Window('Add registered images', [[sg.Input('', key='add_images', size=(80, 1)),
                               sg.Button('Load Files')],
-                             [sg.Text('Number Images:'), sg.Input('0', size=(8, 1), key='nim'),
+                              [sg.Text('Number Images:'), sg.Input('0', size=(8, 1), key='nim'),
                               sg.Button('Darker'), sg.Button('Brighter')],
-                             [graph_element], [sg.Button('Save'), sg.Button('Cancel')]])
+                              [graph_element], [sg.Button('Save'), sg.Button('Cancel')]])
     while True:  # Event Loop
         event, values = window.read()
         if event == 'Load Files':
@@ -1781,7 +1784,7 @@ def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=Tr
         image, header = get_fits_image(file)  # get numpy array and fits-header
         if np.max(image) > 0.0:
             image = image / np.max(image)
-        ima = np.clip(image*contr, 0, 1)
+        ima = np.clip(image * contr, 0, 1)
         ima = np.flipud(np.uint8(255 * ima))  # converts floating point to int8-array
         # https://stackoverflow.com/questions/10965417/how-to-convert-a-numpy-array-to-pil-image-applying-matplotlib-colormap
         # needed for imag.resize, converts numpy array to PIL format
@@ -1804,7 +1807,7 @@ def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=Tr
     data = bio.getvalue()
     # if idg: graph.delete_figure(idg)
     graph.Erase()
-    idg = graph.draw_image(data=data, location=(0, opt_dict['graph_size']))
+    graph.draw_image(data=data, location=(0, opt_dict['graph_size']))
     graph.update()
     if get_array:
         return data, file, image
@@ -1876,7 +1879,7 @@ def my_get_file(file_in, title='', file_types=(('ALL Files', '*.*'),), save_as=F
 def save_fit_png(imfilename, image, fits_dict, dist=True):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        ios.imsave(change_extension(imfilename, '.png'), np.flipud(image*255).astype(np.uint8))
+        ios.imsave(change_extension(imfilename, '.png'), np.flipud(image * 255).astype(np.uint8))
     write_fits_image(image, str(change_extension(imfilename, '.fit')), fits_dict, dist=dist)
 
 
@@ -1921,13 +1924,13 @@ def tau(lambda_nm, h=0.0, aod=0.1):
     :return tau: optical depth for air mass 1 (zenith)
             = 0.921 * absorption in magnitudes for air mass 1 (zenith)
     """
-    lm = lambda_nm/1000
-    h_km = h/1000
+    lm = lambda_nm / 1000
+    h_km = h / 1000
     # absorbance measured at sea_level, air_mass 1, from Buil
     a_rayleigh = 9.4977e-3 / lm**4 * (0.23465 + 1.076e2/(146 - lm**-2) + 0.93161/(41 - lm**-2))**2
-    tau_r = 0.4*math.log(10)*math.exp(-h_km/7.996) * a_rayleigh
+    tau_r = 0.4 * math.log(10) * math.exp(-h_km / 7.996) * a_rayleigh
     tau_oz = 0.0168 * math.exp(-15.0 * abs(lm - 0.59))
-    tau_ae = aod * (lm/0.55)**-1.3
+    tau_ae = aod * (lm / 0.55)**-1.3
     tau_0 = tau_r + tau_oz + tau_ae  # for air mass 1 (AM1) zenith
     return tau_0
 
@@ -1946,8 +1949,8 @@ def transmission(lambda_nm, elevation_deg=90.0, h=0.0, aod=0.1):
         Lorsque le temps est très chauds et orageux, le AOD peut atteindre 0,50.
     :return transmission: transmission for air mass(elevation)
     """
-    hrad = math.pi/180*elevation_deg
-    air_mass = 1.0/(math.sin(hrad + 0.025 * math.exp(-11.0 * math.sin(hrad))))
+    hrad = math.pi / 180 * elevation_deg
+    air_mass = 1.0 / (math.sin(hrad + 0.025 * math.exp(-11.0 * math.sin(hrad))))
     trans = math.exp(-air_mass * tau(lambda_nm, h, aod))
     return trans
 
@@ -2036,4 +2039,3 @@ def extinction_tool(file, elevation_deg=90.0, h=0.0, aod=0.1, resp_flag=False, t
             finally:
                 window.close()
                 return new_file, elevation_deg, h, aod, info, resp_flag, trans_flag
-
