@@ -39,7 +39,7 @@ import PySimpleGUI as sg
 if platform.system() == 'Windows':
     ctypes.windll.user32.SetProcessDPIAware()  # Set unit of GUI to pixels
 
-version = '0.9.28'
+version = '0.9.30'
 logfile = 'm_spec' + date.today().strftime("%y%m%d") + '.log'
 # turn off other loggers
 for handler in logging.root.handlers[:]:
@@ -107,9 +107,13 @@ opt_dict = dict(list(zip(optkey, optvar)))
 # -------------------------------------------------------------------
 def my_rescale(im, imscale, multichannel=False):
     try:
-        ima = tf.rescale(im, imscale, multichannel=multichannel)
+        if float(skimage_ver[0:4]) < 0.19:        # for skimage version < 0.19
+            ima = tf.rescale(im, imscale, multichannel=multichannel)
+        else:
+            channel_axis=2 if multichannel else None
+            ima = tf.rescale(im, imscale, channel_axis=channel_axis)
     except:
-        # for older versions of skimage
+        # for older versions of skimage version <= 0.13
         ima = tf.rescale(im, imscale)
     return ima
 
@@ -435,7 +439,8 @@ def delete_old_files(file, n, ext='.png'):
     deleted = 0
     answer = ''
     if oldfiles:
-        answer = sg.PopupOKCancel(f'delete {oldfiles} existing files {file}, \nARE YOU SURE?', title='Delete old Files')
+        answer = sg.PopupOKCancel(f'delete {oldfiles} existing files {file}, \nARE YOU SURE?', 
+                                  title='Delete old Files', icon='Koji.ico')
         if answer == 'OK':
             for index in range(oldfiles):
                 os.remove(file + str(index + 1) + ext)

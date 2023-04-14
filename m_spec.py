@@ -34,7 +34,7 @@ except Exception as ex:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.29'
+    version = '0.9.30'
     # GUI settings:
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
