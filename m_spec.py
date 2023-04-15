@@ -34,12 +34,12 @@ except Exception as ex:
 # -------------------------------------------------------------------
 def main():
     # start with default inifile, if inifile not found, a default configuration is loaded
-    version = '0.9.30'
+    version = '0.9.30a'
     # GUI settings:
     bc_enabled = ('white', 'green')
     bc_disabled = (None, 'darkblue')
     sg.SetGlobalIcon('Koji.ico')
-    sg.DEFAULT_TOOLTIP_OFFSET = (0, -50)     
+    sg.DEFAULT_TOOLTIP_OFFSET = (0, -50)
     # Default offset (dx, dy) relative to the position when mouse enter the element
     sg_ver = sg.version.split(' ')[0]
     print('PySimpleGUI', sg_ver)
@@ -326,8 +326,8 @@ def main():
          sg.Button('Next', key='-NEXT_R-'), sg.Text('Current Image:'),
          sg.InputText(mdist + str(i_reg), size=(20, 1), key='-INDEX_R-', disabled=True),
          sg.Text('Max Images:'),
-         sg.InputText(str(nm), size=(4, 1), key='-N_MAX_R-', tooltip='Limit number of images to register, \n' +
-                      'if register fails, limit is set automatically'),
+         sg.InputText(str(nm), size=(4, 1), key='-N_MAX_R-',
+                      tooltip='Limit number of images to register, \n' + 'if register fails, limit is set automatically'),
          sg.Button('Darker', key='-LOW_C-'), sg.Button('Brighter', key='-HIGH_C-')]])],
         [sg.Frame('Parameters', [[sg.Text('Distorted Image Base:'),
                      sg.InputText('mdist', size=(24, 1), key='-M_DIST_R-', enable_events=True)],
@@ -337,8 +337,7 @@ def main():
                      sg.InputText('1', size=(25, 1), key='-N_START_R-')],
                     [sg.Text('Number of registered images:'),
                      sg.InputText(str(nm), size=(18, 1), key='-N_REG-',
-                                  tooltip='Limit number of images to register, \n' +
-                                  'if register fails, limit is set automatically')],
+                        tooltip='Limit number of images to register, \n' + 'if register fails, limit is set automatically')],
                     [sg.Text('_' * 44)],
                     [sg.Button('Sel Start', key='-SEL_START-', tooltip='set actual image as start image'),
                      sg.Button('Sel Last', key='-SEL_LAST-', tooltip='set actual image as last image', size=(12, 1)),
@@ -390,8 +389,8 @@ def main():
         [sg.Text('Pos          Wavelength')],
         [sg.InputText('0', size=(7, 1), justification='r', key='-POS-', disabled=True),
          sg.Combo(['             ', '0 zero', '517.5 Mg I', '589 Na I', '777.4 O I'], key='-LAMBDA-',
-                  enable_events=True, disabled=True, tooltip='click Box to enable selection, then select, ' +
-                  'click Button Sel. Line to confirm'),
+                  enable_events=True, disabled=True,
+                  tooltip='click Box to enable selection, then select, '),
          sg.Button('Sel. Line', key='-S_LINE-', disabled=True, button_color=bc_disabled),
          sg.Button('Save table', key='-SAVE_T-', tooltip='Save table when finished selection of lines')],
         [sg.Button('Load Table', key='-LOAD_TABLE-', disabled=True, button_color=bc_disabled),
@@ -401,7 +400,7 @@ def main():
                   tooltip='for single line calibration select 0, otherwise select degree of polynomial')],
         plot_elem,
         [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT4-', autoscroll=True)]]),
-                   sg.Frame('Raw spectrum', column, key='-COLUMN-')]]
+        sg.Frame('Raw spectrum', column, key='-COLUMN-')]]
 
     # Instrument response tab--------------------------------------------------------------------
     column = [[sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
@@ -411,14 +410,14 @@ def main():
     ir_elem = [[sg.Frame('Instrument response', [
         [sg.Frame('Reference', [[sg.InputText('', size=(31, 1), key='-STAR-'),
          sg.Button('Load Spectrum', key='-LOAD_STAR-', tooltip='load calibrated star spectrum *.dat')],
-        [sg.InputText('', size=(31, 1), key='-REF_I-'),
+            [sg.InputText('', size=(31, 1), key='-REF_I-'),
          sg.Button('Load Reference', key='-LOAD_REF-', tooltip='load calibrated reference spectrum *.dat')],
-        [sg.Button('Divide spectra', key='raw_response',
-                   tooltip='divide star spectrum by calibration reference'),
+            [sg.Button('Divide spectra', key='raw_response',
+                       tooltip='divide star spectrum by calibration reference'),
          sg.Button('Smooth response', key='smooth_response'),
          sg.In(smooth_parameter, size=(7, 1), key='smooth_parameter', tooltip='Smooth parameter'),
          sg.Button('Reset', key='response_reset')],
-        [sg.InputText('response', size=(31, 1), key='-RESPONSE-'),
+            [sg.InputText('response', size=(31, 1), key='-RESPONSE-'),
          sg.Button('Save response', key='-SAVE_RESPONSE-')], ]), ],
         [sg.InputText(response_folder, size=(28, 1), disabled=False, key='-RESPONSE_FOLDER-'),
          sg.Button('Response Folder', key='-SEL_RESP_FOLDER-', tooltip='select response folder')],
@@ -427,16 +426,15 @@ def main():
         [sg.Text('     I min, max', size=(15, 1)), sg.In(i_min, size=(6, 1), key='imin', enable_events=True),
          sg.In(i_max, size=(6, 1), key='imax', enable_events=True), sg.Checkbox('Autoscale', key='autoscale')],
         [sg.Frame('Response correction', [
-        [sg.InputText('', size=(31, 1), key='-RESPONSE2-'),
+            [sg.InputText('', size=(31, 1), key='-RESPONSE2-'),
          sg.Button('Load Response', key='-LOAD_RESPONSE-')],
-        [sg.InputText(outpath + '/', size=(31, 1), key='-SPECTRUM-'),
+            [sg.InputText(outpath + '/', size=(31, 1), key='-SPECTRUM-'),
          sg.Button('Load Spectrum', key='-LOAD_SPECTRUM-', tooltip='load calibrated spectrum *.dat')],
-        [sg.Button('Apply', key='apply_response', tooltip='divide meteor spectrum by response'),
+            [sg.Button('Apply', key='apply_response', tooltip='divide meteor spectrum by response'),
          sg.InputText('', size=(28, 1), key='-FLUX-'),
-         sg.Button('Save flux', key='-SAVE_FLUX-')],
-        ]), ],
+         sg.Button('Save flux', key='-SAVE_FLUX-')],]), ],
         [sg.Multiline('Result', size=(40, 15), disabled=True, key='-RESULT5-', autoscroll=True)]]),
-                   sg.Frame('Instrument response', column, key='-COLUMN_IR-')], ]
+        sg.Frame('Instrument response', column, key='-COLUMN_IR-')], ]
 
     # laser calibration tab--------------------------------------------------------------------
     image_elem_calib = sg.Graph(canvas_size=graph_s2, graph_bottom_left=(0, 0),
@@ -469,7 +467,7 @@ def main():
                                               '\nwith least square fit of observed line positions'),
                     sg.Checkbox('SQRT-Fit', default=par_dict['b_sqrt'], key='SQRT-Fit'),
                     sg.Checkbox('Fit-xy', default=par_dict['b_fitxy'], key='fitxy')]])],
-                   [sg.Text('Results:')], [log_elem]])
+                  [sg.Text('Results:')], [log_elem]])
     laser_calib_elem = [[layout_parameters,
                          sg.Column([[sg.Text(infile, size=(100, 1), key='image_filename')],
                                    [image_elem_calib]])]]
@@ -484,7 +482,7 @@ def main():
                          sg.Checkbox('', enable_events=True, key=ele + '_fit', default=True,
                                      size=(0, 1), pad=p0)],
     element_layout += [sg.InputText(t_n2i, size=(20, 1), key='-N2I-FILE-', pad=p0),
-                            sg.Button('Sel N2I', key='-SEL_N2I-', tooltip='Select N2I spectrum', pad=p0)],
+                       sg.Button('Sel N2I', key='-SEL_N2I-', tooltip='Select N2I spectrum', pad=p0)],
     element_layout += [sg.B('NIST', tooltip='calculate NIST spectrum', pad=p2),
                        sg.B('Fit', key='-LSQF_SPEC-', disabled=True, button_color=bc_disabled, pad=p2),
                        sg.B('Load Fit', key='-LOAD_FIT-', pad=p2),
@@ -494,12 +492,12 @@ def main():
     spectrum_element = [[sg.Frame('', [[sg.Frame('Spectrum', [[sg.InputText(spec_file_analysis,
                                                                size=(30, 1), key='-SPECTRUM_A-', pad=p0),
                             sg.Button('Select', key='-SEL_SPECTRUM-', tooltip='Select spectrum', pad=p0)],
-                            [sg.T('Response', pad=p0),
+                         [sg.T('Response', pad=p0),
                              sg.InputText(resp_file_analysis, size=(20, 1), key='-RESPONSE_A-', pad=p0),
                              sg.Button('Select', key='-SEL_RESPONSE_A-', tooltip='Select response', pad=p0)]])],
-                            [sg.Frame('Parameters', [[sg.T('Wavelength range', pad=p2),
+                        [sg.Frame('Parameters', [[sg.T('Wavelength range', pad=p2),
                              sg.I(lmin_a, size=(6, 1), key='-LMIN_A-', enable_events=True, pad=p2),
-                             sg.I(lmax_a, size=(6, 1), key='-LMAX_A-', enable_events=True, pad=p2)],
+                         sg.I(lmax_a, size=(6, 1), key='-LMAX_A-', enable_events=True, pad=p2)],
                             [sg.T('Sigma', pad=p2), sg.I(sigma_nist, size=(6, 1), key='-SIGMA_NIST-',
                                                          enable_events=True, pad=p2),
                              sg.Checkbox('fit', enable_events=True, key='-SIGMA_FIT-',
@@ -518,8 +516,8 @@ def main():
                                                              key='-THRESHOLD-', enable_events=True, pad=p2),
                              sg.Checkbox('Show residual', default=show_residuals,
                                          enable_events=True, key='-RESIDUALS-', pad=p2)]], pad=p0)],
-                            [sg.Frame('Elements' + 24*' ' + 'factor' + 4*' ' + 'fit', element_layout, pad=p0)]],
-                             pad=p0),
+                        [sg.Frame('Elements' + 24 * ' ' + 'factor' + 4 * ' ' + 'fit',
+                                  element_layout, pad=p0)]], pad=p0),
                          sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
                                   graph_top_right=(1.0, 1.0), background_color='white', key='graph_analysis',
                                   enable_events=True, drag_submits=True, float_values=True,
@@ -651,7 +649,7 @@ def main():
         if event == 'Atmospheric correction':
             spectrum_uncorrected = values['-SPECTRUM-']
             spectrum_am0, elevation_deg, h, aod, info, resp_flag, trans_flag = m_fun.extinction_tool(
-                                            spectrum_uncorrected, elevation_deg, h, aod, resp_flag, trans_flag)
+                spectrum_uncorrected, elevation_deg, h, aod, resp_flag, trans_flag)
             if spectrum_am0:
                 if resp_flag:
                     response_file = spectrum_am0
@@ -1018,8 +1016,8 @@ def main():
                         elif event == '-THREAD PROGRESS-':
                             fileout = values['-THREAD PROGRESS-']
                             if show_images:
-                                image_data, actual_file = m_fun.draw_scaled_image(fileout +
-                                            '.fit', window['-D_IMAGE-'], opt_dict, resize=True)
+                                image_data, actual_file = m_fun.draw_scaled_image(
+                                    fileout + '.fit', window['-D_IMAGE-'], opt_dict, resize=True)
                         elif event == '-THREAD DONE-':
                             (a, disttext) = (values['-THREAD DONE-'])
                             break
@@ -1173,10 +1171,10 @@ def main():
                     nim = index - start + 1
                     if nim > 1:
                         logging.info(f'time for register one image : {t3 / nim:6.2f} sec, {reg_type} ')
-                        result_text += (f'Station = {sta}\nTime = {dat_tim}\n'
-                                        + f'\nStart image = {str(start)} register {reg_type}\n'
-                                        + f'Number registered images: {nim}\nof total images: {nmp}\n'
-                                        + f'time for register one image: {t3 / nim:6.2f} sec\n')
+                        result_text += 'Station = {sta}\nTime = {dat_tim}\n'
+                        result_text += f'\nStart image = {str(start)} register {reg_type}\n'
+                        result_text += f'Number registered images: {nim}\nof total images: {nmp}\n'
+                        result_text += f'time for register one image: {t3 / nim:6.2f} sec\n'
                         image_data, actual_file = m_fun.draw_scaled_image(outfile + '.fit', window['-R_IMAGE-'],
                                                                           opt_dict, contr=contrast)
                         window['-SHOW_REG-'].update(True)
@@ -1184,8 +1182,8 @@ def main():
                         window['-SHOW_SUM_R-'].update(disabled=False, button_color=bc_enabled)
                         window['-ADD_ROWS-'].update(disabled=False, button_color=bc_enabled)
                     else:
-                        result_text = (f'Number registered images: {nim}\n'
-                                       + f'of total images: {nmp}\nnot enough images\n')
+                        result_text = f'Number registered images: {nim}\n'
+                        result_text += f'of total images: {nmp}\nnot enough images\n'
                         info = f'{reg_type} register did not work with last image, try again!'
                         sg.PopupError(info)
                         logging.error(info)
@@ -1233,10 +1231,10 @@ def main():
                 window['-RADD-'].update(outfile)
                 window['-ADD_ROWS-'].update(disabled=False, button_color=bc_enabled)
                 window['-SHOW_SUM_R-'].update(disabled=False, button_color=bc_enabled)
-                result_text = ('Load File: ' + outfile + '\n'
-                               + 'Station = ' + str(fits_dict['M_STATIO']) + '\n'
-                               + 'Time = ' + str(fits_dict['DATE-OBS']) + '\n'
-                               + 'comment = ' + str(fits_dict['COMMENT']) + '\n')
+                result_text = 'Load File: ' + outfile + '\n'
+                result_text += 'Station = ' + str(fits_dict['M_STATIO']) + '\n'
+                result_text += 'Time = ' + str(fits_dict['DATE-OBS']) + '\n'
+                result_text += 'comment = ' + str(fits_dict['COMMENT']) + '\n'
                 try:
                     result_text += 'Start image = ' + str(fits_dict['M_STARTI']) + '\n'
                     result_text += f'Number registered images: {str(fits_dict["M_NIM"])}\n'
@@ -1494,11 +1492,11 @@ def main():
             else:
                 plot_title = values['-PLOT_TITLE-']
                 window.disable()
-                mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(spec_file, line_list,
-                                         meteor_lines=meteor_lines, lmin=lmin,
-                                         lmax=lmax, imin=i_min, imax=i_max, autoscale=autoscale, gridlines=gridlines,
-                                         canvas_size=(plot_w, plot_h), plot_title=plot_title,
-                                         multi_plot=multi_plot, offset=offset)
+                mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(
+                                        spec_file, line_list, meteor_lines=meteor_lines, lmin=lmin,                                        lmax=lmax, imin=i_min, 
+                                        imax=i_max, autoscale=autoscale, gridlines=gridlines,
+                                        canvas_size=(plot_w, plot_h), plot_title=plot_title,
+                                        multi_plot=multi_plot, offset=offset)
                 window.enable()
                 window.bring_to_front()
                 window['-PLOTS-'].update(disabled=False, button_color=bc_enabled)
@@ -1571,7 +1569,7 @@ def main():
             i_response = np.zeros([len(iref2)])
             for k in range(len(iref2)):
                 if iref2[k] > 0.0 and ical2[k] > 0.0:
-                    i_response[k] = (ical2[k]/iref2[k])
+                    i_response[k] = (ical2[k] / iref2[k])
             np.savetxt(f'{response_folder}/raw_response.txt', np.transpose([l_response, i_response]),
                        fmt='%8.3f %8.5f')
             info = f'{response_folder}/raw_response.txt saved\n'
@@ -1710,7 +1708,7 @@ def main():
             i_flux = np.zeros([len(iresp2)])
             for k in range(len(iresp2)):
                 if iresp2[k] > 0.0:
-                    i_flux[k] = (ispec2[k]/iresp2[k])
+                    i_flux[k] = (ispec2[k] / iresp2[k])
             flux_file = m_fun.change_extension(spectrum_file, '_F.dat')
             np.savetxt(flux_file, np.transpose([l_flux, i_flux]), fmt='%8.3f %8.5f')
             result_text += f'{flux_file} saved\n'
@@ -1754,9 +1752,8 @@ def main():
                 fits_dict['M_STARTI'] = '0'
                 logging.info(f'finished video conversion: {str(avifile)}')
                 logging.info(f'nim: {str(nim)} date time: {dattim} station: {sta}')
-                logtext += ('finished video conversion: ' + avifile + '\n' +
-                            f'nim: {str(nim)} date time: {dattim} ' + '\n' +
-                            f'station: {sta}' + '\n')
+                logtext += 'finished video conversion: ' + avifile + '\n'
+                logtext += f'nim: {str(nim)} date time: {dattim} \nstation: {sta} \n'
                 print('nim:', nim, dattim, sta)
                 imbw = m_fun.create_background_image(pngdir, nim)
                 # save average image as png and fit
@@ -1964,7 +1961,7 @@ def main():
                                                         m_fun.par_dict, m_fun.res_dict, m_fun.opt_dict)
                 fits_dict['VERSION'] = version
                 if par_text == '':
-                    sg.PopupError(f'no valid configuration found, use current configuration',
+                    sg.PopupError('no valid configuration found, use current configuration',
                                   keep_on_top=True)
             else:  # edit conf, update values from main menu
                 par_dict['s_infile'] = window['input_file'].Get()
