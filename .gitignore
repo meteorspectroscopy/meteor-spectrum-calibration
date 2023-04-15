@@ -1,0 +1,6 @@
+__pycache__
+*.log
+doc
+out
+test
+
