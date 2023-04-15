@@ -52,8 +52,8 @@ def sfloat(x):
 
 
 def line_intensity(aki, e_k, g_k, t_el):
-    k_ev = 1/11605.465
-    return aki * g_k * np.exp(-e_k/k_ev/t_el)
+    k_ev = 1 / 11605.465
+    return aki * g_k * np.exp(-e_k / k_ev / t_el)
 
 
 def planck_radiation(lamda, temp):
@@ -67,7 +67,7 @@ def planck_radiation(lamda, temp):
     :return: Planck spectral density (arbitrary units)
     """
     const = 14.3866e6
-    return 1/(lamda**5 * (np.exp(const/lamda/temp) - 1))
+    return 1 / (lamda**5 * (np.exp(const / lamda / temp) - 1))
 
 
 def planck(t_pl, lclip, lresp, iresp):
@@ -142,7 +142,7 @@ def get_element(ele, lmin, lmax, t_el, t_pl, t_n2i, threshold, sigma0,
                         i_line_spec[k] = i_line_spec[k] * interpolate.interp1d(lresp, iresp, kind='linear')(lam)
                     else:
                         i_line_spec[k] = 0.0
-            ele.ele_spec = i_line_spec/np.max(i_line_spec)
+            ele.ele_spec = i_line_spec / np.max(i_line_spec)
         elif ele.name == 'cont':
             ele.ele_spec = planck(t_pl, lclip, lresp, iresp)
         else:
@@ -460,7 +460,7 @@ def lsq_fit(iclip, sel_ele, par_ele, lclip, lresp, iresp, sigma0, n_gauss,
             try:
                 percent = 100.0 * param.stderr / param.value
                 result_fit += f'#{name:4s} {param.value:8.4f} {param.stderr:7.4f} ({percent:4.1f}%)\n'
-            except:
+            except Exception:
                 if param.stderr:
                     result_fit += f'#{name:4s} {param.value:8.4f} {param.stderr:7.4f}\n'
                 else:
@@ -538,4 +538,3 @@ def line_strength(all_ele, lclip, lresp, iresp):
                 warning = True
 
     return warning
-

@@ -66,7 +66,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
     layout_select = [[sg.Ok(), sg.Cancel(), sg.Button('Skip Line'), sg.Button('Finish'),
                       sg.Button('I'), sg.Button('D'), sg.Text(infile, size=(30, 1)),
                       sg.Text(key='info', size=(40, 1))], image_elem_sel]
-    winselect = sg.Window(f'select rectangle  for fit size, click lines',
+    winselect = sg.Window('select rectangle  for fit size, click lines',
                           layout_select, finalize=True, location=wlocw,
                           keep_on_top=True, no_titlebar=False, resizable=True,
                           disable_close=False, disable_minimize=True, element_padding=(2, 2))
@@ -117,7 +117,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
                         print(np.float16(xyw))
                         xyl.append(np.float32(xyw))
                         # Draw the click just made
-                        r = (xyw[2] + xyw[3])/4
+                        r = (xyw[2] + xyw[3]) / 4
                         icircle = graph.DrawCircle((xyw[0], xyw[1]), r, line_color=color, line_width=3)
                         itext = graph.DrawText('  ' + str(lines[i]), location=(xyw[0], xyw[1]), color=color,
                                 font=('Arial', 12), angle=45, text_location=sg.TEXT_LOCATION_BOTTOM_LEFT)
@@ -153,7 +153,7 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
         elif event == 'Cancel':
             for ind in range(i_plot):
                 xyl = np.array(xyl, dtype=np.float32)  # for ordered output
-                rsq2 = (xyl[ind, 2] + xyl[ind, 3])/5.6
+                rsq2 = (xyl[ind, 2] + xyl[ind, 3]) / 5.6
                 drag_figures = graph.get_figures_at_location((xyl[ind, 0] + rsq2, xyl[ind, 1] + rsq2))
                 for figure in drag_figures:
                     if figure != img:
@@ -187,5 +187,3 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
                 wlocw = (x, y)
             winselect.close()
             return wlocw
-
-
