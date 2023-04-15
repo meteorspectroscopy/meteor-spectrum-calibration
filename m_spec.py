@@ -187,7 +187,7 @@ def main():
     ele_color = {'cont': 'Purple', 'fei': 'red', 'mgi': 'green', 'nai': 'orange',
                  'cai': 'Chartreuse', 'caii': 'purple', 'cri': 'yellow', 'mni': 'magenta',
                  'oi': 'red', 'ni': 'cyan', 'n2i': 'magenta'}
-    # "white", "black", "red", "green", "blue", "cyan", "yellow", and "magenta" 'Purple', 'Chartreuse'
+    # "white", "black", "red", "green", "blue", "cyan", "yellow", "magenta" 'Purple', 'Chartreuse'
     # -------------------------------------------------------------------
     # introduce class nist.Element
     all_ele = []
@@ -208,7 +208,8 @@ def main():
     # initialize configuration for spectrum fit
     lmin_a = 350
     lmax_a = 900
-    lsqf_keys = ['spectrum', 'response', 'lmin', 'lmax', 'sigma', 'sigma0', 't_cont', 't_el', 'threshold', 't_n2i']
+    lsqf_keys = ['spectrum', 'response', 'lmin', 'lmax', 'sigma', 'sigma0', 't_cont',
+                 't_el', 'threshold', 't_n2i']
     lsqf_var = ['', '', lmin, lmax, sigma_nist, sigma0, t_cont, t_el, threshold, t_n2i]
     lsqf_dict = dict(list(zip(lsqf_keys, lsqf_var)))
     rms = ''
@@ -242,8 +243,8 @@ def main():
     for k in range(7):
         kk = f'k{k + 7}'
         row_layout += [sg.Text(list(fits_dict.keys())[k], size=(10, 1)),
-                       sg.Input(fits_v[k], size=(45, 1), key=kk, tooltip='Fits-header default values')],
-
+                       sg.Input(fits_v[k], size=(45, 1), key=kk,
+                                tooltip='Fits-header default values')],
     # Parameters
     layout_setup = [[sg.Frame('Settings', [[setup_file_element], [result_elem,
                     sg.Frame('Setup Parameters', row_layout, tooltip='Edit parameters')]])]]
@@ -256,8 +257,9 @@ def main():
                              [sg.Text('PNG Image Base:'),
                               sg.InputText(png_name, size=(25, 1), key='-PNG_BASE-')],
                              [sg.Checkbox('Bob Doubler', default=False, pad=(10, 0), key='-BOB-',
-                                          tooltip='if checked, create images from fields for interlaced video')],
-                             [sg.Checkbox('Bottom Field First', default=True, pad=(10, 0), key='-BFF-')],
+                                          tooltip='if checked, fields for interlaced video')],
+                             [sg.Checkbox('Bottom Field First', default=True, pad=(10, 0),
+                                          key='-BFF-')],
                              [sg.Combo([1, 2, 3, 4], key='-BIN-', enable_events=True,
                                        default_value=par_dict['i_binning'],
                                        tooltip='reduce image size for faster processing'),
@@ -286,7 +288,7 @@ def main():
                                    tooltip='Path and filebase of extracted images, e.g. "tmp/m_"')],
                     [sg.Text('Process folder')],
                     [sg.InputText(outpath, size=(34, 1), key='-OUT-', disabled=False),
-                     sg.Button('Select', key='-SEL_OUT-', tooltip='select process folder for output')],
+                     sg.Button('Select', key='-SEL_OUT-', tooltip='process folder for output')],
                     [sg.Text('Distorted Image Base:'),
                      sg.InputText(mdist, size=(22, 1), key='-M_DIST-')],
                     [sg.Checkbox('Apply distortion', default=True, pad=(10, 0), key='-DIST-')],
@@ -305,8 +307,10 @@ def main():
                      sg.InputText(str(first), size=(24, 1), key='-N_START-')],
                     [sg.Text('Number of distorted images:'),
                      sg.InputText(str(nm), size=(17, 1), key='-N_IMAGE-')], [sg.Text('_' * 34)],
-                    [sg.Button('Apply Dist.', key='-APPLY_DIST-', tooltip='background subtraction and distortion'),
-                     sg.Button('Stop', key='-STOP-', tooltip='finish processing', button_color=('white', 'red')),
+                    [sg.Button('Apply Dist.', key='-APPLY_DIST-',
+                               tooltip='background subtraction and distortion'),
+                     sg.Button('Stop', key='-STOP-', tooltip='finish processing',
+                               button_color=('white', 'red')),
                      sg.Checkbox('Show Images', default=show_images, key='-SHOW_IM-'),
                      sg.Button('Continue', key='-GOTO_REG-', disabled=True,
                                tooltip='go to registration tab for next processing step')],
@@ -517,11 +521,11 @@ def main():
                              sg.Checkbox('Show residual', default=show_residuals,
                                          enable_events=True, key='-RESIDUALS-', pad=p2)]], pad=p0)],
                         [sg.Frame('Elements' + 24 * ' ' + 'factor' + 4 * ' ' + 'fit',
-                                  element_layout, pad=p0)]], pad=p0),
-                         sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0.0, 0.0),
-                                  graph_top_right=(1.0, 1.0), background_color='white', key='graph_analysis',
-                                  enable_events=True, drag_submits=True, float_values=True,
-                                  tooltip='Uncalibrated (raw) spectrum, select calibration lines with mouse draw')]]
+                         element_layout, pad=p0)]], pad=p0), sg.Graph(canvas_size=(canvasx, canvasy),
+                                graph_bottom_left=(0.0, 0.0), graph_top_right=(1.0, 1.0),
+                                background_color='white', key='graph_analysis',
+                                enable_events=True, drag_submits=True, float_values=True,
+                                tooltip='Uncalibrated (raw) spectrum, select calibration lines with mouse draw')]]
 
     # ==============================================================================
     # Tabs and window
@@ -1493,7 +1497,8 @@ def main():
                 plot_title = values['-PLOT_TITLE-']
                 window.disable()
                 mod_file, i_min, i_max, cal_text_file = m_plot.graph_calibrated_spectrum(
-                                        spec_file, line_list, meteor_lines=meteor_lines, lmin=lmin,                                        lmax=lmax, imin=i_min, 
+                                        spec_file, line_list, meteor_lines=meteor_lines,
+                                        lmin=lmin, lmax=lmax, imin=i_min,
                                         imax=i_max, autoscale=autoscale, gridlines=gridlines,
                                         canvas_size=(plot_w, plot_h), plot_title=plot_title,
                                         multi_plot=multi_plot, offset=offset)
@@ -1956,9 +1961,9 @@ def main():
                 ini_file, info = m_fun.my_get_file(window['setup_file'].Get(),
                                      title='Get Configuration File',
                                      file_types=(('Configuration Files', '*.ini'),
-                                     ('ALL Files', '*.*')), default_extension='*.ini')
+                                                 ('ALL Files', '*.*')), default_extension='*.ini')
                 par_text, par_dict, res_dict, fits_dict, opt_dict = m_fun.read_configuration(ini_file,
-                                                        m_fun.par_dict, m_fun.res_dict, m_fun.opt_dict)
+                                                    m_fun.par_dict, m_fun.res_dict, m_fun.opt_dict)
                 fits_dict['VERSION'] = version
                 if par_text == '':
                     sg.PopupError('no valid configuration found, use current configuration',
@@ -1986,7 +1991,8 @@ def main():
                 infile, info = m_fun.my_get_file(infile, title='Load image',
                                                  file_types=(('PNG-File', '*.png'),
                                                              ('Image Files', '*.fit'),
-                                                 ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
+                                                             ('BMP-File', '*.bmp'),
+                                                             ('ALL Files', '*.*')),
                                                  default_extension='*.png')
                 if infile:
                     lfun.load_image(infile, opt_dict)  # creates fit image
