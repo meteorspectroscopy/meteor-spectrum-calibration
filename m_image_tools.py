@@ -129,7 +129,7 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                 all_info = new_file
                 if values['cb_const']:
                     # create uniform flat from actual image for correction of distortion
-                    image = 0*image + 1.0
+                    image = 0 * image + 1.0
                     new_file = 'uniform'
                     all_info = new_file
                 if values['cb_x']:  # mirror horizontally
@@ -201,8 +201,8 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
 
                     def cos_rho(scalxy, x00, y00):
                         # returns cos(rho) = sqrt(1 - (r’/f_pix)**2)
-                        return lambda y, x: np.sqrt(1.0 - (rp_fit(np.sqrt((x - x00)**2
-                                                    + (((y - y00) * scalxy)**2)))/f_pix)**2)
+                        return lambda y, x: np.sqrt(1.0 - (rp_fit(np.sqrt((x - x00)**2 +
+                                                    (((y - y00) * scalxy)**2))) / f_pix)**2)
 
                     # create the image coordinates array:
                     yin, xin = np.mgrid[0:imy, 0:imx]
@@ -226,7 +226,7 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                     try:
                         operand = float(operand_string)  # number
                         constant = True
-                    except:
+                    except Exception:
                         operand = operand_string  # filename
                         constant = False
                         if operand:
@@ -235,7 +235,7 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                                     image2, header2 = m_fun.get_fits_image(operand)
                                 else:
                                     image2 = m_fun.get_png_image(operand)  # get b/w image
-                            except:
+                            except Exception:
                                 sg.PopupError(f'cannot read image {operand}')
                                 image2 = np.array([])
                             operand = m_fun.change_extension(operand, '')

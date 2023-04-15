@@ -268,15 +268,15 @@ def main():
                              [sg.Text('_' * 44)], [sg.Text('Results')],
                              [sg.Multiline('', size=(42, 20), disabled=True,
                                            key='-RESULT-', autoscroll=True)]]
-    sub_frame_element = sg.Frame('Video File', [[sg.Text('File'),
-                                                filename_display_elem, sg.Button('Load_Video',
-                                                file_types=(('AVI-File', '*.avi'), ('ALL Files', '*.*')),
-                                                tooltip='Load video and convert to images'),
-                                                sg.Button('Previous', key='-PREVIOUS-', disabled=True),
-                                                sg.Button('Next', key='-NEXT-', disabled=True),
-                                                sg.Button('Continue', key='-GOTO_DIST-', disabled=True,
-                                                          button_color=bc_disabled, bind_return_key=False,
-                                                          tooltip='Go to next tab for applying distortion')]])
+    sub_frame_element = sg.Frame('Video File',
+                                 [[sg.Text('File'), filename_display_elem, sg.Button('Load_Video',
+                                   file_types=(('AVI-File', '*.avi'), ('ALL Files', '*.*')),
+                                   tooltip='Load video and convert to images'),
+                                   sg.Button('Previous', key='-PREVIOUS-', disabled=True),
+                                   sg.Button('Next', key='-NEXT-', disabled=True),
+                                   sg.Button('Continue', key='-GOTO_DIST-', disabled=True,
+                                             button_color=bc_disabled, bind_return_key=False,
+                                             tooltip='Go to next tab for applying distortion')]])
     video_options_element = sg.Frame('Options', image_options_element)
 
     # Distortion tab--------------------------------------------------------------------
@@ -1345,7 +1345,7 @@ def main():
             window['-LAMBDA-'].update(disabled=True)
             try:
                 (l0, name) = values['-LAMBDA-'].split(' ', 1)
-            except:  # name label missing
+            except Exception:  # name label missing
                 l0 = values['-LAMBDA-']
                 name = ''
             try:
@@ -1656,7 +1656,7 @@ def main():
                                                              canvasx, plot_style=ref_style)
                     idg_resp = m_plot.plot_reference_spectrum('raw_response.txt', l_response, i_response,
                                                               graph_ir, canvasx, plot_style=raw_style)
-            except:
+            except Exception:
                 pass
 
         elif event == '-SAVE_RESPONSE-':
@@ -1955,8 +1955,8 @@ def main():
             if event == 'Load Setup':
                 ini_file, info = m_fun.my_get_file(window['setup_file'].Get(),
                                      title='Get Configuration File',
-                                     file_types=(('Configuration Files', '*.ini'), ('ALL Files', '*.*')),
-                                     default_extension='*.ini')
+                                     file_types=(('Configuration Files', '*.ini'),
+                                     ('ALL Files', '*.*')), default_extension='*.ini')
                 par_text, par_dict, res_dict, fits_dict, opt_dict = m_fun.read_configuration(ini_file,
                                                         m_fun.par_dict, m_fun.res_dict, m_fun.opt_dict)
                 fits_dict['VERSION'] = version
@@ -1984,9 +1984,10 @@ def main():
             if not len(imbw):
                 sg.PopupError(f'Image {infile}.fit not found, load {infile}.png instead:', keep_on_top=True)
                 infile, info = m_fun.my_get_file(infile, title='Load image',
-                                                 file_types=(('PNG-File', '*.png'), ('Image Files', '*.fit'),
-                                                             ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
-                                                            default_extension='*.png')
+                                                 file_types=(('PNG-File', '*.png'),
+                                                             ('Image Files', '*.fit'),
+                                                 ('BMP-File', '*.bmp'), ('ALL Files', '*.*')),
+                                                 default_extension='*.png')
                 if infile:
                     lfun.load_image(infile, opt_dict)  # creates fit image
                     image_data, actual_file, imbw = m_fun.draw_scaled_image(infile, image_elem_calib,
@@ -2143,7 +2144,7 @@ def main():
                         nist.plot_analysis(window, i_residue, lclip, iclip, i_fit,
                                            spec_file_analysis, lmin_a, lmax_a, residual_offset, graph_an, canvasx,
                                            ref_style, sel_ele, zoom_window=zoom_window)
-            except:
+            except Exception:
                 pass
 
         if event in elements:

@@ -1,0 +1,6 @@
+2023-04-15 15:32:16,373 20 49 M_SPEC START +++++++++++++++++++++++++++++++++++++++++++++
+2023-04-15 15:32:16,373 20 52 M_SPEC version 0.9.30a, lfun version 0.8.8, m_fun.version 0.9.30, PySimpleGUI 4.29.0
+2023-04-15 15:32:16,373 20 185 configuration m_set.ini loaded
+2023-04-15 15:32:41,223 20 1874 Load spectrum: ..\..\spyder\out\r_add60cal2.dat
+2023-04-15 15:33:00,661 20 315 spectrum normalized to peak intensity = 5.02553
+                               saved as ..\..\spyder\out\r_add60cal2N.dat

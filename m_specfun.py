@@ -113,7 +113,7 @@ def my_rescale(im, imscale, multichannel=False):
         else:
             channel_axis = 2 if multichannel else None
             ima = tf.rescale(im, imscale, channel_axis=channel_axis)
-    except:
+    except Exception:
         # for older versions of skimage version <= 0.13
         ima = tf.rescale(im, imscale)
     return ima
@@ -208,10 +208,14 @@ def write_configuration(conf, par_dict, res_dict, fits_dict, opt_dict):
     pngdir, opt_dict['png_name'] = path.split(opt_dict['png_name'])
     config = configparser.ConfigParser()
     cfgfile = open(conf, 'w')
-    if 'Lasercal' not in config: config.add_section('Lasercal')
-    if 'Calib' not in config: config.add_section('Calib')
-    if 'Fits' not in config: config.add_section('Fits')
-    if 'Options' not in config: config.add_section('Options')
+    if 'Lasercal' not in config:
+        config.add_section('Lasercal')
+    if 'Calib' not in config:
+        config.add_section('Calib')
+    if 'Fits' not in config:
+        config.add_section('Fits')
+    if 'Options' not in config:
+        config.add_section('Options')
     for key in par_dict.keys():
         k = key[0]
         if k == 'b':
@@ -1342,7 +1346,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             winselect_active = False
             (x, y) = winselect.current_location()
             wlocw = (x, y)
-            if idg: graph.delete_figure(idg)
+            if idg:
+                graph.delete_figure(idg)
             winselect.close()
             window['-SAVE_RAW-'].update(disabled=False, button_color=bc_enabled)
             window['-CAL_R-'].update(disabled=False, button_color=bc_enabled)
@@ -1352,7 +1357,8 @@ def add_rows_apply_tilt_slant(outfile, par_dict, res_dict, fits_dict, opt_dict,
             # save original image with 'st' added
             if event == 'Cancel':
                 write_fits_image(im_ori, outfile + 'st.fit', fits_dict, dist=dist)
-            if idg: graph.delete_figure(idg)
+            if idg:
+                graph.delete_figure(idg)
             winselect_active = False
             winselect.close()
     return event, tilt, slant, wlocw
@@ -1724,11 +1730,13 @@ def add_images(graph_size, contrast=1, average=True):
                                          file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
             if sum_file:
                 write_fits_image(sum_image, sum_file, fits_dict)
-                if idg: window['graph'].delete_figure(idg)
+                if idg:
+                    window['graph'].delete_figure(idg)
                 window.close()
                 return change_extension(sum_file, ''), number_images
         if event in ('Cancel', None):
-            if idg: window['graph'].delete_figure(idg)
+            if idg:
+                window['graph'].delete_figure(idg)
             window.close()
             return '', 0
 
@@ -1847,7 +1855,7 @@ def m_join(p, f=''):
     n_path = path.join(p, f)
     try:
         n_path = path.relpath(n_path)
-    except:
+    except Exception:
         pass
     return path.normpath(n_path)
 
