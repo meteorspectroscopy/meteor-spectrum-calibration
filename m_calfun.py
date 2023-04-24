@@ -17,7 +17,7 @@ from skimage.transform import rescale
 import PySimpleGUI as sg
 import m_specfun as m_fun
 
-version = '0.8.8'
+version = '0.9.0'
 fitsv = ['' for x in range(7)]
 fitskey = ['DATE-OBS', 'OBSERVER', 'VERSION', 'INSTRUME', 'TELESCOP', 'M_STATIO', 'COMMENT']
 fits_dict = dict(list(zip(fitskey, fitsv)))
@@ -56,7 +56,7 @@ def dist(x0s, y0s, scalxy, lam, x00, y00, rot, disp0, a3=0, a5=0):
     r = np.sqrt(xyl[0]**2 + xyl[1]**2)  # polar coordinates
     phi = np.arctan2(xyl[1], xyl[0])    # polar coordinates
     phi += rot                        # apply rotation
-    r = r * (1 + a3 * r**2 + _a5 * r**4)    # transform radial coordinate
+    r = r * (1 + a3*r**2 + _a5*r**4)    # transform radial coordinate
     xyr = np.multiply(r, [np.cos(phi), np.sin(phi) / scalxy])  # return to cartesian coordinates
     return xyr + xy00
 
@@ -138,7 +138,7 @@ def select_lines(xl, yl, wxl, wyl, laml, maxs, maxl):
         while xl[k] > 0 and l0 < sizear[1]:
             x[s, l0] = xl[k]
             y[s, l0] = yl[k]
-            w[s, l0] = (wxl[k] + wyl[k]) / 2
+            w[s, l0] = (wxl[k]+wyl[k]) / 2
             lam[s, l0] = laml[k]
             sl[s, l0] = s + 1
             k += 1
@@ -245,7 +245,8 @@ def lsqf(parv, debug=False, fit_report=False):
     """
     # -------------------------------------------------------------------------------
 
-    [lam0, scalxy, fitxy, imx, imy, f0, pix, grat, rotdeg, binning, comment, infile, outfil, linelist, typesqrt] = parv
+    [lam0, scalxy, fitxy, imx, imy, f0, pix,
+     grat, rotdeg, binning, comment, infile, outfil, linelist, typesqrt] = parv
     xl, yl, wxl, wyl, ll = np.loadtxt(outfil + '.txt', unpack=True)
     # debug = False
     # spectra with zeros for separator
@@ -263,8 +264,8 @@ def lsqf(parv, debug=False, fit_report=False):
     x00 = imx / 2   # image center
     y00 = imy / 2
     # start values for distortion
-    a3 = 0.5 * (pix * binning / f0)**2  # calculate from tang to ortho distortion
-    a5 = 0.37 * (pix * binning / f0)**4
+    a3 = 0.5 * (pix*binning/f0)**2  # calculate from tang to ortho distortion
+    a5 = 0.37 * (pix*binning/f0)**4
     rot = rotdeg * np.pi / 180
     s = 0
     while s < maxs:
@@ -312,7 +313,7 @@ def lsqf(parv, debug=False, fit_report=False):
     fl = 1.0e6 / grat * pix * binning / disp0
     if typesqrt:  # put back correct a5
         a5 = 1.5 * a3 * a3
-        feff = pix * binning / (np.sqrt(2 * a3))
+        feff = pix * binning / (np.sqrt(2*a3))
         print(f'for sqrt fit: feff = {feff:10.2f}')
     for s in range(0, maxs):
         for l0 in range(0, maxl):
@@ -399,7 +400,8 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
     layout_setup = [[sg.Frame('Settings',
                               [[sg.Frame('Lasercal',
                                          [[sg.Text('Lasercal')],
-                                          # [[sg.Text(ki[k], size=(5,1)), sg.Input(kval[k])] for k in range(15)],
+                                          # [[sg.Text(ki[k], size=(5,1)),
+                                          # sg.Input(kval[k])] for k in range(15)],
                                           input_row[0], input_row[1], input_row[2], input_row[3],
                                           input_row[4], input_row[5], input_row[6], input_row[7],
                                           input_row[8], input_row[9], input_row[10],
@@ -442,9 +444,9 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
                 notok, linelist, lines = get_linelist(par_dict['s_linelist'], par_dict['f_lam0'])
                 if notok:
                     winsetup.Hide()
-                    linelist, info = m_fun.my_get_file('', title='Get Linelist',
-                                                       file_types=(('Linelist', '*.txt'), ('ALL Files', '*.*')),
-                                                       default_extension='*.txt')
+                    linelist, info = m_fun.my_get_file(
+                        '', title='Get Linelist', default_extension='*.txt',
+                        file_types=(('Linelist', '*.txt'), ('ALL Files', '*.*')))
                     winsetup.UnHide()
                     if not linelist:
                         linelist = 'l'
@@ -453,10 +455,10 @@ def calib_setup(ini_file, par_dict, res_dict, fits_dict, opt_dict, logtext):
 
             if evsetup in 'SaveC':
                 winsetup.Hide()
-                ini_file, info = m_fun.my_get_file(filename_ini_in_elem.Get(),
-                                                   title='Save Configuration File', save_as=True,
-                                                   file_types=(('Configuration Files', '*.ini'), ('ALL Files', '*.*')),
-                                                   default_extension='*.ini', error_message='no configuration saved: ')
+                ini_file, info = m_fun.my_get_file(
+                    filename_ini_in_elem.Get(), title='Save Configuration File', save_as=True,
+                    file_types=(('Configuration Files', '*.ini'), ('ALL Files', '*.*')),
+                    default_extension='*.ini', error_message='no configuration saved: ')
                 if ini_file:
                     m_fun.write_configuration(ini_file, par_dict, res_dict, fits_dict, opt_dict)
                 else:

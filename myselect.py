@@ -5,6 +5,8 @@ import warnings
 
 import m_specfun as m_fun
 
+version = '0.9.30'
+
 
 def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
     """
@@ -62,7 +64,8 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
     (canvasy, canvasx) = imrescale.shape[:2]
     wlocw = (wloc[0], wloc[1])
     image_elem_sel = [sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0, 0),
-        graph_top_right=(imx, imy), key='-GRAPH-', change_submits=True, drag_submits=True)]
+                               graph_top_right=(imx, imy), key='-GRAPH-',
+                               change_submits=True, drag_submits=True)]
     layout_select = [[sg.Ok(), sg.Cancel(), sg.Button('Skip Line'), sg.Button('Finish'),
                       sg.Button('I'), sg.Button('D'), sg.Text(infile, size=(30, 1)),
                       sg.Text(key='info', size=(40, 1))], image_elem_sel]
@@ -119,8 +122,9 @@ def select_lines(infile, contrast, lines, res_dict, fits_dict, wloc, outfil):
                         # Draw the click just made
                         r = (xyw[2] + xyw[3]) / 4
                         icircle = graph.DrawCircle((xyw[0], xyw[1]), r, line_color=color, line_width=3)
-                        itext = graph.DrawText('  ' + str(lines[i]), location=(xyw[0], xyw[1]), color=color,
-                                font=('Arial', 12), angle=45, text_location=sg.TEXT_LOCATION_BOTTOM_LEFT)
+                        itext = graph.DrawText(
+                            '  ' + str(lines[i]), location=(xyw[0], xyw[1]), color=color,
+                            font=('Arial', 12), angle=45, text_location=sg.TEXT_LOCATION_BOTTOM_LEFT)
                         info.update(value=f"line {lines[i]} at {np.float16(xyw)}")
                         graph.update()
                         i += 1

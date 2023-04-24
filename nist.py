@@ -9,7 +9,7 @@ from lmfit import minimize, Parameters, report_fit
 import m_specfun as m_fun
 import m_plot
 
-version = '0.9.29'
+version = '0.9.30'
 
 
 class Element:
@@ -139,7 +139,8 @@ def get_element(ele, lmin, lmax, t_el, t_pl, t_n2i, threshold, sigma0,
                     i_line_spec[k] = 0.0
                 if len(lresp):
                     if lresp[0] <= lam <= lresp[len(lresp) - 1]:
-                        i_line_spec[k] = i_line_spec[k] * interpolate.interp1d(lresp, iresp, kind='linear')(lam)
+                        i_line_spec[k] = i_line_spec[k] * interpolate.interp1d(
+                            lresp, iresp, kind='linear')(lam)
                     else:
                         i_line_spec[k] = 0.0
             ele.ele_spec = i_line_spec / np.max(i_line_spec)
@@ -153,7 +154,8 @@ def get_element(ele, lmin, lmax, t_el, t_pl, t_n2i, threshold, sigma0,
                 lam = lines[j].wave
                 if len(lresp):
                     if lresp[0] <= lam <= lresp[len(lresp) - 1]:
-                        intens = lines[j].intensity * interpolate.interp1d(lresp, iresp, kind='linear')(lam)
+                        intens = lines[j].intensity * interpolate.interp1d(
+                            lresp, iresp, kind='linear')(lam)
                         l_line.append(lam)
                         i_line.append(intens)
                         agr = lines[j].aki_gk * interpolate.interp1d(lresp, iresp, kind='linear')(lam)
@@ -198,8 +200,8 @@ def element_spectrum(ele, t_el, sigma0, n_gauss, lclip):
             for j in range(2 * n_gauss - 1):
                 if index_start + j < len(lclip) - 1:
                     lam_index = lclip[int(index_start + j)]
-                    i_line_spec[int(index_start) + j] += i_line * np.exp(-((lam_index - lam) / sigma0) ** 2
-                                                                         / 2) / sigma0
+                    i_line_spec[int(index_start) + j] += i_line * np.exp(
+                        -((lam_index-lam) / sigma0)**2 / 2) / sigma0
                     ele.scale = max(i_line_spec)
     ele.ele_spec = np.array(i_line_spec / ele.scale)
 
@@ -350,8 +352,8 @@ def load_response_analysis(resp_file_analysis, graph_an, canvasx, response_style
     if resp_file_analysis:
         lresp, iresp = np.loadtxt(resp_file_analysis, unpack=True, ndmin=2)
         iresp = iresp / max(iresp)
-        idg_resp_a = m_plot.plot_reference_spectrum(resp_file_analysis, lresp, iresp, graph_an, canvasx,
-                                                    plot_style=response_style)
+        idg_resp_a = m_plot.plot_reference_spectrum(
+            resp_file_analysis, lresp, iresp, graph_an, canvasx, plot_style=response_style)
     else:
         lresp = []
         iresp = []
@@ -382,7 +384,7 @@ global t_cont_old, t_el_old
 def errorsum(params, sel_ele, i_clip, lclip, lresp, iresp, sigma0, n_gauss):
     global t_cont_old, t_el_old
     par = []
-    delta_spec = (lclip[-1] - lclip[0]) / (len(lclip) - 1)
+    delta_spec = (lclip[-1]-lclip[0]) / (len(lclip)-1)
     for ele in sel_ele:
         par.append(params[ele.name].value)
     # if params['t_cont'].vary:
@@ -431,7 +433,7 @@ def lsq_fit(iclip, sel_ele, par_ele, lclip, lresp, iresp, sigma0, n_gauss,
     t_el = get_ele('t_el', par_ele).mult
     t_el_old = t_el
     sigma_fit = get_ele('sigma_fit', par_ele).mult
-    delta_spec = (lclip[-1] - lclip[0]) / (len(lclip) - 1)
+    delta_spec = (lclip[-1]-lclip[0]) / (len(lclip)-1)
     args = (sel_ele, iclip, lclip, lresp, iresp, sigma0, n_gauss)
     params = Parameters()
     n_fit = 0
@@ -493,8 +495,9 @@ def calculate_spectrum(sel_ele, par_ele, iclip, result_fit, lclip, lresp, iresp,
     return i_fit, i_residue, rms_error, result_fit
 
 
-def plot_analysis(window, i_residue, lclip, iclip, i_fit, spec_file_analysis, lmin_a, lmax_a, residual_offset,
-                  graph_an, canvasx, ref_style, sel_ele, zoom_window=None):
+def plot_analysis(
+        window, i_residue, lclip, iclip, i_fit, spec_file_analysis, lmin_a, lmax_a, residual_offset,
+        graph_an, canvasx, ref_style, sel_ele, zoom_window=None):
     try:
         graph_an.erase()
         show_res = window['-RESIDUALS-'].Get()
@@ -504,20 +507,23 @@ def plot_analysis(window, i_residue, lclip, iclip, i_fit, spec_file_analysis, lm
         graph_an_ur = (lmax_a, 1.2)
         graph_an.change_coordinates(graph_an_ll, graph_an_ur)
         if zoom_window != []:
-            graph_an.change_coordinates((zoom_window[0, 0], zoom_window[0, 1]), (zoom_window[1, 0], zoom_window[1, 1]))
+            graph_an.change_coordinates(
+                (zoom_window[0, 0], zoom_window[0, 1]), (zoom_window[1, 0], zoom_window[1, 1]))
         if show_res:
             graph_an.DrawLine((lmin_a, -residual_offset), (lmax_a, -residual_offset), 'grey', 1)
             if len(i_residue):
-                m_plot.plot_reference_spectrum('', lclip, i_residue - residual_offset,
-                                               graph_an, canvasx, [], plot_style=('green', 0, 2, -0.15))
-        m_plot.plot_reference_spectrum(spec_file_analysis, lclip, iclip, graph_an, canvasx, [], plot_style=ref_style)
+                m_plot.plot_reference_spectrum('', lclip, i_residue - residual_offset, graph_an,
+                                               canvasx, [], plot_style=('green', 0, 2, -0.15))
+        m_plot.plot_reference_spectrum(
+            spec_file_analysis, lclip, iclip, graph_an, canvasx, [], plot_style=ref_style)
         for ele in sel_ele:
             if ele.ele_spec != []:
                 m_plot.plot_reference_spectrum(ele.name, lclip, ele.gspec, graph_an, canvasx,
                                                plot_style=(ele.color, 0, 1, -0.23 - 0.03 * ele.index))
 
         if len(i_fit) == len(lclip) and show_sum:
-            m_plot.plot_reference_spectrum('', lclip, i_fit, graph_an, canvasx, [], plot_style=('black', 0, 2, -0.1))
+            m_plot.plot_reference_spectrum(
+                '', lclip, i_fit, graph_an, canvasx, [], plot_style=('black', 0, 2, -0.1))
     except Exception as e:
         print(f'error in plot_analysis: {e}')
     return
@@ -532,7 +538,8 @@ def line_strength(all_ele, lclip, lresp, iresp):
                 if ele.range_low <= lclip[k] <= ele.range_high:
                     ele.strength += ele.ele_spec[k] * ele.mult
             if lresp != [] and lresp[0] < 512 and lresp[-1] > 594:
-                resp = interpolate.interp1d(lresp, iresp, kind='linear')((ele.range_low + ele.range_high) / 2)
+                resp = interpolate.interp1d(
+                    lresp, iresp, kind='linear')((ele.range_low+ele.range_high) / 2)
                 ele.strength /= resp
             else:
                 warning = True
