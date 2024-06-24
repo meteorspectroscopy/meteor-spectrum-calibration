@@ -12,7 +12,7 @@ from skimage.filters import gaussian
 
 import m_specfun as m_fun
 
-version = '0.9.27'
+version = '0.9.30'
 
 
 def image_tools(file, opt_dict, fits_dict, res_dict,
@@ -55,8 +55,10 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
     operator_dict = {'': ' ', '+': 'plus', '-': 'minus', '*': 'mult', '/': 'div', 'N': 'N'}
     imrescale = np.flipud(ios.imread(image_file))  # get shape
     (canvasy, canvasx) = imrescale.shape[:2]
-    image_elem_flat = sg.Graph(canvas_size=(canvasx, canvasy), graph_bottom_left=(0, 0),
-        graph_top_right=(graph_size, graph_size), key='-GRAPH-', change_submits=True, drag_submits=True)
+    image_elem_flat = sg.Graph(
+        canvas_size=(canvasx, canvasy), graph_bottom_left=(0, 0),
+        graph_top_right=(graph_size, graph_size), key='-GRAPH-',
+        change_submits=True, drag_submits=True)
     layout = [[sg.Text('Input File'), sg.InputText(file, key='file', size=(33, 1)),
                sg.Button('Load File')],
               [sg.Frame('Flat processing',
@@ -65,7 +67,8 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                          [sg.Checkbox('Mirror y', key='cb_y')],
                          [sg.Checkbox('Invert', key='cb_inv')],
                          [sg.Checkbox('Average', key='cb_ave')],
-                         [sg.Checkbox('Edge_excl.', key='cb_edge'), sg.InputText(edge, key='edge', size=(3, 1))],
+                         [sg.Checkbox('Edge_excl.', key='cb_edge'),
+                          sg.InputText(edge, key='edge', size=(3, 1))],
                          [sg.Checkbox('Gaussian', key='cb_gauss')],
                          [sg.Text('Sigma'), sg.InputText(sigma_gauss, key='sigma_g', size=(3, 1))],
                          [sg.Checkbox('Corr. dist.', key='cb_corr_dist')],
@@ -87,10 +90,11 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
 
         elif event == 'Load File':
             window.Minimize()
-            file, info = m_fun.my_get_file(values['file'], title='Image file',
-                                    file_types=(('FIT Files', '*.fit'), ('PNG Files', '*.png'),
-                                                ('BMP-File', '*.bmp')),
-                                    default_extension='*.fit')
+            file, info = m_fun.my_get_file(
+                values['file'], title='Image file',
+                file_types=(('FIT Files', '*.fit'), ('PNG Files', '*.png'),
+                            ('BMP-File', '*.bmp')),
+                default_extension='*.fit')
             if file.lower().endswith(('.fit', '.png', '.bmp')):
                 window['file'].update(file)
                 # original graph size for loading image in correct position
@@ -129,7 +133,7 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                 all_info = new_file
                 if values['cb_const']:
                     # create uniform flat from actual image for correction of distortion
-                    image = 0*image + 1.0
+                    image = 0 * image + 1.0
                     new_file = 'uniform'
                     all_info = new_file
                 if values['cb_x']:  # mirror horizontally
@@ -176,14 +180,15 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                     [scalxy, x00, y00, rot, disp0, a3, a5] = res_dict.values()
                     bob_doubler = values['cb_bob']
                     fits_dict['M_BOB'] = bob_doubler
-                    if bob_doubler:  # center measured before scaling in y scalxy*2 compensates for half image height
+                    if bob_doubler:
+                        # center measured before scaling in y scalxy*2 compensates for half image height
                         scalxy *= 2.0
                         y00 /= 2.0
                         fits_dict['M_BOB'] = 1
                     # get range of radius function and inverse
                     xmax = max(x00, imx - x00)
                     ymax = max(y00, imy - y00)
-                    r_max = np.sqrt(xmax**2 + (ymax * scalxy) ** 2)
+                    r_max = np.sqrt(xmax**2 + (ymax*scalxy)**2)
                     print(f'r_max, {r_max:6.1f}')
                     # select approximate value for rp_max
                     rp_max = r_max
@@ -201,8 +206,8 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
 
                     def cos_rho(scalxy, x00, y00):
                         # returns cos(rho) = sqrt(1 - (r’/f_pix)**2)
-                        return lambda y, x: np.sqrt(1.0 - (rp_fit(np.sqrt((x - x00)**2
-                                                    + (((y - y00) * scalxy)**2)))/f_pix)**2)
+                        return lambda y, x: np.sqrt(1.0 - (rp_fit(np.sqrt(
+                            (x-x00)**2 + (((y-y00) * scalxy)**2))) / f_pix)**2)
 
                     # create the image coordinates array:
                     yin, xin = np.mgrid[0:imy, 0:imx]
@@ -226,7 +231,7 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                     try:
                         operand = float(operand_string)  # number
                         constant = True
-                    except:
+                    except Exception:
                         operand = operand_string  # filename
                         constant = False
                         if operand:
@@ -235,12 +240,13 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                                     image2, header2 = m_fun.get_fits_image(operand)
                                 else:
                                     image2 = m_fun.get_png_image(operand)  # get b/w image
-                            except:
+                            except Exception:
                                 sg.PopupError(f'cannot read image {operand}')
                                 image2 = np.array([])
                             operand = m_fun.change_extension(operand, '')
                             if (imy, imx) != image2.shape[0:2]:
-                                sg.PopupError(f'wrong image size: {image2.shape[0:2]} != {(imy, imx)}')
+                                sg.PopupError('wrong image size:'
+                                              f' {image2.shape[0:2]} != {(imy, imx)}')
                     try:
                         if operator == 'N':
                             image = image / np.max(image)
@@ -257,7 +263,8 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
                                 image = image * image2
                             elif operator == '/':
                                 image = image / image2
-                        new_file += ('_' + operator_dict[operator] + '_' + str(operand).replace('.', ''))
+                        new_file += (
+                            '_' + operator_dict[operator] + '_' + str(operand).replace('.', ''))
                         all_info += (' ' + operator_dict[operator] + ' ' + str(operand))
 
                     except Exception as e:
@@ -278,19 +285,20 @@ def image_tools(file, opt_dict, fits_dict, res_dict,
 
         elif event == 'Sel. Im.':
             window.Minimize()
-            operand, info = m_fun.my_get_file(values['operand'], title='Image file',
-                                    file_types=(('FIT Files', '*.fit'), ('PNG Files', '*.png'),
-                                                ('BMP-File', '*.bmp')),
-                                    default_extension='*.fit')
+            operand, info = m_fun.my_get_file(
+                values['operand'], title='Image file',
+                file_types=(('FIT Files', '*.fit'), ('PNG Files', '*.png'),
+                            ('BMP-File', '*.bmp')),
+                default_extension='*.fit')
             window['operand'].update(operand)
             window.refresh()
             window.Normal()
 
         elif event == 'Save File':
             window.Minimize()
-            new_file, info = m_fun.my_get_file(new_file, title='Save image',
-                                               save_as=True, default_extension='.fit',
-                                               file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
+            new_file, info = m_fun.my_get_file(
+                new_file, title='Save image', save_as=True, default_extension='.fit',
+                file_types=(('Image Files', '*.fit'), ('ALL Files', '*.*'),))
             if new_file:
                 m_fun.write_fits_image(image, new_file, fits_dict)
             window.Normal()
