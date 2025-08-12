@@ -24,7 +24,7 @@ Result: calibrated meteor spectrum as file wavelength vs. intensity .dat
 Instrument response page:
 <img src = https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/response/doc/response%20calculation.PNG>
 
-For a description of the processing see: https://meteorspectroscopy.org/2020/03/27/meteor-spectra-analysis-new-version/
+For a description of the processing see: https://meteorspectroscopy.wordpress.com/2020/03/27/meteor-spectra-analysis-new-version/
 or the manual in the doc folder.
 
 For a description on the Instrument response (theory and application) see the response manual in the doc folder: 
@@ -32,5 +32,5 @@ https://github.com/meteorspectroscopy/meteor-spectrum-calibration/blob/response/
 
 In this manual is also described the correction of atmospheric extinction to the response function and the meteor spectra.
 
-Further information about the theoretical background of the processing can be found at https://meteorspectroscopy.org/
+Further information about the theoretical background of the processing can be found at https://meteorspectroscopy.wordpress.com/
 
