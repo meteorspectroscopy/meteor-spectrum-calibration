@@ -1815,7 +1815,6 @@ def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=Tr
         im_scale = set_image_scale(cur_width, cur_height, opt_dict)
         #imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), Image.ANTIALIAS)
         imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), Image.Resampling.LANCZOS)
-
     bio = io.BytesIO()
     imag.save(bio, format="PNG")
     if tmp_image:
