@@ -681,7 +681,8 @@ mode : {'constant', 'edge', 'symmetric', 'reflect', 'wrap'}, optional
                     sg.PopupError(f'incorrect flat image, check shape, no distortion applied\n{e}')
                     break
             # calculate distortion
-            if idist != []:
+#            if idist != []:
+            if idist.any():
                 if dist:
                     if abs(yscale - 1.0) > 1.0e-3:  # scale image if yscale <> 1.0
                         idist = my_rescale(idist, (yscale, 1), multichannel=multichannel)
@@ -1545,8 +1546,8 @@ def calibrate_raw_spectrum(rawspec, xcalib, lcalib, deg, c):
     caltext += f'polynom degree: {deg}\npolynom for fit lambda c: {c}\n'
     caltext += f'rms_x = {rms_x:8.4f}\nspectrum {caldat} saved\n'
     # for compatibility save *.dat with linear spacing
-    lmin = np.int(np.min(lam)) + 1
-    lmax = np.int(np.max(lam)) - 1
+    lmin = np.int32(np.min(lam)) + 1
+    lmax = np.int32(np.max(lam)) - 1
     dell = abs(int(5 * c[deg - 1]) / 10)
     # wavelength spacing of interpolated linear array, about double of original
     llin = np.arange(lmin, lmax, dell)
@@ -1813,8 +1814,8 @@ def draw_scaled_image(file, graph, opt_dict, contr=1, tmp_image=False, resize=Tr
     if resize:
         cur_width, cur_height = imag.size  # size of image
         im_scale = set_image_scale(cur_width, cur_height, opt_dict)
-        #imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), Image.ANTIALIAS)
         imag = imag.resize((int(cur_width * im_scale), int(cur_height * im_scale)), Image.Resampling.LANCZOS)
+
     bio = io.BytesIO()
     imag.save(bio, format="PNG")
     if tmp_image:
@@ -2030,8 +2031,8 @@ def extinction_tool(file, elevation_deg=90.0, h=0.0, aod=0.1, resp_flag=False, t
             try:
                 l_ori, i_ori = np.loadtxt(file, unpack=True, ndmin=2)
                 new_file = change_extension(file, '_AM0.dat')
-                if l_ori != []:
-                    elevation_deg = float(values['elev_deg'])
+#                if l_ori != []:
+                if l_ori.any():
                     h = float(values['height'])
                     aod = float(values['AOD'])
                     for k in range(0, len(l_ori)):
